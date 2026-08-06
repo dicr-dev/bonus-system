@@ -26,6 +26,34 @@ services:
       - "6379:6379"
 
 
+  backend:
+    build:
+      context: ./backend
+
+    container_name: bonus_backend
+    restart: unless-stopped
+
+    environment:
+      DATABASE_HOST: postgres
+      DATABASE_PORT: 5432
+      DATABASE_NAME: bonus_system
+      DATABASE_USER: bonus_user
+      DATABASE_PASSWORD: bonus_password
+
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+
+    volumes:
+      - ./backend:/app
+
+    ports:
+      - "8000:8000"
+
+    depends_on:
+      - postgres
+      - redis
+
+
 volumes:
 
   postgres_data:
