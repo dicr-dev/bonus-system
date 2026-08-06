@@ -1,0 +1,63 @@
+[project]
+name = "cr-integration-portal-backend"
+version = "0.1.0"
+description = "Backend for CR Integration Portal"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+
+authors = [
+    { name = "dicr-dev", email = "damir.iskanderov.smart@gmail.com" }
+]
+
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.30.0",
+    "pydantic-settings>=2.0.0",
+    "sqlalchemy>=2.0.0",
+    "alembic>=1.13.0",
+    "psycopg[binary]>=3.2.0",
+    "redis>=5.0.0"
+]
+
+
+[dependency-groups]
+dev = [
+    "ruff>=0.6.0",
+    "mypy>=1.11.0",
+    "pytest>=8.0.0",
+    "pytest-cov>=5.0.0"
+]
+
+
+[build-system]
+requires = ["uv_build>=0.12.2,<0.13.0"]
+build-backend = "uv_build"
+
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+
+[tool.ruff.lint]
+select = [
+    "E",
+    "F",
+    "I",
+    "B",
+    "UP"
+]
+
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+
+
+[tool.pytest.ini_options]
+pythonpath = [
+    "src"
+]
+
+[tool.uv.build-backend]
+module-name = "cr_portal"
