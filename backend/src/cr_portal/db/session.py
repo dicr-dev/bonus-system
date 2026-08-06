@@ -1,16 +1,22 @@
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
+from collections.abc import AsyncGenerator
+
+from sqlalchemy.ext.asyncio import (
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 
 from cr_portal.core.config import settings
 
-engine = create_engine(
+
+engine = create_async_engine(
     settings.DATABASE_URL,
     echo=settings.DEBUG,
-    future=True,
 )
 
-SessionLocal = sessionmaker(
+
+AsyncSessionLocal = async_sessionmaker(
     bind=engine,
-    autoflush=False,
-    autocommit=False,
+    class_=AsyncSession,
+    expire_on_commit=False,
 )
