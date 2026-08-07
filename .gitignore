@@ -1,5 +1,9 @@
-.venv/
 __pycache__/
 *.pyc
-.env
-.vscode/
+*.pyo
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+coverage/
+htmlcov/
