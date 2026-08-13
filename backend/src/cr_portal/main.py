@@ -1,16 +1,37 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+from cr_portal.api.router import router
+from cr_portal.core.config import settings
+from cr_portal.core.logging import configure_logging
+from cr_portal.db.redis import close_redis, init_redis
+from cr_portal.middleware.request_id import RequestIDMiddleware
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    configure_logging()
+    await init_redis()
+    yield
+    await close_redis()
+
 
 app = FastAPI(
-    title="CR Integration Portal",
-    version="0.1.0",
-    description="Internal portal for CARGO.RUN integration department",
+    title=settings.APP_NAME,
+    version=settings.APP_VERSION,
+    debug=settings.DEBUG,
+    lifespan=lifespan,
 )
 
+app.add_middleware(RequestIDMiddleware)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.CORS_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-@app.get("/")
-async def root() -> dict[str, str]:
-    return {
-        "application": "CR Integration Portal",
-        "status": "running",
-        "version": "0.1.0",
-    }
+app.include_router(router)
