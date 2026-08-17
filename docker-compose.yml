@@ -1,59 +1,44 @@
 services:
+  backend:
+    build: ./backend
+    container_name: bonus_backend
+    env_file:
+      - ./backend/.env
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
   postgres:
     image: postgres:16
     container_name: bonus_postgres
-    restart: unless-stopped
-
     environment:
       POSTGRES_DB: bonus_system
       POSTGRES_USER: bonus_user
       POSTGRES_PASSWORD: bonus_password
-
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-
     ports:
       - "5432:5432"
-
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bonus_user -d bonus_system"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   redis:
     image: redis:7-alpine
     container_name: bonus_redis
-    restart: unless-stopped
-
     ports:
       - "6379:6379"
-
-
-  backend:
-    build:
-      context: ./backend
-
-    container_name: bonus_backend
-    restart: unless-stopped
-
-    environment:
-      DATABASE_HOST: postgres
-      DATABASE_PORT: 5432
-      DATABASE_NAME: bonus_system
-      DATABASE_USER: bonus_user
-      DATABASE_PASSWORD: bonus_password
-
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
-
-    volumes:
-      - ./backend:/app
-
-    ports:
-      - "8000:8000"
-
-    depends_on:
-      - postgres
-      - redis
-
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
 volumes:
-
   postgres_data:
