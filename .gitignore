@@ -7,3 +7,8 @@ __pycache__/
 .ruff_cache/
 coverage/
 htmlcov/
+*.py[cod]
+.coverage
+htmlcov/
+.env
+*.log

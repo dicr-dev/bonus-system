@@ -7,20 +7,19 @@ from cr_portal.db.session import async_session_factory
 router = APIRouter()
 
 
-@router.get("/health", summary="Application health")
+@router.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok", "service": "CR Integration Portal"}
 
 
-@router.get("/health/db", summary="Database health")
+@router.get("/health/db")
 async def health_db() -> dict[str, str]:
     async with async_session_factory() as session:
         await session.execute(text("SELECT 1"))
     return {"status": "ok", "database": "postgresql"}
 
 
-@router.get("/health/redis", summary="Redis health")
+@router.get("/health/redis")
 async def health_redis() -> dict[str, str]:
-    redis = get_redis()
-    await redis.ping()
+    await get_redis().ping()
     return {"status": "ok", "redis": "connected"}

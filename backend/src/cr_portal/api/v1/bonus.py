@@ -1,10 +1,11 @@
 from fastapi import APIRouter
 
-from cr_portal.schemas.common import EmptyListResponse
+from cr_portal.schemas.bonus import BonusCalculationRequest, BonusResult
+from cr_portal.services.bonus import calculate_bonus
 
 router = APIRouter()
 
 
-@router.get("/", response_model=EmptyListResponse, summary="List bonus reports")
-async def list_bonus() -> EmptyListResponse:
-    return EmptyListResponse(items=[])
+@router.post("/calculate", response_model=BonusResult)
+async def calculate(request: BonusCalculationRequest) -> BonusResult:
+    return calculate_bonus(request)
