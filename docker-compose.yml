@@ -1,44 +1,83 @@
 services:
+  postgres:
+    image: postgres:16
+    container_name: cr_portal_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks:
+      - cr_portal_network
+
+  redis:
+    image: redis:7-alpine
+    container_name: cr_portal_redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks:
+      - cr_portal_network
+
   backend:
-    build: ./backend
-    container_name: bonus_backend
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: cr_portal_backend
+    restart: unless-stopped
     env_file:
       - ./backend/.env
-    ports:
-      - "8000:8000"
+    environment:
+      DATABASE_URL: >-
+        postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      REDIS_URL: redis://redis:6379/0
+      FRONTEND_URL: https://integration.crmicro.ru
+      ENVIRONMENT: production
+      DEBUG: "false"
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
-
-  postgres:
-    image: postgres:16
-    container_name: bonus_postgres
-    environment:
-      POSTGRES_DB: bonus_system
-      POSTGRES_USER: bonus_user
-      POSTGRES_PASSWORD: bonus_password
     ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U bonus_user -d bonus_system"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
+      - "127.0.0.1:8000:8000"
+    networks:
+      - cr_portal_network
 
-  redis:
-    image: redis:7-alpine
-    container_name: bonus_redis
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: cr_portal_frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
     ports:
-      - "6379:6379"
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
+      - "127.0.0.1:3000:80"
+    networks:
+      - cr_portal_network
 
 volumes:
   postgres_data:
+  redis_data:
+
+networks:
+  cr_portal_network:
+    driver: bridge
