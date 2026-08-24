@@ -1,13 +1,17 @@
 [project]
 name = "cr-integration-portal-backend"
-version = "0.2.0"
-description = "CR Integration Portal / Bonus System backend"
+version = "1.0.0"
+description = "CR Integration Portal backend"
 requires-python = "==3.12.*"
+
 dependencies = [
     "alembic>=1.19,<2",
     "asyncpg>=0.30,<1",
     "fastapi>=0.141,<1",
+    "httpx>=0.28,<1",
+    "itsdangerous>=2.2,<3",
     "pydantic-settings>=2.14,<3",
+    "python-multipart>=0.0.20,<1",
     "redis>=7,<8",
     "sqlalchemy[asyncio]>=2.0.51,<3",
     "uvicorn[standard]>=0.52,<1",
@@ -15,7 +19,6 @@ dependencies = [
 
 [dependency-groups]
 dev = [
-    "httpx>=0.28,<1",
     "mypy>=2.3,<3",
     "pytest>=9.1,<10",
     "pytest-asyncio>=1.4,<2",
@@ -38,11 +41,20 @@ line-length = 100
 target-version = "py312"
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B", "SIM"]
+select = [
+    "E",
+    "F",
+    "I",
+    "UP",
+    "B",
+    "SIM",
+]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-testpaths = ["tests"]
+testpaths = [
+    "tests",
+]
 
 [tool.mypy]
 python_version = "3.12"

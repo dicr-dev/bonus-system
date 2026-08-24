@@ -1,25 +1,12 @@
-# Installation
-
-## Existing local PostgreSQL/Redis
-
-From `backend`:
+# Чистая установка
 
 ```powershell
-Copy-Item .env.example .env
-uv sync
-uv run alembic upgrade head
-uv run uvicorn cr_portal.main:app --reload
-```
-
-## Docker
-
-From repository root:
-
-```powershell
-Copy-Item backend/.env.example backend/.env
+Copy-Item backend\.env.example backend\.env
+docker compose down -v --remove-orphans
 docker compose up -d --build
+docker compose exec backend alembic heads
+docker compose exec backend alembic upgrade head
+docker compose exec backend pytest
 ```
 
-Then:
-
-http://localhost:8000/docs
+`alembic heads` должен показать только `0001_baseline (head)`.

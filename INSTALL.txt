@@ -1,0 +1,32 @@
+BITRIX24 URL
+
+"
+    "Рабочий обработчик:
+"
+    "https://integration.crmicro.ru/api/v1/auth/bitrix/app
+
+"
+    "Первоначальная установка:
+"
+    "https://integration.crmicro.ru/api/v1/auth/bitrix/install
+
+"
+    "1) Replace backend/src/cr_portal/api/v1/auth.py
+"
+    "2) Add to backend/pyproject.toml dependencies:
+"
+    '   "python-multipart>=0.0.20,<1",
+'
+    "3) Run: cd backend ; uv sync
+"
+    "4) Docker: docker compose up -d --build backend
+"
+    "5) .env production:
+"
+    "   FRONTEND_URL=https://integration.crmicro.ru
+"
+    "   BITRIX_BASE_URL=https://bx.crg.im
+"
+    "   BITRIX_REDIRECT_URI=https://integration.crmicro.ru/api/v1/auth/bitrix/callback
+"
+    
