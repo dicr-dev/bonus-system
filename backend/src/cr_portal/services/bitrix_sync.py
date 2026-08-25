@@ -52,15 +52,86 @@ async def get_stage_semantics(client,category_id):
         if sid:result[sid]=sem
     return result
 
-async def sync_users(session,client):
-    response=await client.call("user.get",{"FILTER":{"ACTIVE":True}}); items=response.get("result",[]); repo=UserRepository(session); synced=0
-    for item in items:
-        raw_id=item.get("ID") or item.get("id")
-        if raw_id is None:continue
-        full_name=" ".join(str(v) for v in [item.get("NAME") or item.get("name"),item.get("LAST_NAME") or item.get("lastName")] if v).strip() or f"Bitrix user {raw_id}"
-        await repo.upsert(bitrix_id=int(raw_id),email=item.get("EMAIL") or item.get("email"),full_name=full_name,position=item.get("WORK_POSITION") or item.get("workPosition")); synced+=1
-    await session.commit(); return synced
+async def sync_users(
+    session: AsyncSession,
+    client: BitrixClient,
+) -> int:
+    response = await client.call(
+        "user.get",
+        {},
+    )
 
+    items = response.get("result", [])
+
+    repo = UserRepository(session)
+
+    synced = 0
+
+    for item in items:
+        raw_id = (
+            item.get("ID")
+            or item.get("id")
+        )
+
+        if raw_id is None:
+            continue
+
+        first_name = (
+            item.get("NAME")
+            or item.get("name")
+        )
+
+        last_name = (
+            item.get("LAST_NAME")
+            or item.get("lastName")
+        )
+
+        full_name = " ".join(
+            str(value)
+            for value in [
+                first_name,
+                last_name,
+            ]
+            if value
+        ).strip()
+
+        if not full_name:
+            full_name = f"Bitrix user {raw_id}"
+
+        active_value = (
+            item.get("ACTIVE")
+            if "ACTIVE" in item
+            else item.get("active")
+        )
+
+        is_active = str(
+            active_value
+        ).upper() in {
+            "Y",
+            "TRUE",
+            "1",
+        }
+
+        user = await repo.upsert(
+            bitrix_id=int(raw_id),
+            email=(
+                item.get("EMAIL")
+                or item.get("email")
+            ),
+            full_name=full_name,
+            position=(
+                item.get("WORK_POSITION")
+                or item.get("workPosition")
+            ),
+        )
+
+        user.is_active = is_active
+
+        synced += 1
+
+    await session.commit()
+
+    return synced
 async def sync_deals(session,client,*,updated_after=None,progress_callback=None):
     configured=funnels(); deal_repo=DealRepository(session); user_repo=UserRepository(session); total=0
     select_fields=["id","title","categoryId","stageId","assignedById","opportunity","createdTime","updatedTime","closedTime"]
