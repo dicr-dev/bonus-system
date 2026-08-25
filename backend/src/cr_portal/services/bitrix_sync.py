@@ -213,15 +213,16 @@ async def sync_deals(
         )
 
         items = await client.call_all(
-            "crm.item.list",
-            {
-                "entityTypeId": 2,
-                "select": select_fields,
-                "filter": {
-                    "categoryId": category_id,
-                },
-            },
-        )
+    "crm.item.list",
+    {
+        "entityTypeId": 2,
+        "useOriginalUfNames": "Y",
+        "select": select_fields,
+        "filter": {
+            "categoryId": category_id,
+        },
+    },
+)
 
         for item in items:
             bitrix_id = int(item["id"])
