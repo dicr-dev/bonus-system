@@ -15,9 +15,9 @@ from cr_portal.repositories.users import UserRepository
 STATUS_MAP = {
     "process": "in_progress",
     "success": "success",
+    "failure": "failed",
     "apology": "failed",
 }
-
 
 def funnels() -> dict[int, str]:
     pairs = [
