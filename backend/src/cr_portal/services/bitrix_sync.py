@@ -63,8 +63,8 @@ def _decimal(value: Any) -> Decimal:
     if value in (None, ""):
         return Decimal("0")
 
-    # Bitrix money fields can sometimes contain values like:
-    # "15000|RUB"
+    # Поля типа money Bitrix24 могут приходить:
+    # 15600|RUB
     if isinstance(value, str) and "|" in value:
         value = value.split("|", 1)[0]
 
@@ -78,10 +78,10 @@ def _int(value: Any) -> int:
     if value in (None, ""):
         return 0
 
-    # Employee/custom fields can occasionally arrive as a list.
     if isinstance(value, list):
         if not value:
             return 0
+
         value = value[0]
 
     try:
@@ -105,27 +105,19 @@ def _bool(value: Any) -> bool:
     }
 
 
-def _get(
-    item: dict[str, Any],
-    *names: str,
-    default: Any = None,
-) -> Any:
-    """
-    Get a value using either Universal API camelCase names
-    or original Bitrix field names.
-    """
-
-    for name in names:
-        if name in item:
-            return item[name]
-
-    return default
-
-
 async def get_stage_semantics(
     client: BitrixClient,
     category_id: int,
 ) -> dict[str, str]:
+    """
+    Получает стадии воронки Bitrix24 и их семантику.
+
+    process  -> сделка в работе
+    success  -> успешно закрыта
+    failure  -> неуспешно закрыта
+    apology  -> неуспешно закрыта
+    """
+
     entity_id = (
         "DEAL_STAGE"
         if category_id == 0
@@ -148,21 +140,13 @@ async def get_stage_semantics(
 
     for stage in response.get("result", []):
         stage_id = str(
-            stage.get("STATUS_ID")
-            or stage.get("statusId")
-            or ""
+            stage.get("STATUS_ID") or ""
         )
 
-        extra = (
-            stage.get("EXTRA")
-            or stage.get("extra")
-            or {}
-        )
+        extra = stage.get("EXTRA") or {}
 
         semantics = str(
-            extra.get("SEMANTICS")
-            or extra.get("semantics")
-            or ""
+            extra.get("SEMANTICS") or ""
         ).lower()
 
         if stage_id:
@@ -188,13 +172,12 @@ async def sync_users(
 
     repo = UserRepository(session)
 
-    for item in items:
-        bitrix_id = (
-            item.get("ID")
-            or item.get("id")
-        )
+    synced = 0
 
-        if bitrix_id is None:
+    for item in items:
+        raw_id = item.get("ID") or item.get("id")
+
+        if raw_id is None:
             continue
 
         first_name = (
@@ -217,10 +200,10 @@ async def sync_users(
         ).strip()
 
         if not full_name:
-            full_name = f"Bitrix user {bitrix_id}"
+            full_name = f"Bitrix user {raw_id}"
 
         await repo.upsert(
-            bitrix_id=int(bitrix_id),
+            bitrix_id=int(raw_id),
             email=(
                 item.get("EMAIL")
                 or item.get("email")
@@ -232,9 +215,11 @@ async def sync_users(
             ),
         )
 
+        synced += 1
+
     await session.commit()
 
-    return len(items)
+    return synced
 
 
 async def sync_deals(
@@ -248,19 +233,29 @@ async def sync_deals(
 
     total = 0
 
-    # When useOriginalUfNames=Y is enabled, Bitrix can return
-    # original names such as ID, TITLE, STAGE_ID and UF_CRM_...
+    #
+    # Universal CRM API использует camelCase.
+    #
     select_fields = [
-        "ID",
-        "TITLE",
-        "CATEGORY_ID",
-        "STAGE_ID",
-        "ASSIGNED_BY_ID",
-        "OPPORTUNITY",
-        "DATE_CREATE",
-        "CLOSEDATE",
+        "id",
+        "title",
+        "categoryId",
+        "stageId",
+        "assignedById",
+        "opportunity",
+        "createdTime",
+        "closedTime",
     ]
 
+    #
+    # Эти значения должны быть в backend/.env
+    # тоже в camelCase:
+    #
+    # ufCrm_1727777946781
+    # ufCrm_1709713841602
+    # ufCrm_1779790857212
+    # ufCrm_1642670939
+    #
     custom_fields = [
         settings.BITRIX_FIELD_MONTHLY_AMOUNT,
         settings.BITRIX_FIELD_MACHINES_COUNT,
@@ -276,16 +271,21 @@ async def sync_deals(
             select_fields.append(field_name)
 
     for category_id, funnel in configured_funnels.items():
+        #
+        # Получаем семантику стадий конкретной воронки.
+        #
         stage_semantics = await get_stage_semantics(
             client,
             category_id,
         )
 
+        #
+        # Получаем все сделки воронки.
+        #
         items = await client.call_all(
             "crm.item.list",
             {
                 "entityTypeId": 2,
-                "useOriginalUfNames": "Y",
                 "select": select_fields,
                 "filter": {
                     "categoryId": category_id,
@@ -294,11 +294,7 @@ async def sync_deals(
         )
 
         for item in items:
-            raw_bitrix_id = _get(
-                item,
-                "id",
-                "ID",
-            )
+            raw_bitrix_id = item.get("id")
 
             if raw_bitrix_id is None:
                 continue
@@ -321,14 +317,11 @@ async def sync_deals(
 
                 session.add(deal)
 
+            #
+            # Стадия и статус.
+            #
             stage_id = str(
-                _get(
-                    item,
-                    "stageId",
-                    "STAGE_ID",
-                    default="",
-                )
-                or ""
+                item.get("stageId") or ""
             )
 
             semantics = stage_semantics.get(
@@ -345,30 +338,22 @@ async def sync_deals(
             deal.funnel = funnel
             deal.stage_id = stage_id
 
+            #
+            # Основные поля сделки.
+            #
             deal.title = str(
-                _get(
-                    item,
-                    "title",
-                    "TITLE",
-                    default="",
-                )
-                or ""
+                item.get("title") or ""
             )
 
             deal.opportunity = _decimal(
-                _get(
-                    item,
-                    "opportunity",
-                    "OPPORTUNITY",
-                )
+                item.get("opportunity")
             )
 
+            #
+            # Основной ответственный Bitrix24.
+            #
             assigned_by_id = _int(
-                _get(
-                    item,
-                    "assignedById",
-                    "ASSIGNED_BY_ID",
-                )
+                item.get("assignedById")
             )
 
             deal.bitrix_assigned_by_id = (
@@ -393,9 +378,8 @@ async def sync_deals(
             )
 
             #
-            # Custom Bitrix fields
+            # Сумма оплаты в месяц.
             #
-
             if settings.BITRIX_FIELD_MONTHLY_AMOUNT:
                 deal.monthly_amount = _decimal(
                     item.get(
@@ -403,6 +387,9 @@ async def sync_deals(
                     )
                 )
 
+            #
+            # Количество машин.
+            #
             if settings.BITRIX_FIELD_MACHINES_COUNT:
                 deal.machines_count = _int(
                     item.get(
@@ -410,6 +397,9 @@ async def sync_deals(
                     )
                 )
 
+            #
+            # Интеграция с 1С.
+            #
             if settings.BITRIX_FIELD_INTEGRATION_1C:
                 deal.integration_1c = _bool(
                     item.get(
@@ -417,6 +407,9 @@ async def sync_deals(
                     )
                 )
 
+            #
+            # Ответственный за внедрение.
+            #
             if (
                 settings
                 .BITRIX_FIELD_IMPLEMENTATION_RESPONSIBLE_ID
@@ -442,22 +435,20 @@ async def sync_deals(
                             implementation_user.id
                         )
 
+            #
+            # Даты.
+            #
             deal.created_time = _parse_datetime(
-                _get(
-                    item,
-                    "createdTime",
-                    "DATE_CREATE",
-                )
+                item.get("createdTime")
             )
 
             deal.closed_time = _parse_datetime(
-                _get(
-                    item,
-                    "closedTime",
-                    "CLOSEDATE",
-                )
+                item.get("closedTime")
             )
 
+            #
+            # Сохраняем исходный ответ Bitrix24.
+            #
             deal.raw_json = json.dumps(
                 item,
                 ensure_ascii=False,
