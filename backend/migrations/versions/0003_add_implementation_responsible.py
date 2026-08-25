@@ -5,7 +5,7 @@ Revises: 0002_add_bitrix_installation
 """
 import sqlalchemy as sa
 from alembic import op
-revision = "0003_add_implementation_responsible"
+revision = "0003_impl_resp"
 down_revision = "0002_add_bitrix_installation"
 branch_labels = None
 depends_on = None
