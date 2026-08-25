@@ -19,6 +19,7 @@ STATUS_MAP = {
     "apology": "failed",
 }
 
+
 def funnels() -> dict[int, str]:
     pairs = [
         (
@@ -54,7 +55,7 @@ def _parse_datetime(value: Any) -> datetime | None:
         return datetime.fromisoformat(
             str(value).replace("Z", "+00:00")
         )
-    except ValueError:
+    except (TypeError, ValueError):
         return None
 
 
@@ -62,9 +63,14 @@ def _decimal(value: Any) -> Decimal:
     if value in (None, ""):
         return Decimal("0")
 
+    # Bitrix money fields can sometimes contain values like:
+    # "15000|RUB"
+    if isinstance(value, str) and "|" in value:
+        value = value.split("|", 1)[0]
+
     try:
         return Decimal(str(value))
-    except Exception:
+    except (TypeError, ValueError):
         return Decimal("0")
 
 
@@ -72,9 +78,15 @@ def _int(value: Any) -> int:
     if value in (None, ""):
         return 0
 
+    # Employee/custom fields can occasionally arrive as a list.
+    if isinstance(value, list):
+        if not value:
+            return 0
+        value = value[0]
+
     try:
         return int(float(value))
-    except Exception:
+    except (TypeError, ValueError):
         return 0
 
 
@@ -91,6 +103,23 @@ def _bool(value: Any) -> bool:
         "TRUE",
         "1",
     }
+
+
+def _get(
+    item: dict[str, Any],
+    *names: str,
+    default: Any = None,
+) -> Any:
+    """
+    Get a value using either Universal API camelCase names
+    or original Bitrix field names.
+    """
+
+    for name in names:
+        if name in item:
+            return item[name]
+
+    return default
 
 
 async def get_stage_semantics(
@@ -118,11 +147,22 @@ async def get_stage_semantics(
     result: dict[str, str] = {}
 
     for stage in response.get("result", []):
-        stage_id = str(stage.get("STATUS_ID") or "")
+        stage_id = str(
+            stage.get("STATUS_ID")
+            or stage.get("statusId")
+            or ""
+        )
 
-        extra = stage.get("EXTRA") or {}
+        extra = (
+            stage.get("EXTRA")
+            or stage.get("extra")
+            or {}
+        )
+
         semantics = str(
-            extra.get("SEMANTICS") or ""
+            extra.get("SEMANTICS")
+            or extra.get("semantics")
+            or ""
         ).lower()
 
         if stage_id:
@@ -149,23 +189,47 @@ async def sync_users(
     repo = UserRepository(session)
 
     for item in items:
+        bitrix_id = (
+            item.get("ID")
+            or item.get("id")
+        )
+
+        if bitrix_id is None:
+            continue
+
+        first_name = (
+            item.get("NAME")
+            or item.get("name")
+        )
+
+        last_name = (
+            item.get("LAST_NAME")
+            or item.get("lastName")
+        )
+
         full_name = " ".join(
-            value
+            str(value)
             for value in [
-                item.get("NAME"),
-                item.get("LAST_NAME"),
+                first_name,
+                last_name,
             ]
             if value
         ).strip()
 
         if not full_name:
-            full_name = f"Bitrix user {item['ID']}"
+            full_name = f"Bitrix user {bitrix_id}"
 
         await repo.upsert(
-            bitrix_id=int(item["ID"]),
-            email=item.get("EMAIL"),
+            bitrix_id=int(bitrix_id),
+            email=(
+                item.get("EMAIL")
+                or item.get("email")
+            ),
             full_name=full_name,
-            position=item.get("WORK_POSITION"),
+            position=(
+                item.get("WORK_POSITION")
+                or item.get("workPosition")
+            ),
         )
 
     await session.commit()
@@ -184,15 +248,17 @@ async def sync_deals(
 
     total = 0
 
+    # When useOriginalUfNames=Y is enabled, Bitrix can return
+    # original names such as ID, TITLE, STAGE_ID and UF_CRM_...
     select_fields = [
-        "id",
-        "title",
-        "categoryId",
-        "stageId",
-        "assignedById",
-        "opportunity",
-        "createdTime",
-        "closedTime",
+        "ID",
+        "TITLE",
+        "CATEGORY_ID",
+        "STAGE_ID",
+        "ASSIGNED_BY_ID",
+        "OPPORTUNITY",
+        "DATE_CREATE",
+        "CLOSEDATE",
     ]
 
     custom_fields = [
@@ -203,7 +269,10 @@ async def sync_deals(
     ]
 
     for field_name in custom_fields:
-        if field_name:
+        if (
+            field_name
+            and field_name not in select_fields
+        ):
             select_fields.append(field_name)
 
     for category_id, funnel in configured_funnels.items():
@@ -213,19 +282,28 @@ async def sync_deals(
         )
 
         items = await client.call_all(
-    "crm.item.list",
-    {
-        "entityTypeId": 2,
-        "useOriginalUfNames": "Y",
-        "select": select_fields,
-        "filter": {
-            "categoryId": category_id,
-        },
-    },
-)
+            "crm.item.list",
+            {
+                "entityTypeId": 2,
+                "useOriginalUfNames": "Y",
+                "select": select_fields,
+                "filter": {
+                    "categoryId": category_id,
+                },
+            },
+        )
 
         for item in items:
-            bitrix_id = int(item["id"])
+            raw_bitrix_id = _get(
+                item,
+                "id",
+                "ID",
+            )
+
+            if raw_bitrix_id is None:
+                continue
+
+            bitrix_id = int(raw_bitrix_id)
 
             deal = await deal_repo.by_bitrix_id(
                 bitrix_id
@@ -244,7 +322,13 @@ async def sync_deals(
                 session.add(deal)
 
             stage_id = str(
-                item.get("stageId") or ""
+                _get(
+                    item,
+                    "stageId",
+                    "STAGE_ID",
+                    default="",
+                )
+                or ""
             )
 
             semantics = stage_semantics.get(
@@ -260,20 +344,37 @@ async def sync_deals(
             deal.category_id = category_id
             deal.funnel = funnel
             deal.stage_id = stage_id
+
             deal.title = str(
-                item.get("title") or ""
+                _get(
+                    item,
+                    "title",
+                    "TITLE",
+                    default="",
+                )
+                or ""
             )
 
             deal.opportunity = _decimal(
-                item.get("opportunity")
+                _get(
+                    item,
+                    "opportunity",
+                    "OPPORTUNITY",
+                )
             )
 
             assigned_by_id = _int(
-                item.get("assignedById")
+                _get(
+                    item,
+                    "assignedById",
+                    "ASSIGNED_BY_ID",
+                )
             )
 
             deal.bitrix_assigned_by_id = (
-                assigned_by_id or None
+                assigned_by_id
+                if assigned_by_id
+                else None
             )
 
             assigned_user = None
@@ -290,6 +391,10 @@ async def sync_deals(
                 if assigned_user
                 else None
             )
+
+            #
+            # Custom Bitrix fields
+            #
 
             if settings.BITRIX_FIELD_MONTHLY_AMOUNT:
                 deal.monthly_amount = _decimal(
@@ -316,11 +421,13 @@ async def sync_deals(
                 settings
                 .BITRIX_FIELD_IMPLEMENTATION_RESPONSIBLE_ID
             ):
+                implementation_value = item.get(
+                    settings
+                    .BITRIX_FIELD_IMPLEMENTATION_RESPONSIBLE_ID
+                )
+
                 implementation_bitrix_id = _int(
-                    item.get(
-                        settings
-                        .BITRIX_FIELD_IMPLEMENTATION_RESPONSIBLE_ID
-                    )
+                    implementation_value
                 )
 
                 if implementation_bitrix_id:
@@ -336,11 +443,19 @@ async def sync_deals(
                         )
 
             deal.created_time = _parse_datetime(
-                item.get("createdTime")
+                _get(
+                    item,
+                    "createdTime",
+                    "DATE_CREATE",
+                )
             )
 
             deal.closed_time = _parse_datetime(
-                item.get("closedTime")
+                _get(
+                    item,
+                    "closedTime",
+                    "CLOSEDATE",
+                )
             )
 
             deal.raw_json = json.dumps(
