@@ -97,11 +97,20 @@ def _bool(value: Any) -> bool:
     if value in (None, ""):
         return False
 
-    return str(value).strip().upper() in {
+    value_str = str(value).strip()
+
+    if value_str == "199":
+        return True
+
+    if value_str == "200":
+        return False
+
+    return value_str.upper() in {
         "Y",
         "YES",
         "TRUE",
         "1",
+        "ДА",
     }
 
 
