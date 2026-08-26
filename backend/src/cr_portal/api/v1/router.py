@@ -1,3 +1,16 @@
 from fastapi import APIRouter
-from cr_portal.api.v1 import auth,bonus,deals,distribution,health,reports,sync,users
-router=APIRouter(); router.include_router(health.router,tags=['Health']); router.include_router(auth.router,prefix='/auth',tags=['Auth']); router.include_router(users.router,prefix='/users',tags=['Users']); router.include_router(deals.router,prefix='/deals',tags=['Deals']); router.include_router(reports.router,prefix='/reports',tags=['Reports']); router.include_router(bonus.router,prefix='/bonus',tags=['Bonus']); router.include_router(sync.router,prefix='/sync',tags=['Sync']); router.include_router(distribution.router,prefix='/distribution',tags=['Distribution'])
+from cr_portal.api.v1 import auth,bonus,calculations,deals,diagnostics,distribution,export,health,kpi,reports,settings,sync,users
+router=APIRouter()
+router.include_router(health.router,tags=["Health"])
+router.include_router(auth.router,prefix="/auth",tags=["Auth"])
+router.include_router(users.router,prefix="/users",tags=["Users"])
+router.include_router(deals.router,prefix="/deals",tags=["Deals"])
+router.include_router(reports.router,prefix="/reports",tags=["Reports"])
+router.include_router(bonus.router,prefix="/bonus",tags=["Bonus legacy"])
+router.include_router(calculations.router,prefix="/calculations",tags=["Calculations"])
+router.include_router(kpi.router,prefix="/kpi",tags=["KPI"])
+router.include_router(settings.router,prefix="/settings",tags=["Settings"])
+router.include_router(diagnostics.router,prefix="/diagnostics",tags=["Diagnostics"])
+router.include_router(export.router,prefix="/reports/export",tags=["Export"])
+router.include_router(sync.router,prefix="/sync",tags=["Sync"])
+router.include_router(distribution.router,prefix="/distribution",tags=["Distribution"])

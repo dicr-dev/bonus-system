@@ -1,596 +1,146 @@
 import {
-  CheckCircleOutlined,
-  CloudSyncOutlined,
-  DashboardOutlined,
-  DatabaseOutlined,
-  DollarOutlined,
-  ReloadOutlined,
-  TeamOutlined,
-  TruckOutlined,
+  CheckCircleOutlined,CloudSyncOutlined,DashboardOutlined,DatabaseOutlined,DownloadOutlined,
+  ExclamationCircleOutlined,FundOutlined,ReloadOutlined,SettingOutlined,TrophyOutlined
 } from '@ant-design/icons'
 import {
-  Alert,
-  Button,
-  Card,
-  Col,
-  Layout,
-  Menu,
-  Progress,
-  Row,
-  Space,
-  Statistic,
-  Table,
-  Tag,
-  Typography,
-  message,
+  Alert,Button,Card,Col,Descriptions,Drawer,Input,InputNumber,Layout,Menu,Progress,Row,Space,
+  Statistic,Table,Tag,Typography,message
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
+import { useMutation,useQuery,useQueryClient } from '@tanstack/react-query'
+import { useEffect,useMemo,useState } from 'react'
 import {
-  useMutation,
-  useQuery,
-  useQueryClient,
-} from '@tanstack/react-query'
-import { useEffect, useMemo, useState } from 'react'
-
-import {
-  getDashboard,
-  getDepartmentDeals,
-  getSyncJob,
-  getSyncStatus,
-  startDealsSync,
+  excelUrl,getCalculation,getCalculations,getDashboard,getDepartmentDeals,getDiagnostics,getKPI,getRules,
+  getSyncJob,getSyncStatus,runCalculation,runDiagnostics,savePlan,startDealsSync
 } from './api'
 import type {
-  Deal,
-  FunnelSummary,
-  ResponsibleSummary,
-  SyncJob,
+  Calculation,CalculationDetail,Deal,FunnelSummary,Issue,KPIDeal,KPIEmployee,ResponsibleSummary,RuleVersion,SyncJob
 } from './types'
 
-const { Header, Content, Sider } = Layout
-const { Title, Text } = Typography
+const {Header,Content,Sider}=Layout
+const {Title,Text}=Typography
+const FUNNELS:Record<string,string>={tech_integration:'Тех интеграция',implementation:'Внедрение',cr_start:'CR Start',support:'Сопровождение'}
+const BONUS:Record<string,string>={tech_integration:'Тех интеграция',implementation:'Внедрение',cr_start_implementation:'CR Start как внедрение',cr_start_fixed:'CR Start фикс.',sale:'Продажа',support_hours:'Сопровождение по часам',current_client:'Текущий клиент',training:'Обучение'}
+const funnel=(v:string)=>FUNNELS[v]??v
+const rub=(v:string|number)=>new Intl.NumberFormat('ru-RU',{style:'currency',currency:'RUB',maximumFractionDigits:0}).format(Number(v||0))
+const num=(v:string|number)=>new Intl.NumberFormat('ru-RU').format(Number(v||0))
+const monthNow=()=>{const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`}
+const Month=({value,onChange}:{value:string;onChange:(v:string)=>void})=><Input type="month" value={value} onChange={e=>onChange(e.target.value)} style={{width:180}}/>
 
-const FUNNEL_NAMES: Record<string, string> = {
-  tech_integration: 'Тех интеграция',
-  implementation: 'Внедрение',
-  cr_start: 'CR Start',
-  support: 'Сопровождение',
+function Dashboard(){
+ const q=useQuery({queryKey:['dashboard'],queryFn:getDashboard,refetchInterval:60000})
+ if(q.isLoading)return <Card loading/>
+ if(!q.data)return <Alert type="error" message="Не удалось загрузить дашборд"/>
+ const fcols:ColumnsType<FunnelSummary>=[
+  {title:'Воронка',dataIndex:'funnel',render:funnel},{title:'В работе',dataIndex:'active_deals',align:'right'},
+  {title:'Оплата в месяц',dataIndex:'monthly_amount',align:'right',render:rub},{title:'Машин',dataIndex:'machines_count',align:'right',render:num},
+  {title:'Интеграция 1С',dataIndex:'integration_1c_deals',align:'right'}
+ ]
+ const rcols:ColumnsType<ResponsibleSummary>=[
+  {title:'Ответственный за внедрение',dataIndex:'full_name'},{title:'Сделок',dataIndex:'active_deals',align:'right'},
+  {title:'Оплата',dataIndex:'monthly_amount',align:'right',render:rub},{title:'Машин',dataIndex:'machines_count',align:'right',render:num}
+ ]
+ const d=q.data
+ return <Space direction="vertical" size={24} style={{width:'100%'}}>
+  <Title level={2}>Главная</Title>
+  <Row gutter={[16,16]}>
+   <Col xs={24} md={6}><Card><Statistic title="Сделок в работе" value={d.active_deals}/></Card></Col>
+   <Col xs={24} md={6}><Card><Statistic title="Оплата в месяц" value={Number(d.monthly_amount)} formatter={v=>rub(Number(v))}/></Card></Col>
+   <Col xs={24} md={6}><Card><Statistic title="Машин" value={d.machines_count}/></Card></Col>
+   <Col xs={24} md={6}><Card><Statistic title="Интеграций 1С" value={d.integration_1c_deals}/></Card></Col>
+  </Row>
+  <Card title="Воронки"><Table rowKey="funnel" columns={fcols} dataSource={d.funnels} pagination={false}/></Card>
+  <Card title="Ответственные за внедрение"><Table rowKey="user_id" columns={rcols} dataSource={d.responsibles} pagination={{pageSize:20}}/></Card>
+ </Space>
 }
 
-function funnelName(value: string): string {
-  return FUNNEL_NAMES[value] ?? value
+function KPI(){
+ const [month,setMonth]=useState(monthNow());const [plan,setPlan]=useState<number|null>(null);const qc=useQueryClient()
+ const q=useQuery({queryKey:['kpi',month],queryFn:()=>getKPI(month)})
+ useEffect(()=>{if(q.data)setPlan(Number(q.data.plan))},[q.data])
+ const save=useMutation({mutationFn:()=>savePlan(month,plan??0),onSuccess:()=>{message.success('План сохранен');void qc.invalidateQueries({queryKey:['kpi',month]})}})
+ const ec:ColumnsType<KPIEmployee>=[{title:'Сотрудник',dataIndex:'employee_name'},{title:'Внедрение',dataIndex:'implementation'},{title:'CR Start',dataIndex:'cr_start'},{title:'Факт',dataIndex:'fact'}]
+ const dc:ColumnsType<KPIDeal>=[{title:'ID',dataIndex:'bitrix_id'},{title:'Сделка',dataIndex:'title'},{title:'Воронка',dataIndex:'funnel',render:funnel},{title:'Сотрудник',dataIndex:'employee_name',render:v=>v??'Без ответственного'}]
+ if(!q.data)return <Card loading/>
+ const d=q.data
+ return <Space direction="vertical" size={24} style={{width:'100%'}}>
+  <Row justify="space-between"><Title level={2}>KPI отдела</Title><Month value={month} onChange={setMonth}/></Row>
+  <Row gutter={[12,12]}>
+   {[
+    ['План',d.plan],['Факт',d.fact],['Выполнение, %',d.completion_percent],['Осталось',d.remaining],['Потенциально',d.potential],['Прогноз',d.forecast]
+   ].map(([t,v])=><Col xs={12} md={4} key={String(t)}><Card><Statistic title={String(t)} value={Number(v)}/></Card></Col>)}
+  </Row>
+  <Card title="План месяца"><Space><InputNumber min={0} value={plan} onChange={v=>setPlan(v)}/><Button type="primary" loading={save.isPending} onClick={()=>save.mutate()}>Сохранить</Button></Space></Card>
+  <Card title={`Факт = Внедрение ${d.implementation_fact} + CR Start ${d.cr_start_fact}`}><Table rowKey={r=>r.employee_id??r.employee_name} columns={ec} dataSource={d.employees} pagination={false}/></Card>
+  <Card title="Сделки результата"><Table rowKey="deal_id" columns={dc} dataSource={d.result_deals} pagination={{pageSize:20}}/></Card>
+  <Card title="Потенциальные сделки"><Table rowKey="deal_id" columns={dc} dataSource={d.potential_deals} pagination={{pageSize:20}}/></Card>
+ </Space>
 }
 
-function formatMoney(value: string | number): string {
-  const number = Number(value || 0)
-  return new Intl.NumberFormat('ru-RU', {
-    style: 'currency',
-    currency: 'RUB',
-    maximumFractionDigits: 0,
-  }).format(number)
+function Bonuses(){
+ const [month,setMonth]=useState(monthNow());const [id,setId]=useState<string|null>(null);const qc=useQueryClient()
+ const q=useQuery({queryKey:['calc',month],queryFn:()=>getCalculations(month)})
+ const detail=useQuery({queryKey:['calc-detail',id],queryFn:()=>getCalculation(id!),enabled:Boolean(id)})
+ const run=useMutation({mutationFn:()=>runCalculation(month),onSuccess:()=>{message.success('Новая версия расчета создана');void qc.invalidateQueries({queryKey:['calc',month]})}})
+ const cols:ColumnsType<Calculation>=[
+  {title:'Сотрудник ID',dataIndex:'employee_id',ellipsis:true},{title:'Версия',dataIndex:'version'},
+  {title:'Внедрение база',dataIndex:'implementation_total',render:rub},{title:'Тех интеграция база',dataIndex:'tech_integration_total',render:rub},
+  {title:'Часы',dataIndex:'support_hours'},{title:'Итого',dataIndex:'total_bonus',render:v=><b>{rub(v)}</b>},
+  {title:'',render:(_,r)=><Button onClick={()=>setId(r.id)}>Детализация</Button>}
+ ]
+ const icols=[{title:'Тип',dataIndex:'bonus_type',render:(v:string)=>BONUS[v]??v},{title:'Источник',dataIndex:'source_external_id'},{title:'База',dataIndex:'base_amount',render:rub},{title:'Ставка',dataIndex:'rate'},{title:'До 2.5',dataIndex:'amount_before_divider',render:rub},{title:'2.5',dataIndex:'divider_applied',render:(v:boolean)=>v?'Да':'Нет'},{title:'Итого',dataIndex:'amount_final',render:rub}]
+ return <Space direction="vertical" size={24} style={{width:'100%'}}>
+  <Row justify="space-between"><Title level={2}>Расчет премий</Title><Space><Month value={month} onChange={setMonth}/><Button type="primary" loading={run.isPending} onClick={()=>run.mutate()}>Пересчитать</Button><Button icon={<DownloadOutlined/>} href={excelUrl(month)}>Excel</Button></Space></Row>
+  <Alert type="info" showIcon message="Каждый перерасчет создает новую версию; история не перезаписывается."/>
+  <Card><Table rowKey="id" columns={cols} dataSource={q.data??[]} loading={q.isLoading} scroll={{x:1100}}/></Card>
+  <Drawer open={Boolean(id)} onClose={()=>setId(null)} width={1000} title={detail.data?.employee_name??'Детализация'}>
+   {detail.data&&<><Descriptions bordered size="small"><Descriptions.Item label="Итого">{rub(detail.data.total_bonus)}</Descriptions.Item><Descriptions.Item label="Версия">{detail.data.version}</Descriptions.Item><Descriptions.Item label="Делимая часть">{rub(detail.data.subtotal_dividable)}</Descriptions.Item></Descriptions><Table style={{marginTop:20}} rowKey="id" columns={icols} dataSource={detail.data.items} pagination={false}/></>}
+  </Drawer>
+ </Space>
 }
 
-function formatNumber(value: number): string {
-  return new Intl.NumberFormat('ru-RU').format(value)
+function Deals(){
+ const q=useQuery({queryKey:['deals'],queryFn:getDepartmentDeals})
+ const cols:ColumnsType<Deal>=[{title:'ID',dataIndex:'bitrix_id'},{title:'Сделка',dataIndex:'title'},{title:'Воронка',dataIndex:'funnel',render:funnel},{title:'Оплата/мес.',dataIndex:'monthly_amount',render:rub},{title:'Машин',dataIndex:'machines_count'},{title:'1С',dataIndex:'integration_1c',render:v=>v?<Tag color="green">Да</Tag>:<Tag>Нет</Tag>}]
+ return <Space direction="vertical" size={24} style={{width:'100%'}}><Title level={2}>Сделки</Title><Card><Table rowKey="id" columns={cols} dataSource={q.data??[]} loading={q.isLoading} pagination={{pageSize:25}}/></Card></Space>
 }
 
-function formatDate(value: string | null | undefined): string {
-  if (!value) return '—'
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-
-  return new Intl.DateTimeFormat('ru-RU', {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  }).format(date)
+function Diagnostics(){
+ const [month,setMonth]=useState(monthNow());const qc=useQueryClient()
+ const q=useQuery({queryKey:['issues',month],queryFn:()=>getDiagnostics(month)})
+ const run=useMutation({mutationFn:()=>runDiagnostics(month),onSuccess:()=>void qc.invalidateQueries({queryKey:['issues',month]})})
+ const cols:ColumnsType<Issue>=[{title:'Уровень',dataIndex:'severity',render:v=><Tag color={v==='critical'?'red':'orange'}>{v}</Tag>},{title:'Код',dataIndex:'code'},{title:'Причина',dataIndex:'message'},{title:'Сделка',dataIndex:'deal_id',ellipsis:true}]
+ return <Space direction="vertical" size={24} style={{width:'100%'}}><Row justify="space-between"><Title level={2}>Диагностика</Title><Space><Month value={month} onChange={setMonth}/><Button icon={<ReloadOutlined/>} onClick={()=>run.mutate()}>Проверить</Button></Space></Row><Card><Table rowKey="id" columns={cols} dataSource={q.data??[]} pagination={{pageSize:30}}/></Card></Space>
 }
 
-function DashboardPage() {
-  const dashboard = useQuery({
-    queryKey: ['dashboard'],
-    queryFn: getDashboard,
-    refetchInterval: 60000,
-  })
-
-  if (dashboard.isLoading) {
-    return <Card loading />
-  }
-
-  if (dashboard.isError || !dashboard.data) {
-    return (
-      <Alert
-        type="error"
-        showIcon
-        message="Не удалось загрузить дашборд"
-        description="Проверьте доступность backend API."
-      />
-    )
-  }
-
-  const data = dashboard.data
-
-  const funnelColumns: ColumnsType<FunnelSummary> = [
-    {
-      title: 'Воронка',
-      dataIndex: 'funnel',
-      render: (value: string) => <strong>{funnelName(value)}</strong>,
-    },
-    {
-      title: 'В работе',
-      dataIndex: 'active_deals',
-      align: 'right',
-      render: formatNumber,
-      sorter: (a, b) => a.active_deals - b.active_deals,
-    },
-    {
-      title: 'Оплата в месяц',
-      dataIndex: 'monthly_amount',
-      align: 'right',
-      render: formatMoney,
-      sorter: (a, b) => Number(a.monthly_amount) - Number(b.monthly_amount),
-    },
-    {
-      title: 'Машин',
-      dataIndex: 'machines_count',
-      align: 'right',
-      render: formatNumber,
-      sorter: (a, b) => a.machines_count - b.machines_count,
-    },
-    {
-      title: 'Интеграция 1С',
-      dataIndex: 'integration_1c_deals',
-      align: 'right',
-      render: (value: number) => (
-        <Tag color="green">{formatNumber(value)}</Tag>
-      ),
-    },
-  ]
-
-  const responsibleColumns: ColumnsType<ResponsibleSummary> = [
-    {
-      title: 'Ответственный',
-      dataIndex: 'full_name',
-      render: (value: string) => <strong>{value}</strong>,
-    },
-    {
-      title: 'Сделок в работе',
-      dataIndex: 'active_deals',
-      align: 'right',
-      sorter: (a, b) => a.active_deals - b.active_deals,
-    },
-    {
-      title: 'Оплата в месяц',
-      dataIndex: 'monthly_amount',
-      align: 'right',
-      render: formatMoney,
-      sorter: (a, b) => Number(a.monthly_amount) - Number(b.monthly_amount),
-    },
-    {
-      title: 'Машин',
-      dataIndex: 'machines_count',
-      align: 'right',
-      render: formatNumber,
-      sorter: (a, b) => a.machines_count - b.machines_count,
-    },
-  ]
-
-  return (
-    <Space direction="vertical" size={24} style={{ width: '100%' }}>
-      <div>
-        <Title level={2} style={{ marginBottom: 4 }}>Дашборд</Title>
-        <Text type="secondary">Текущие показатели по активным сделкам Bitrix24</Text>
-      </div>
-
-      <Row gutter={[16, 16]}>
-        <Col xs={24} sm={12} xl={6}>
-          <Card className="metric-card">
-            <Statistic
-              title="Сделок в работе"
-              value={data.active_deals}
-              prefix={<DatabaseOutlined />}
-            />
-          </Card>
-        </Col>
-
-        <Col xs={24} sm={12} xl={6}>
-          <Card className="metric-card">
-            <Statistic
-              title="Оплата в месяц"
-              value={Number(data.monthly_amount)}
-              prefix={<DollarOutlined />}
-              formatter={(value) => formatMoney(Number(value))}
-            />
-          </Card>
-        </Col>
-
-        <Col xs={24} sm={12} xl={6}>
-          <Card className="metric-card">
-            <Statistic
-              title="Количество машин"
-              value={data.machines_count}
-              prefix={<TruckOutlined />}
-            />
-          </Card>
-        </Col>
-
-        <Col xs={24} sm={12} xl={6}>
-          <Card className="metric-card">
-            <Statistic
-              title="С интеграцией 1С"
-              value={data.integration_1c_deals}
-              prefix={<CheckCircleOutlined />}
-            />
-          </Card>
-        </Col>
-      </Row>
-
-      <Card title="Воронки" className="dashboard-card">
-        <Table
-          rowKey="funnel"
-          columns={funnelColumns}
-          dataSource={data.funnels}
-          pagination={false}
-          scroll={{ x: 700 }}
-        />
-      </Card>
-
-      <Card
-        title={
-          <Space>
-            <TeamOutlined />
-            <span>Ответственные</span>
-          </Space>
-        }
-        className="dashboard-card"
-      >
-        <Table
-          rowKey="user_id"
-          columns={responsibleColumns}
-          dataSource={data.responsibles}
-          pagination={{ pageSize: 20, showSizeChanger: false }}
-          scroll={{ x: 700 }}
-        />
-      </Card>
-    </Space>
-  )
+function Rules(){
+ const q=useQuery({queryKey:['rules'],queryFn:getRules})
+ const cols:ColumnsType<RuleVersion>=[{title:'Версия',dataIndex:'version'},{title:'С',dataIndex:'effective_from'},{title:'До',dataIndex:'effective_to',render:v=>v??'текущая'},{title:'Комментарий',dataIndex:'comment'},{title:'JSON правил',dataIndex:'config_json',ellipsis:true}]
+ return <Space direction="vertical" size={24} style={{width:'100%'}}><Title level={2}>Правила расчета</Title><Alert type="info" showIcon message="Правила версионируются по датам действия."/><Card><Table rowKey="id" columns={cols} dataSource={q.data??[]} pagination={false}/></Card></Space>
 }
 
-function DealsPage() {
-  const deals = useQuery({
-    queryKey: ['department-deals'],
-    queryFn: getDepartmentDeals,
-    refetchInterval: 60000,
-  })
-
-  const columns: ColumnsType<Deal> = [
-    {
-      title: 'ID',
-      dataIndex: 'bitrix_id',
-      width: 90,
-      sorter: (a, b) => a.bitrix_id - b.bitrix_id,
-    },
-    {
-      title: 'Сделка',
-      dataIndex: 'title',
-      width: 320,
-      render: (value: string) => (
-        <Text strong>{value || 'Без названия'}</Text>
-      ),
-    },
-    {
-      title: 'Воронка',
-      dataIndex: 'funnel',
-      width: 170,
-      filters: Object.entries(FUNNEL_NAMES).map(([value, text]) => ({
-        text,
-        value,
-      })),
-      onFilter: (value, record) => record.funnel === value,
-      render: (value: string) => <Tag>{funnelName(value)}</Tag>,
-    },
-    {
-      title: 'Сумма в месяц',
-      dataIndex: 'monthly_amount',
-      width: 170,
-      align: 'right',
-      render: formatMoney,
-      sorter: (a, b) => Number(a.monthly_amount) - Number(b.monthly_amount),
-    },
-    {
-      title: 'Машин',
-      dataIndex: 'machines_count',
-      width: 110,
-      align: 'right',
-      sorter: (a, b) => a.machines_count - b.machines_count,
-    },
-    {
-      title: '1С',
-      dataIndex: 'integration_1c',
-      width: 100,
-      align: 'center',
-      filters: [
-        { text: 'Да', value: true },
-        { text: 'Нет', value: false },
-      ],
-      onFilter: (value, record) => record.integration_1c === value,
-      render: (value: boolean) =>
-        value ? <Tag color="green">Да</Tag> : <Tag>Нет</Tag>,
-    },
-    {
-      title: 'Создана',
-      dataIndex: 'created_time',
-      width: 180,
-      render: formatDate,
-      sorter: (a, b) =>
-        new Date(a.created_time ?? 0).getTime()
-        - new Date(b.created_time ?? 0).getTime(),
-    },
-  ]
-
-  return (
-    <Space direction="vertical" size={24} style={{ width: '100%' }}>
-      <div>
-        <Title level={2} style={{ marginBottom: 4 }}>Сделки в работе</Title>
-        <Text type="secondary">Все активные сделки четырёх рабочих воронок</Text>
-      </div>
-
-      {deals.isError ? (
-        <Alert type="error" showIcon message="Не удалось получить сделки" />
-      ) : (
-        <Card>
-          <Table
-            loading={deals.isLoading}
-            rowKey="id"
-            columns={columns}
-            dataSource={deals.data ?? []}
-            pagination={{
-              defaultPageSize: 25,
-              showSizeChanger: true,
-              pageSizeOptions: [25, 50, 100],
-              showTotal: (total) => `Всего: ${total}`,
-            }}
-            scroll={{ x: 1200 }}
-          />
-        </Card>
-      )}
-    </Space>
-  )
+function Sync(){
+ const [jobId,setJobId]=useState<string|null>(null);const qc=useQueryClient()
+ const status=useQuery({queryKey:['sync-status'],queryFn:getSyncStatus,refetchInterval:30000})
+ const job=useQuery({queryKey:['sync-job',jobId],queryFn:()=>getSyncJob(jobId!),enabled:Boolean(jobId),refetchInterval:q=>{const d=q.state.data as SyncJob|undefined;return d?.status==='completed'||d?.status==='failed'?false:1500}})
+ const start=useMutation({mutationFn:(full:boolean)=>startDealsSync(full),onSuccess:j=>setJobId(j.job_id)})
+ useEffect(()=>{if(job.data?.status==='completed')void qc.invalidateQueries()},[job.data?.status,qc])
+ return <Space direction="vertical" size={24} style={{width:'100%'}}><Title level={2}>Синхронизация</Title><Card><Space direction="vertical"><Text>Последняя успешная: {status.data?.last_success??'—'}</Text><Space><Button type="primary" icon={<CloudSyncOutlined/>} onClick={()=>start.mutate(false)}>Инкрементальная</Button><Button icon={<ReloadOutlined/>} onClick={()=>start.mutate(true)}>Полная</Button></Space></Space></Card>{job.data&&<Card title={`Job ${job.data.job_id}`}><Progress percent={job.data.progress}/><Text>{job.data.status}; обработано {job.data.processed}</Text>{job.data.error&&<Alert type="error" message={job.data.error}/>}</Card>}</Space>
 }
 
-function SyncPage() {
-  const queryClient = useQueryClient()
-  const [jobId, setJobId] = useState<string | null>(null)
-
-  const syncStatus = useQuery({
-    queryKey: ['sync-status'],
-    queryFn: getSyncStatus,
-    refetchInterval: 30000,
-  })
-
-  const syncJob = useQuery({
-    queryKey: ['sync-job', jobId],
-    queryFn: () => getSyncJob(jobId!),
-    enabled: Boolean(jobId),
-    refetchInterval: (query) => {
-      const data = query.state.data as SyncJob | undefined
-      if (data?.status === 'completed' || data?.status === 'failed') {
-        return false
-      }
-      return 1500
-    },
-  })
-
-  const startSync = useMutation({
-    mutationFn: (full: boolean) => startDealsSync(full),
-
-    onSuccess: (job) => {
-      setJobId(job.job_id)
-      message.success(
-        job.full
-          ? 'Полная синхронизация поставлена в очередь'
-          : 'Синхронизация поставлена в очередь',
-      )
-    },
-
-    onError: () => {
-      message.error('Не удалось запустить синхронизацию')
-    },
-  })
-
-  useEffect(() => {
-    if (syncJob.data?.status === 'completed') {
-      void queryClient.invalidateQueries({ queryKey: ['dashboard'] })
-      void queryClient.invalidateQueries({ queryKey: ['department-deals'] })
-      void queryClient.invalidateQueries({ queryKey: ['sync-status'] })
-    }
-  }, [syncJob.data?.status, queryClient])
-
-  const job = syncJob.data
-
-  const jobStatus = useMemo(() => {
-    if (!job) return null
-
-    switch (job.status) {
-      case 'queued':
-        return { text: 'В очереди', color: 'default' }
-      case 'running':
-        return { text: 'Выполняется', color: 'processing' }
-      case 'completed':
-        return { text: 'Завершено', color: 'success' }
-      case 'failed':
-        return { text: 'Ошибка', color: 'error' }
-    }
-  }, [job])
-
-  return (
-    <Space direction="vertical" size={24} style={{ width: '100%' }}>
-      <div>
-        <Title level={2} style={{ marginBottom: 4 }}>Синхронизация</Title>
-        <Text type="secondary">Обновление данных из Bitrix24</Text>
-      </div>
-
-      <Card title="Состояние данных" className="dashboard-card">
-        <Row gutter={[24, 20]}>
-          <Col xs={24} md={12}>
-            <Text type="secondary">Последняя успешная синхронизация</Text>
-            <div className="sync-date">
-              {formatDate(syncStatus.data?.last_success)}
-            </div>
-          </Col>
-
-          <Col xs={24} md={12}>
-            <Space wrap>
-              <Button
-                type="primary"
-                size="large"
-                icon={<CloudSyncOutlined />}
-                loading={startSync.isPending}
-                disabled={job?.status === 'running' || job?.status === 'queued'}
-                onClick={() => startSync.mutate(false)}
-              >
-                Синхронизировать
-              </Button>
-
-              <Button
-                size="large"
-                icon={<ReloadOutlined />}
-                loading={startSync.isPending}
-                disabled={job?.status === 'running' || job?.status === 'queued'}
-                onClick={() => startSync.mutate(true)}
-              >
-                Полная синхронизация
-              </Button>
-            </Space>
-          </Col>
-        </Row>
-      </Card>
-
-      {job && (
-        <Card
-          title={
-            <Space>
-              <span>Задание</span>
-              {jobStatus && <Tag color={jobStatus.color}>{jobStatus.text}</Tag>}
-            </Space>
-          }
-        >
-          <Space direction="vertical" size={16} style={{ width: '100%' }}>
-            <Progress
-              percent={job.progress ?? 0}
-              status={
-                job.status === 'failed'
-                  ? 'exception'
-                  : job.status === 'completed'
-                    ? 'success'
-                    : 'active'
-              }
-            />
-
-            <Row gutter={[16, 16]}>
-              <Col xs={24} md={8}>
-                <Text type="secondary">Обработано</Text>
-                <div className="sync-value">{formatNumber(job.processed)}</div>
-              </Col>
-
-              <Col xs={24} md={8}>
-                <Text type="secondary">Текущая воронка</Text>
-                <div className="sync-value">
-                  {job.current_funnel ? funnelName(job.current_funnel) : '—'}
-                </div>
-              </Col>
-
-              <Col xs={24} md={8}>
-                <Text type="secondary">Тип</Text>
-                <div className="sync-value">
-                  {job.full ? 'Полная' : 'Инкрементальная'}
-                </div>
-              </Col>
-            </Row>
-
-            {job.error && (
-              <Alert
-                type="error"
-                showIcon
-                message="Ошибка синхронизации"
-                description={job.error}
-              />
-            )}
-          </Space>
-        </Card>
-      )}
-    </Space>
-  )
+export default function App(){
+ const [page,setPage]=useState('dashboard')
+ const content=useMemo(()=>({dashboard:<Dashboard/>,kpi:<KPI/>,bonus:<Bonuses/>,deals:<Deals/>,diagnostics:<Diagnostics/>,rules:<Rules/>,sync:<Sync/>}[page]??<Dashboard/>),[page])
+ return <Layout className="app-layout">
+  <Sider breakpoint="lg" collapsedWidth={0} width={240} className="app-sider">
+   <div className="app-logo"><div className="logo-mark">CR</div><div><div className="logo-title">CR Portal</div><div className="logo-subtitle">KPI & Bonus</div></div></div>
+   <Menu theme="dark" mode="inline" selectedKeys={[page]} onClick={({key})=>setPage(key)} items={[
+    {key:'dashboard',icon:<DashboardOutlined/>,label:'Главная'},{key:'kpi',icon:<TrophyOutlined/>,label:'KPI отдела'},
+    {key:'bonus',icon:<FundOutlined/>,label:'Расчет премий'},{key:'deals',icon:<DatabaseOutlined/>,label:'Сделки'},
+    {key:'diagnostics',icon:<ExclamationCircleOutlined/>,label:'Диагностика'},{key:'rules',icon:<SettingOutlined/>,label:'Правила'},
+    {key:'sync',icon:<CloudSyncOutlined/>,label:'Синхронизация'}
+   ]}/>
+  </Sider>
+  <Layout><Header className="app-header"><Text strong>CR Integration Portal</Text><Tag color="green" icon={<CheckCircleOutlined/>}>Bitrix24 подключён</Tag></Header><Content className="app-content"><div className="content-container">{content}</div></Content></Layout>
+ </Layout>
 }
-
-function App() {
-  const [page, setPage] = useState('dashboard')
-
-  return (
-    <Layout className="app-layout">
-      <Sider
-        breakpoint="lg"
-        collapsedWidth={0}
-        className="app-sider"
-      >
-        <div className="app-logo">
-          <div className="logo-mark">CR</div>
-
-          <div>
-            <div className="logo-title">CR Portal</div>
-            <div className="logo-subtitle">Bonus System</div>
-          </div>
-        </div>
-
-        <Menu
-          theme="dark"
-          mode="inline"
-          selectedKeys={[page]}
-          onClick={({ key }) => setPage(key)}
-          items={[
-            {
-              key: 'dashboard',
-              icon: <DashboardOutlined />,
-              label: 'Дашборд',
-            },
-            {
-              key: 'deals',
-              icon: <DatabaseOutlined />,
-              label: 'Сделки',
-            },
-            {
-              key: 'sync',
-              icon: <CloudSyncOutlined />,
-              label: 'Синхронизация',
-            },
-          ]}
-        />
-      </Sider>
-
-      <Layout>
-        <Header className="app-header">
-          <div>
-            <Text strong className="header-title">
-              CR Integration Portal
-            </Text>
-          </div>
-
-          <Tag color="green" icon={<CheckCircleOutlined />}>
-            Bitrix24 подключён
-          </Tag>
-        </Header>
-
-        <Content className="app-content">
-          <div className="content-container">
-            {page === 'dashboard'
-              ? <DashboardPage />
-              : page === 'deals'
-                ? <DealsPage />
-                : <SyncPage />
-            }
-          </div>
-        </Content>
-      </Layout>
-    </Layout>
-  )
-}
-
-export default App
