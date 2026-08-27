@@ -1,7 +1,7 @@
 ﻿param(
     [string]$Message = "Update project",
     [string]$Month = "2026-08",
-    [string]$Server = "",
+    [string]$Server = "root@45.90.217.67",
     [string]$ProjectPath = "/opt/cr-portal"
 )
 
@@ -26,18 +26,6 @@ function Run-Step {
     if ($LASTEXITCODE -ne 0) {
         throw "Failed step: $Title"
     }
-}
-
-if ([string]::IsNullOrWhiteSpace($Server)) {
-    Write-Host ""
-    Write-Host "ERROR: SSH server is not specified."
-    Write-Host ""
-    Write-Host "Run deploy with the real server IP or DNS name:"
-    Write-Host ""
-    Write-Host 'powershell -ExecutionPolicy Bypass -File .\deploy.ps1 -Server "root@1.2.3.4" -Message "Update"'
-    Write-Host ""
-    Write-Host "Use the same IP/host that you use in PuTTY."
-    exit 1
 }
 
 Run-Step "1. Python compile check" {
@@ -70,22 +58,6 @@ if ($changes) {
 else {
     Write-Host ""
     Write-Host "No local changes. Commit and push skipped."
-}
-
-Write-Host ""
-Write-Host "Checking SSH connection to $Server ..."
-
-& ssh `
-    -o ConnectTimeout=10 `
-    -o BatchMode=yes `
-    $Server `
-    "echo SSH_OK" 2>$null
-
-if ($LASTEXITCODE -ne 0) {
-    Write-Host ""
-    Write-Host "Automatic SSH login is not ready."
-    Write-Host "Trying normal SSH connection (password may be requested)..."
-    Write-Host ""
 }
 
 $RemoteScript = @"
