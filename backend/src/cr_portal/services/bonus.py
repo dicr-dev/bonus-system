@@ -99,6 +99,105 @@ def active_on_date_conditions(period_end_exclusive: datetime):
     )
 
 
+
+def linked_deal_ids(deal: Deal) -> list[int]:
+    """Возвращает все связанные ID сделок из CRM-поля сделки-источника."""
+    field_name = settings.BITRIX_FIELD_SOURCE_DEAL_ID
+    if not field_name or not deal.raw_json:
+        return []
+
+    try:
+        data = json.loads(deal.raw_json)
+    except Exception:
+        return []
+
+    value = data.get(field_name)
+    if value in (None, "", []):
+        return []
+
+    values = value if isinstance(value, list) else [value]
+    result: list[int] = []
+
+    for item in values:
+        if isinstance(item, dict):
+            candidate = (
+                item.get("ID")
+                or item.get("id")
+                or item.get("VALUE")
+                or item.get("value")
+            )
+        else:
+            candidate = item
+
+        if candidate in (None, ""):
+            continue
+
+        candidate_str = str(candidate).strip()
+        if candidate_str.upper().startswith("D_"):
+            candidate_str = candidate_str[2:]
+
+        if candidate_str.isdigit():
+            result.append(int(candidate_str))
+
+    return list(dict.fromkeys(result))
+
+
+async def linked_implementation_deals(
+    session: AsyncSession,
+    support_deal: Deal,
+) -> list[Deal]:
+    """Ищет все связанные со сделкой Сопровождения сделки Внедрения."""
+    ids = linked_deal_ids(support_deal)
+    if not ids:
+        return []
+
+    result = await session.execute(
+        select(Deal).where(
+            Deal.bitrix_id.in_(ids),
+            Deal.funnel == "implementation",
+        )
+    )
+    return list(result.scalars().all())
+
+
+def deal_active_at_period_end(
+    deal: Deal,
+    period_end_exclusive: datetime,
+) -> bool:
+    """Была ли сделка активна на последнее число расчётного месяца."""
+    if deal.created_time and deal.created_time >= period_end_exclusive:
+        return False
+    if deal.closed_time is None:
+        return True
+    return deal.closed_time >= period_end_exclusive
+
+
+def completed_implementation_for_bonus(
+    deals: list[Deal],
+    period_end_exclusive: datetime,
+) -> Deal | None:
+    """Выбирает последнее успешно завершённое Внедрение до конца месяца."""
+    eligible = [
+        deal
+        for deal in deals
+        if (
+            deal.status == "won"
+            and deal.closed_time is not None
+            and deal.closed_time < period_end_exclusive
+        )
+    ]
+    if not eligible:
+        return None
+
+    return max(
+        eligible,
+        key=lambda deal: (
+            deal.closed_time,
+            deal.bitrix_id,
+        ),
+    )
+
+
 async def diagnose_month(session: AsyncSession, month: date):
     month = month_start(month)
     end = add_months(month, 1)
@@ -238,52 +337,78 @@ async def diagnose_month(session: AsyncSession, month: date):
 
     if settings.BITRIX_FIELD_SOURCE_DEAL_ID:
         period_end_exclusive = end_of_month_dt(month)
+
         support_result = await session.execute(
             select(Deal).where(
                 Deal.funnel == "support",
-                Deal.source_deal_bitrix_id.is_not(None),
                 *active_on_date_conditions(period_end_exclusive),
             )
         )
 
         for deal in support_result.scalars().all():
-            source_result = await session.execute(
-                select(Deal).where(Deal.bitrix_id == deal.source_deal_bitrix_id)
+            implementations = await linked_implementation_deals(
+                session,
+                deal,
             )
-            source_deal = source_result.scalar_one_or_none()
 
-            if not source_deal:
-                await add_issue(
+            if not implementations:
+                linked_ids = linked_deal_ids(deal)
+
+                issue = await add_issue(
                     session,
                     month,
                     "warning",
-                    "SOURCE_DEAL_NOT_FOUND",
-                    "Не найдена исходная сделка для активного клиента сопровождения.",
+                    "SUPPORT_WITHOUT_IMPLEMENTATION_LINK",
+                    (
+                        "У активной сделки Сопровождения "
+                        "нет ссылки на сделку Внедрения."
+                    ),
                     deal_id=deal.id,
+                )
+                issue.details_json = json.dumps(
+                    {
+                        "support_bitrix_id": deal.bitrix_id,
+                        "support_title": deal.title,
+                        "linked_bitrix_ids": linked_ids,
+                    },
+                    ensure_ascii=False,
                 )
                 continue
 
-            if source_deal.funnel != "implementation":
-                continue
+            source_deal = completed_implementation_for_bonus(
+                implementations,
+                period_end_exclusive,
+            )
 
-            if source_deal.implementation_responsible_user_id is None:
+            if (
+                source_deal
+                and source_deal.implementation_responsible_user_id is None
+            ):
                 await add_issue(
                     session,
                     month,
                     "critical",
                     "NO_IMPLEMENTATION_RESPONSIBLE",
-                    "У исходной сделки Внедрения нет «Ответственного за внедрение».",
+                    (
+                        "У связанной сделки Внедрения нет "
+                        "«Ответственного за внедрение»."
+                    ),
                     deal_id=source_deal.id,
                 )
 
-            if deal.machines_count <= 0:
+            if source_deal and deal.machines_count <= 0:
                 await add_issue(
                     session,
                     month,
                     "warning",
                     "NO_MACHINES",
-                    "Нет количества машин у активного клиента сопровождения.",
-                    employee_id=source_deal.implementation_responsible_user_id,
+                    (
+                        "Нет количества машин у активного "
+                        "клиента сопровождения."
+                    ),
+                    employee_id=(
+                        source_deal.implementation_responsible_user_id
+                    ),
                     deal_id=deal.id,
                 )
 
@@ -510,51 +635,62 @@ async def calculate_month(
             )
 
     # Текущие клиенты.
-    # Клиент считается работающим на конец месяца, если сделка Сопровождения
-    # была активна на последнее число месяца и на эту же дату у клиента
-    # нет активной сделки Внедрения.
+    #
+    # Клиент считается работающим на конец месяца, если:
+    # - сделка Сопровождения активна на последнее число месяца;
+    # - среди всех связанных CRM-ID есть сделка Внедрения;
+    # - ни одна связанная сделка Внедрения не активна на конец месяца;
+    # - есть успешно завершённое Внедрение до конца месяца.
     if settings.BITRIX_FIELD_SOURCE_DEAL_ID:
         period_end_exclusive = end_of_month_dt(month)
 
         support_result = await session.execute(
             select(Deal).where(
                 Deal.funnel == "support",
-                Deal.source_deal_bitrix_id.is_not(None),
                 *active_on_date_conditions(period_end_exclusive),
             )
         )
 
         for deal in support_result.scalars().all():
-            source_result = await session.execute(
-                select(Deal).where(Deal.bitrix_id == deal.source_deal_bitrix_id)
+            implementations = await linked_implementation_deals(
+                session,
+                deal,
             )
-            source_deal = source_result.scalar_one_or_none()
+
+            if not implementations:
+                continue
+
+            if any(
+                deal_active_at_period_end(
+                    implementation,
+                    period_end_exclusive,
+                )
+                for implementation in implementations
+            ):
+                continue
+
+            source_deal = completed_implementation_for_bonus(
+                implementations,
+                period_end_exclusive,
+            )
 
             if (
                 not source_deal
-                or source_deal.funnel != "implementation"
                 or not source_deal.implementation_responsible_user_id
             ):
                 continue
 
-            # Если исходное Внедрение само ещё активно на конец месяца,
-            # клиент не считается текущим клиентом сопровождения для бонуса.
-            source_active_at_month_end = (
-                source_deal.created_time is not None
-                and source_deal.created_time < period_end_exclusive
-                and (
-                    source_deal.closed_time is None
-                    or source_deal.closed_time >= period_end_exclusive
-                )
+            before = current_client_bonus(
+                deal.machines_count,
+                rules,
             )
-            if source_active_at_month_end:
-                continue
-
-            before = current_client_bonus(deal.machines_count, rules)
             if before <= 0:
                 continue
 
-            employee_id = source_deal.implementation_responsible_user_id
+            employee_id = (
+                source_deal.implementation_responsible_user_id
+            )
+
             contributions[employee_id].append(
                 (
                     deal,
@@ -564,7 +700,10 @@ async def calculate_month(
                     Decimal("1"),
                     before,
                     True,
-                    f"Текущий клиент: {deal.machines_count} машин → {before} ₽",
+                    (
+                        f"Текущий клиент: {deal.machines_count} "
+                        f"машин → {before} ₽"
+                    ),
                 )
             )
 
