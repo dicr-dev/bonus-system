@@ -126,6 +126,69 @@ def active_on_date_conditions(
     )
 
 
+
+def linked_deal_ids(deal: Deal) -> list[int]:
+    """Возвращает все связанные ID сделок из CRM-поля сделки-источника."""
+    field_name = settings.BITRIX_FIELD_SOURCE_DEAL_ID
+    if not field_name or not deal.raw_json:
+        return []
+
+    try:
+        data = json.loads(deal.raw_json)
+    except Exception:
+        return []
+
+    value = data.get(field_name)
+    if value in (None, "", []):
+        return []
+
+    values = value if isinstance(value, list) else [value]
+    result: list[int] = []
+
+    for item in values:
+        if isinstance(item, dict):
+            candidate = (
+                item.get("ID")
+                or item.get("id")
+                or item.get("VALUE")
+                or item.get("value")
+            )
+        else:
+            candidate = item
+
+        if candidate in (None, ""):
+            continue
+
+        candidate_str = str(candidate).strip()
+
+        if candidate_str.upper().startswith("D_"):
+            candidate_str = candidate_str[2:]
+
+        if candidate_str.isdigit():
+            result.append(int(candidate_str))
+
+    return list(dict.fromkeys(result))
+
+
+async def linked_implementation_deals(
+    session: AsyncSession,
+    support_deal: Deal,
+) -> list[Deal]:
+    """Ищет все связанные со сделкой Сопровождения сделки Внедрения."""
+    ids = linked_deal_ids(support_deal)
+
+    if not ids:
+        return []
+
+    result = await session.execute(
+        select(Deal).where(
+            Deal.bitrix_id.in_(ids),
+            Deal.funnel == "implementation",
+        )
+    )
+
+    return list(result.scalars().all())
+
 def deal_active_at_period_end(
     deal: Deal,
     period_end_exclusive: datetime,
