@@ -164,12 +164,29 @@ def deal_active_at_period_end(
     deal: Deal,
     period_end_exclusive: datetime,
 ) -> bool:
-    """Была ли сделка активна на последнее число расчётного месяца."""
-    if deal.created_time and deal.created_time >= period_end_exclusive:
+    """
+    Была ли сделка активна на последнее число расчётного месяца.
+
+    Bitrix иногда не отдаёт closedTime для уже закрытых сделок.
+    Поэтому для текущих won/lost при пустом closed_time используем
+    updated_time как резервную дату закрытия.
+    """
+    if (
+        deal.created_time
+        and deal.created_time >= period_end_exclusive
+    ):
         return False
-    if deal.closed_time is None:
-        return True
-    return deal.closed_time >= period_end_exclusive
+
+    if deal.closed_time is not None:
+        return deal.closed_time >= period_end_exclusive
+
+    if deal.status in {"won", "lost"}:
+        if deal.updated_time is not None:
+            return deal.updated_time >= period_end_exclusive
+
+        return False
+
+    return True
 
 
 def completed_implementation_for_bonus(
