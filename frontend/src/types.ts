@@ -12,3 +12,32 @@ export interface CalculationItem { id:string; calculation_id:string; employee_id
 export interface CalculationDetail extends Calculation { employee_name:string; items:CalculationItem[] }
 export interface Issue { id:string; calculation_id:string|null; month:string; severity:string; code:string; message:string; employee_id:string|null; deal_id:string|null; details_json:string; created_at:string }
 export interface RuleVersion { id:string; version:number; effective_from:string; effective_to:string|null; config_json:string; comment:string|null; created_at:string }
+
+export interface AppSettings {
+  tech_integration_category_id:number|null
+  implementation_category_id:number|null
+  cr_start_category_id:number|null
+  support_category_id:number|null
+  field_monthly_amount:string
+  field_machines_count:string
+  field_integration_1c:string
+  field_implementation_responsible_id:string
+  field_source_deal_id:string
+  field_sales_bonus_user_id:string
+  cr_start_boolean_fields:string[]
+  field_client_works:string
+  task_training_bonus_field:string
+  field_module:string
+  field_integration_amount:string
+}
+
+export interface RuleConfig {
+  divider:number|string
+  tech_integration_rate:number|string
+  sales_rate:number|string
+  support_hour_rate:number|string
+  training_bonus:number|string
+  cr_start_fixed:number|string
+  implementation_thresholds:Array<{from:number|string;rate:number|string}>
+  current_clients_tiers:Array<{from:number;to:number|null;bonus:number|string}>
+}

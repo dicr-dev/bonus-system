@@ -7,7 +7,7 @@ from uuid import UUID
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from cr_portal.core.config import settings
+from cr_portal.services.app_settings import get_business_settings
 from cr_portal.models.bonus import (
     BonusCalculation,
     BonusCalculationItem,
@@ -127,9 +127,8 @@ def active_on_date_conditions(
 
 
 
-def linked_deal_ids(deal: Deal) -> list[int]:
+def linked_deal_ids(deal: Deal, field_name: str) -> list[int]:
     """Возвращает все связанные ID сделок из CRM-поля сделки-источника."""
-    field_name = settings.BITRIX_FIELD_SOURCE_DEAL_ID
     if not field_name or not deal.raw_json:
         return []
 
@@ -173,9 +172,10 @@ def linked_deal_ids(deal: Deal) -> list[int]:
 async def linked_implementation_deals(
     session: AsyncSession,
     support_deal: Deal,
+    source_field: str,
 ) -> list[Deal]:
     """Ищет все связанные со сделкой Сопровождения сделки Внедрения."""
-    ids = linked_deal_ids(support_deal)
+    ids = linked_deal_ids(support_deal, source_field)
 
     if not ids:
         return []
@@ -245,6 +245,7 @@ def completed_implementation_for_bonus(
 
 
 async def diagnose_month(session: AsyncSession, month: date):
+    business = await get_business_settings(session)
     month = month_start(month)
     end = add_months(month, 1)
     start3 = add_months(month, -2)
@@ -258,7 +259,7 @@ async def diagnose_month(session: AsyncSession, month: date):
     for issue in result.scalars().all():
         await session.delete(issue)
 
-    if not settings.BITRIX_FIELD_SOURCE_DEAL_ID:
+    if not business.field_source_deal_id:
         await add_issue(
             session,
             month,
@@ -267,7 +268,7 @@ async def diagnose_month(session: AsyncSession, month: date):
             "Не настроено поле ID сделки-источника.",
         )
 
-    if not settings.BITRIX_FIELD_SALES_BONUS_USER_ID:
+    if not business.field_sales_bonus_user_id:
         await add_issue(
             session,
             month,
@@ -276,7 +277,7 @@ async def diagnose_month(session: AsyncSession, month: date):
             "Не настроено поле сотрудника, получающего бонус за продажу.",
         )
 
-    if not settings.cr_start_boolean_fields:
+    if not business.cr_start_boolean_fields:
         await add_issue(
             session,
             month,
@@ -285,13 +286,22 @@ async def diagnose_month(session: AsyncSession, month: date):
             "Не настроены поля «КР Старт: ...».",
         )
 
-    if not settings.BITRIX_TASK_TRAINING_BONUS_FIELD:
+    if not business.task_training_bonus_field:
         await add_issue(
             session,
             month,
             "warning",
             "TRAINING_TASK_FIELD_NOT_CONFIGURED",
             "Не настроено поле задачи «Бонус за обучение = Да».",
+        )
+
+    if not business.field_integration_amount:
+        await add_issue(
+            session,
+            month,
+            "warning",
+            "INTEGRATION_AMOUNT_FIELD_NOT_CONFIGURED",
+            "Не настроено поле сделки «Сумма за интеграцию».",
         )
 
     tech_result = await session.execute(
@@ -361,7 +371,7 @@ async def diagnose_month(session: AsyncSession, month: date):
                 deal_id=deal.id,
             )
 
-        fields = settings.cr_start_boolean_fields
+        fields = business.cr_start_boolean_fields
         if not fields:
             continue
 
@@ -381,7 +391,7 @@ async def diagnose_month(session: AsyncSession, month: date):
                 deal_id=deal.id,
             )
 
-    if settings.BITRIX_FIELD_SOURCE_DEAL_ID:
+    if business.field_source_deal_id:
         period_end_exclusive = end_of_month_dt(month)
 
         support_result = await session.execute(
@@ -395,6 +405,7 @@ async def diagnose_month(session: AsyncSession, month: date):
             implementations = await linked_implementation_deals(
                 session,
                 deal,
+                business.field_source_deal_id,
             )
 
             #
@@ -419,7 +430,7 @@ async def diagnose_month(session: AsyncSession, month: date):
             # Но диагностика должна показать проблему связи.
             #
             if not implementations:
-                linked_ids = linked_deal_ids(deal)
+                linked_ids = linked_deal_ids(deal, business.field_source_deal_id)
 
                 issue = await add_issue(
                     session,
@@ -512,6 +523,7 @@ async def calculate_month(
     end = add_months(month, 1)
     period_to = date.fromordinal(end.toordinal() - 1)
 
+    business = await get_business_settings(session)
     rules_version, rules = await get_rules(session, month)
     issues = await diagnose_month(session, month)
 
@@ -534,7 +546,9 @@ async def calculate_month(
         if not employee_id or not deal.integration_1c:
             continue
 
-        base = Decimal(deal.opportunity or 0)
+        base = Decimal(raw_value(deal, business.field_integration_amount) or 0)
+        if base <= 0:
+            continue
         rate = decimal(rules["tech_integration_rate"])
         before = money(base * rate)
 
@@ -547,7 +561,7 @@ async def calculate_month(
                 Decimal("1"),
                 before,
                 True,
-                "Тех интеграция: 50% × сумма сделки",
+                "Тех интеграция: 50% × «Сумма за интеграцию»",
             )
         )
 
@@ -577,7 +591,7 @@ async def calculate_month(
             continue
 
         if deal.funnel == "cr_start":
-            fields = settings.cr_start_boolean_fields
+            fields = business.cr_start_boolean_fields
             if not fields:
                 continue
 
@@ -634,7 +648,7 @@ async def calculate_month(
                 )
             )
 
-    if settings.BITRIX_FIELD_SALES_BONUS_USER_ID:
+    if business.field_sales_bonus_user_id:
         sales_result = await session.execute(
             select(Deal).where(
                 Deal.funnel == "tech_integration",
@@ -718,7 +732,7 @@ async def calculate_month(
     # 5. Количество машин всегда берем из Сопровождения.
     # 6. Ответственного за внедрение всегда берем из Сопровождения.
     #
-    if settings.BITRIX_FIELD_SOURCE_DEAL_ID:
+    if business.field_source_deal_id:
         period_end_exclusive = end_of_month_dt(month)
 
         support_result = await session.execute(
@@ -732,6 +746,7 @@ async def calculate_month(
             implementations = await linked_implementation_deals(
                 session,
                 deal,
+                business.field_source_deal_id,
             )
 
             #
@@ -777,7 +792,7 @@ async def calculate_month(
                     before,
                     Decimal("1"),
                     before,
-                    True,
+                    False,
                     (
                         f"Текущий клиент: {deal.machines_count} "
                         f"машин → {before} ₽"
@@ -827,10 +842,13 @@ async def calculate_month(
             )
         )
 
+        non_dividable_total = sum(
+            (row[5] for row in rows if not row[6]),
+            Decimal("0"),
+        )
         total_bonus = money(
             subtotal_dividable / divider
-            + cr_start_fixed_total
-            + sales_total
+            + non_dividable_total
         )
 
         calculation = BonusCalculation(

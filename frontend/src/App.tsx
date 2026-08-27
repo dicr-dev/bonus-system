@@ -1,4 +1,4 @@
-import {
+﻿import {
   CheckCircleOutlined,CloudSyncOutlined,DashboardOutlined,DatabaseOutlined,DownloadOutlined,
   ExclamationCircleOutlined,FundOutlined,ReloadOutlined,SettingOutlined,TrophyOutlined
 } from '@ant-design/icons'
@@ -9,6 +9,7 @@ import {
 import type { ColumnsType } from 'antd/es/table'
 import { useMutation,useQuery,useQueryClient } from '@tanstack/react-query'
 import { useEffect,useMemo,useState } from 'react'
+import SettingsPage from './SettingsPage'
 import {
   excelUrl,getCalculation,getCalculations,getDashboard,getDepartmentDeals,getDiagnostics,getKPI,getRules,
   getSyncJob,getSyncStatus,runCalculation,runDiagnostics,savePlan,startDealsSync
@@ -130,7 +131,7 @@ function Sync(){
 
 export default function App(){
  const [page,setPage]=useState('dashboard')
- const content=useMemo(()=>({dashboard:<Dashboard/>,kpi:<KPI/>,bonus:<Bonuses/>,deals:<Deals/>,diagnostics:<Diagnostics/>,rules:<Rules/>,sync:<Sync/>}[page]??<Dashboard/>),[page])
+ const content=useMemo(()=>({dashboard:<Dashboard/>,kpi:<KPI/>,bonus:<Bonuses/>,deals:<Deals/>,diagnostics:<Diagnostics/>,rules:<Rules/>,settings:<SettingsPage/>,sync:<Sync/>}[page]??<Dashboard/>),[page])
  return <Layout className="app-layout">
   <Sider breakpoint="lg" collapsedWidth={0} width={240} className="app-sider">
    <div className="app-logo"><div className="logo-mark">CR</div><div><div className="logo-title">CR Portal</div><div className="logo-subtitle">KPI & Bonus</div></div></div>
@@ -138,9 +139,11 @@ export default function App(){
     {key:'dashboard',icon:<DashboardOutlined/>,label:'Главная'},{key:'kpi',icon:<TrophyOutlined/>,label:'KPI отдела'},
     {key:'bonus',icon:<FundOutlined/>,label:'Расчет премий'},{key:'deals',icon:<DatabaseOutlined/>,label:'Сделки'},
     {key:'diagnostics',icon:<ExclamationCircleOutlined/>,label:'Диагностика'},{key:'rules',icon:<SettingOutlined/>,label:'Правила'},
+    {key:'settings',icon:<SettingOutlined/>,label:'\u041d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0438'},
     {key:'sync',icon:<CloudSyncOutlined/>,label:'Синхронизация'}
    ]}/>
   </Sider>
   <Layout><Header className="app-header"><Text strong>CR Integration Portal</Text><Tag color="green" icon={<CheckCircleOutlined/>}>Bitrix24 подключён</Tag></Header><Content className="app-content"><div className="content-container">{content}</div></Content></Layout>
  </Layout>
 }
+

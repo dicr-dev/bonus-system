@@ -1,5 +1,6 @@
 import axios from 'axios'
-import type { Calculation,CalculationDetail,DashboardSummary,Deal,Issue,KPISummary,RuleVersion,SyncJob,SyncStatus } from './types'
+import type { AppSettings,Calculation,CalculationDetail,DashboardSummary,Deal,Issue,KPISummary,RuleConfig,RuleVersion,SyncJob,SyncStatus } from './types'
+
 export const api=axios.create({baseURL:'/api/v1',withCredentials:true,timeout:30000})
 export async function getDashboard():Promise<DashboardSummary>{return (await api.get('/reports/dashboard')).data}
 export async function getDepartmentDeals():Promise<Deal[]>{return (await api.get('/reports/department-deals')).data}
@@ -14,4 +15,7 @@ export async function getCalculation(id:string):Promise<CalculationDetail>{retur
 export async function runDiagnostics(month:string):Promise<Issue[]>{return (await api.post('/diagnostics/run',null,{params:{month}})).data}
 export async function getDiagnostics(month:string):Promise<Issue[]>{return (await api.get('/diagnostics',{params:{month}})).data}
 export async function getRules():Promise<RuleVersion[]>{return (await api.get('/settings/rules')).data}
+export async function createRule(effective_from:string,config:RuleConfig,comment=''){return (await api.post('/settings/rules',{effective_from,config,comment})).data}
+export async function getAppSettings():Promise<AppSettings>{return (await api.get('/settings/app')).data}
+export async function saveAppSettings(data:AppSettings):Promise<AppSettings>{return (await api.put('/settings/app',data)).data}
 export function excelUrl(month:string){return `/api/v1/reports/export/excel?month=${encodeURIComponent(month)}`}
