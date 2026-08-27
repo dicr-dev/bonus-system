@@ -351,6 +351,27 @@ async def diagnose_month(session: AsyncSession, month: date):
                 deal,
             )
 
+            #
+            # Если среди связанных сделок есть Внедрение,
+            # которое было активно на конец месяца,
+            # клиент еще не считается текущим.
+            #
+            active_implementation_exists = any(
+                deal_active_at_period_end(
+                    implementation,
+                    period_end_exclusive,
+                )
+                for implementation in implementations
+            )
+
+            if active_implementation_exists:
+                continue
+
+            #
+            # Если ссылки на Внедрение нет или Внедрение
+            # среди связанных ID не найдено, бонус это НЕ блокирует.
+            # Но диагностика должна показать проблему связи.
+            #
             if not implementations:
                 linked_ids = linked_deal_ids(deal)
 
@@ -365,6 +386,7 @@ async def diagnose_month(session: AsyncSession, month: date):
                     ),
                     deal_id=deal.id,
                 )
+
                 issue.details_json = json.dumps(
                     {
                         "support_bitrix_id": deal.bitrix_id,
@@ -373,16 +395,14 @@ async def diagnose_month(session: AsyncSession, month: date):
                     },
                     ensure_ascii=False,
                 )
-                continue
 
-            source_deal = completed_implementation_for_bonus(
-                implementations,
-                period_end_exclusive,
-            )
-
+            #
+            # Ответственного для бонуса текущего клиента
+            # ВСЕГДА берем из самой сделки Сопровождения.
+            #
             if (
-                source_deal
-                and source_deal.implementation_responsible_user_id is None
+                deal.implementation_responsible_user_id
+                is None
             ):
                 await add_issue(
                     session,
@@ -390,13 +410,18 @@ async def diagnose_month(session: AsyncSession, month: date):
                     "critical",
                     "NO_IMPLEMENTATION_RESPONSIBLE",
                     (
-                        "У связанной сделки Внедрения нет "
-                        "«Ответственного за внедрение»."
+                        "У сделки Сопровождения нет "
+                        "«Ответственного за внедрение». "
+                        "Бонус текущего клиента начислить некому."
                     ),
-                    deal_id=source_deal.id,
+                    deal_id=deal.id,
                 )
 
-            if source_deal and deal.machines_count <= 0:
+            #
+            # Количество машин также всегда берем
+            # из сделки Сопровождения.
+            #
+            if deal.machines_count <= 0:
                 await add_issue(
                     session,
                     month,
@@ -407,7 +432,7 @@ async def diagnose_month(session: AsyncSession, month: date):
                         "клиента сопровождения."
                     ),
                     employee_id=(
-                        source_deal.implementation_responsible_user_id
+                        deal.implementation_responsible_user_id
                     ),
                     deal_id=deal.id,
                 )
@@ -636,11 +661,17 @@ async def calculate_month(
 
     # Текущие клиенты.
     #
-    # Клиент считается работающим на конец месяца, если:
-    # - сделка Сопровождения активна на последнее число месяца;
-    # - среди всех связанных CRM-ID есть сделка Внедрения;
-    # - ни одна связанная сделка Внедрения не активна на конец месяца;
-    # - есть успешно завершённое Внедрение до конца месяца.
+    # Итоговая согласованная логика:
+    #
+    # 1. Берем сделку Сопровождения, активную на конец месяца.
+    # 2. Если связанная сделка Внедрения найдена и была активна
+    #    на конец месяца — клиент еще не текущий, бонус не начисляем.
+    # 3. Если Внедрение найдено, но уже завершено — бонус начисляем.
+    # 4. Если Внедрение не найдено / ссылка отсутствует —
+    #    бонус все равно начисляем, а диагностика показывает warning.
+    # 5. Количество машин всегда берем из Сопровождения.
+    # 6. Ответственного за внедрение всегда берем из Сопровождения.
+    #
     if settings.BITRIX_FIELD_SOURCE_DEAL_ID:
         period_end_exclusive = end_of_month_dt(month)
 
@@ -657,9 +688,11 @@ async def calculate_month(
                 deal,
             )
 
-            if not implementations:
-                continue
-
+            #
+            # Если хотя бы одно связанное Внедрение
+            # активно на конец месяца — бонус текущего
+            # клиента не начисляем.
+            #
             if any(
                 deal_active_at_period_end(
                     implementation,
@@ -669,27 +702,26 @@ async def calculate_month(
             ):
                 continue
 
-            source_deal = completed_implementation_for_bonus(
-                implementations,
-                period_end_exclusive,
+            #
+            # Ответственный — только из Сопровождения.
+            #
+            employee_id = (
+                deal.implementation_responsible_user_id
             )
 
-            if (
-                not source_deal
-                or not source_deal.implementation_responsible_user_id
-            ):
+            if not employee_id:
                 continue
 
+            #
+            # Машины — только из Сопровождения.
+            #
             before = current_client_bonus(
                 deal.machines_count,
                 rules,
             )
+
             if before <= 0:
                 continue
-
-            employee_id = (
-                source_deal.implementation_responsible_user_id
-            )
 
             contributions[employee_id].append(
                 (
