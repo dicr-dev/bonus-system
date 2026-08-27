@@ -362,7 +362,7 @@ async def sync_deals(
         "opportunity",
         "createdTime",
         "updatedTime",
-        "closedTime",
+        "movedTime",
         BITRIX_MODULE_FIELD,
     ]
 
@@ -686,12 +686,25 @@ async def sync_deals(
                 )
             )
 
-            deal.closed_time = (
-                _dt(
-                    item.get(
-                        "closedTime"
-                    )
+            #
+            # Universal API для сделок не возвращает closedTime.
+            # Для закрытых сделок используем movedTime — время
+            # последнего перехода стадии. Для won/lost это момент
+            # перехода в финальную стадию.
+            #
+            moved_time = _dt(
+                item.get(
+                    "movedTime"
                 )
+            )
+
+            deal.closed_time = (
+                moved_time
+                if deal.status in {
+                    "won",
+                    "lost",
+                }
+                else None
             )
 
             #
