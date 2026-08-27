@@ -1,7 +1,7 @@
-param(
+﻿param(
     [string]$Message = "Update project",
     [string]$Month = "2026-08",
-    [string]$Server = "root@vm4579464",
+    [string]$Server = "",
     [string]$ProjectPath = "/opt/cr-portal"
 )
 
@@ -24,16 +24,28 @@ function Run-Step {
     & $Command
 
     if ($LASTEXITCODE -ne 0) {
-        throw "Ошибка на этапе: $Title"
+        throw "Failed step: $Title"
     }
 }
 
-Run-Step "1. Проверка Python" {
+if ([string]::IsNullOrWhiteSpace($Server)) {
+    Write-Host ""
+    Write-Host "ERROR: SSH server is not specified."
+    Write-Host ""
+    Write-Host "Run deploy with the real server IP or DNS name:"
+    Write-Host ""
+    Write-Host 'powershell -ExecutionPolicy Bypass -File .\deploy.ps1 -Server "root@1.2.3.4" -Message "Update"'
+    Write-Host ""
+    Write-Host "Use the same IP/host that you use in PuTTY."
+    exit 1
+}
+
+Run-Step "1. Python compile check" {
     Set-Location $BackendPath
     uv run python -m compileall -q src
 }
 
-Run-Step "2. Запуск тестов" {
+Run-Step "2. Tests" {
     Set-Location $BackendPath
     uv run pytest
 }
@@ -44,7 +56,6 @@ Run-Step "3. Git add" {
 }
 
 Set-Location $RepoPath
-
 $changes = git status --porcelain
 
 if ($changes) {
@@ -58,13 +69,29 @@ if ($changes) {
 }
 else {
     Write-Host ""
-    Write-Host "Изменений для commit нет. Push пропускаем."
+    Write-Host "No local changes. Commit and push skipped."
+}
+
+Write-Host ""
+Write-Host "Checking SSH connection to $Server ..."
+
+& ssh `
+    -o ConnectTimeout=10 `
+    -o BatchMode=yes `
+    $Server `
+    "echo SSH_OK" 2>$null
+
+if ($LASTEXITCODE -ne 0) {
+    Write-Host ""
+    Write-Host "Automatic SSH login is not ready."
+    Write-Host "Trying normal SSH connection (password may be requested)..."
+    Write-Host ""
 }
 
 $RemoteScript = @"
 set -e
 
-cd $ProjectPath
+cd "$ProjectPath"
 
 echo
 echo "========================================"
@@ -88,9 +115,21 @@ echo
 echo "========================================"
 echo "Diagnostics $Month"
 echo "========================================"
-curl -s -X POST "https://integration.crmicro.ru/api/v1/diagnostics/run?month=$Month"
+curl -s -X POST "https://integration.crmicro.ru/api/v1/diagnostics/run?month=$Month" > /tmp/cr_diagnostics.json
 
-echo
+python3 - <<'PY'
+import json
+
+path = "/tmp/cr_diagnostics.json"
+
+try:
+    with open(path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    print("Diagnostics returned:", len(data), "issues")
+except Exception as exc:
+    print("Could not parse diagnostics JSON:", exc)
+PY
+
 echo
 echo "========================================"
 echo "Diagnostics summary"
@@ -111,13 +150,18 @@ WHERE month = DATE '${Month}-01'
 GROUP BY severity, code
 ORDER BY severity, code;
 "
+
+echo
+echo "========================================"
+echo "Deploy completed"
+echo "========================================"
 "@
 
-Run-Step "6. Обновление сервера" {
+Run-Step "6. Server update" {
     $RemoteScript | ssh $Server "bash -s"
 }
 
 Write-Host ""
 Write-Host "========================================"
-Write-Host "DEPLOY ЗАВЕРШЕН"
+Write-Host "DEPLOY COMPLETED"
 Write-Host "========================================"
