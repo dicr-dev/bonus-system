@@ -1,4 +1,4 @@
-﻿param(
+param(
     [string]$Message = "Update project",
     [string]$Month = "2026-08",
     [string]$Server = "root@45.90.217.67",
@@ -6,130 +6,81 @@
 )
 
 $ErrorActionPreference = "Stop"
-
 $RepoPath = "C:\Users\cruser\Documents\GitHub\bonus-system-prod"
 $BackendPath = Join-Path $RepoPath "backend"
 
 function Run-Step {
-    param(
-        [string]$Title,
-        [scriptblock]$Command
-    )
-
+    param([string]$Title,[scriptblock]$Command)
     Write-Host ""
     Write-Host "========================================"
     Write-Host $Title
     Write-Host "========================================"
-
     & $Command
-
-    if ($LASTEXITCODE -ne 0) {
-        throw "Failed step: $Title"
-    }
+    if ($LASTEXITCODE -ne 0) { throw "Failed step: $Title" }
 }
 
 Run-Step "1. Python compile check" {
     Set-Location $BackendPath
-    uv run python -m compileall -q src
+    uv run python -m compileall -q src migrations
 }
 
-Run-Step "2. Tests" {
+Run-Step "2. Backend tests" {
     Set-Location $BackendPath
     uv run pytest
 }
 
-Run-Step "3. Git add" {
+Run-Step "3. Frontend build" {
+    Set-Location (Join-Path $RepoPath "frontend")
+    npm run build
+}
+
+Run-Step "4. Git add" {
     Set-Location $RepoPath
     git add .
 }
 
 Set-Location $RepoPath
 $changes = git status --porcelain
-
 if ($changes) {
-    Run-Step "4. Git commit" {
-        git commit -m $Message
-    }
-
-    Run-Step "5. Git push" {
-        git push origin develop
-    }
-}
-else {
-    Write-Host ""
+    Run-Step "5. Git commit" { git commit -m $Message }
+    Run-Step "6. Git push" { git push origin develop }
+} else {
     Write-Host "No local changes. Commit and push skipped."
 }
 
 $RemoteScript = @"
-set -e
-
+set -euo pipefail
 cd "$ProjectPath"
 
-echo
-echo "========================================"
-echo "Git pull"
-echo "========================================"
+echo "=== Git pull ==="
 git pull origin develop
 
-echo
-echo "========================================"
-echo "Docker build / restart"
-echo "========================================"
-docker compose up -d --build backend worker
+echo "=== Build images ==="
+docker compose build backend worker frontend
 
-echo
-echo "========================================"
-echo "Docker status"
-echo "========================================"
+echo "=== Database migrations ==="
+docker compose run --rm backend alembic upgrade head
+
+echo "=== Restart services ==="
+docker compose up -d backend worker frontend
+
+echo "=== Containers ==="
 docker compose ps
 
-echo
-echo "========================================"
-echo "Diagnostics $Month"
-echo "========================================"
-curl -s -X POST "https://integration.crmicro.ru/api/v1/diagnostics/run?month=$Month" > /tmp/cr_diagnostics.json
-
+echo "=== Diagnostics $Month ==="
+curl -fsS -X POST "https://integration.crmicro.ru/api/v1/diagnostics/run?month=$Month" > /tmp/cr_diagnostics.json
 python3 - <<'PY'
 import json
-
-path = "/tmp/cr_diagnostics.json"
-
-try:
-    with open(path, "r", encoding="utf-8") as f:
-        data = json.load(f)
-    print("Diagnostics returned:", len(data), "issues")
-except Exception as exc:
-    print("Could not parse diagnostics JSON:", exc)
+with open('/tmp/cr_diagnostics.json', encoding='utf-8') as f:
+    data = json.load(f)
+print('Diagnostics returned:', len(data), 'issues')
 PY
 
-echo
-echo "========================================"
-echo "Diagnostics summary"
-echo "========================================"
-
-docker compose exec -T postgres psql \
-    -P pager=off \
-    -U cr_portal \
-    -d cr_portal \
-    -c "
-SELECT
-    severity,
-    code,
-    COUNT(*) AS count
-FROM calculation_issues
-WHERE month = DATE '${Month}-01'
-  AND calculation_id IS NULL
-GROUP BY severity, code
-ORDER BY severity, code;
-"
-
-echo
-echo "========================================"
-echo "Deploy completed"
-echo "========================================"
+echo "=== Diagnostics summary ==="
+docker compose exec -T postgres psql -P pager=off -U cr_portal -d cr_portal -c "SELECT severity, code, COUNT(*) AS count FROM calculation_issues WHERE month = DATE '${Month}-01' AND calculation_id IS NULL GROUP BY severity, code ORDER BY severity, code;"
 "@
 
-Run-Step "6. Server update" {
+Run-Step "7. Server deploy" {
     $RemoteScript | ssh $Server "bash -s"
 }
 

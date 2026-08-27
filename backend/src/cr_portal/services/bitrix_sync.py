@@ -6,7 +6,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from cr_portal.core.config import settings
+from cr_portal.services.app_settings import BusinessSettings, get_business_settings
 from cr_portal.integrations.bitrix.client import BitrixClient
 from cr_portal.models.deal import Deal
 from cr_portal.repositories.deals import DealRepository
@@ -22,32 +22,18 @@ STATUS_MAP = {
 }
 
 # Поле Bitrix24 «Направление (Модуль)».
-BITRIX_MODULE_FIELD = "ufCrm_1650618044049"
-
 ProgressCallback = Callable[
     [str, int, int],
     Awaitable[None],
 ]
 
 
-def funnels() -> dict[int, str]:
+def funnels(config: BusinessSettings) -> dict[int, str]:
     pairs = [
-        (
-            settings.BITRIX_TECH_INTEGRATION_CATEGORY_ID,
-            "tech_integration",
-        ),
-        (
-            settings.BITRIX_IMPLEMENTATION_CATEGORY_ID,
-            "implementation",
-        ),
-        (
-            settings.BITRIX_CR_START_CATEGORY_ID,
-            "cr_start",
-        ),
-        (
-            settings.BITRIX_SUPPORT_CATEGORY_ID,
-            "support",
-        ),
+        (config.tech_integration_category_id, "tech_integration"),
+        (config.implementation_category_id, "implementation"),
+        (config.cr_start_category_id, "cr_start"),
+        (config.support_category_id, "support"),
     ]
 
     return {
@@ -55,6 +41,7 @@ def funnels() -> dict[int, str]:
         for category_id, name in pairs
         if category_id is not None
     }
+
 
 
 def _dt(value: Any) -> datetime | None:
@@ -343,8 +330,9 @@ async def sync_deals(
         )
     )
 
+    business = await get_business_settings(session)
     total = 0
-    funnel_map = funnels()
+    funnel_map = funnels(business)
 
     #
     # ВАЖНО:
@@ -363,17 +351,19 @@ async def sync_deals(
         "createdTime",
         "updatedTime",
         "movedTime",
-        BITRIX_MODULE_FIELD,
+        business.field_module,
     ]
 
     custom_fields = [
-        settings.BITRIX_FIELD_MONTHLY_AMOUNT,
-        settings.BITRIX_FIELD_MACHINES_COUNT,
-        settings.BITRIX_FIELD_INTEGRATION_1C,
-        settings.BITRIX_FIELD_IMPLEMENTATION_RESPONSIBLE_ID,
-        settings.BITRIX_FIELD_SOURCE_DEAL_ID,
-        settings.BITRIX_FIELD_SALES_BONUS_USER_ID,
-        *settings.cr_start_boolean_fields,
+        business.field_monthly_amount,
+        business.field_machines_count,
+        business.field_integration_1c,
+        business.field_implementation_responsible_id,
+        business.field_source_deal_id,
+        business.field_sales_bonus_user_id,
+        business.field_client_works,
+        business.field_integration_amount,
+        *business.cr_start_boolean_fields,
     ]
 
     for field_name in (
@@ -541,40 +531,34 @@ async def sync_deals(
             )
 
             if (
-                settings
-                .BITRIX_FIELD_MONTHLY_AMOUNT
+                business.field_monthly_amount
             ):
                 deal.monthly_amount = (
                     _dec(
                         item.get(
-                            settings
-                            .BITRIX_FIELD_MONTHLY_AMOUNT
+                            business.field_monthly_amount
                         )
                     )
                 )
 
             if (
-                settings
-                .BITRIX_FIELD_MACHINES_COUNT
+                business.field_machines_count
             ):
                 deal.machines_count = (
                     _int(
                         item.get(
-                            settings
-                            .BITRIX_FIELD_MACHINES_COUNT
+                            business.field_machines_count
                         )
                     )
                 )
 
             if (
-                settings
-                .BITRIX_FIELD_INTEGRATION_1C
+                business.field_integration_1c
             ):
                 deal.integration_1c = (
                     _bool(
                         item.get(
-                            settings
-                            .BITRIX_FIELD_INTEGRATION_1C
+                            business.field_integration_1c
                         )
                     )
                 )
@@ -587,14 +571,12 @@ async def sync_deals(
             )
 
             if (
-                settings
-                .BITRIX_FIELD_IMPLEMENTATION_RESPONSIBLE_ID
+                business.field_implementation_responsible_id
             ):
                 implementation_user_bitrix_id = (
                     _int(
                         item.get(
-                            settings
-                            .BITRIX_FIELD_IMPLEMENTATION_RESPONSIBLE_ID
+                            business.field_implementation_responsible_id
                         )
                     )
                 )
@@ -622,14 +604,12 @@ async def sync_deals(
             )
 
             if (
-                settings
-                .BITRIX_FIELD_SALES_BONUS_USER_ID
+                business.field_sales_bonus_user_id
             ):
                 sales_user_bitrix_id = (
                     _int(
                         item.get(
-                            settings
-                            .BITRIX_FIELD_SALES_BONUS_USER_ID
+                            business.field_sales_bonus_user_id
                         )
                     )
                 )
@@ -657,14 +637,12 @@ async def sync_deals(
             # и используется bonus.py.
             #
             if (
-                settings
-                .BITRIX_FIELD_SOURCE_DEAL_ID
+                business.field_source_deal_id
             ):
                 deal.source_deal_bitrix_id = (
                     _int(
                         item.get(
-                            settings
-                            .BITRIX_FIELD_SOURCE_DEAL_ID
+                            business.field_source_deal_id
                         )
                     )
                     or None
