@@ -1,7 +1,9 @@
 from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID
+
 from pydantic import BaseModel, ConfigDict, Field
+
 
 class RuleConfig(BaseModel):
     divider: Decimal
@@ -13,43 +15,95 @@ class RuleConfig(BaseModel):
     implementation_thresholds: list[dict]
     current_clients_tiers: list[dict]
 
+
 class RuleCreate(BaseModel):
     effective_from: date
     config: RuleConfig
-    comment: str|None=None
+    comment: str | None = None
+
 
 class RuleVersionResponse(BaseModel):
-    model_config=ConfigDict(from_attributes=True)
-    id:UUID;version:int;effective_from:date;effective_to:date|None;config_json:str;comment:str|None;created_at:datetime
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    version: int
+    effective_from: date
+    effective_to: date | None
+    config_json: str
+    comment: str | None
+    created_at: datetime
+
 
 class CalculationResponse(BaseModel):
-    model_config=ConfigDict(from_attributes=True)
-    id:UUID;employee_id:UUID;period_from:date;period_to:date;month:date|None;version:int;status:str
-    rules_version:int|None;implementation_total:Decimal;tech_integration_total:Decimal;support_hours:Decimal
-    sales_total:Decimal;training_count:int;subtotal_dividable:Decimal;cr_start_fixed_total:Decimal
-    total_bonus:Decimal;issues_count:int;created_at:datetime
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    employee_id: UUID
+    employee_name: str | None = None
+    period_from: date
+    period_to: date
+    month: date | None
+    version: int
+    status: str
+    rules_version: int | None
+    implementation_total: Decimal
+    tech_integration_total: Decimal
+    support_hours: Decimal
+    sales_total: Decimal
+    training_count: int
+    subtotal_dividable: Decimal
+    cr_start_fixed_total: Decimal
+    total_bonus: Decimal
+    issues_count: int
+    created_at: datetime
+
 
 class CalculationItemResponse(BaseModel):
-    model_config=ConfigDict(from_attributes=True)
-    id:UUID;calculation_id:UUID;employee_id:UUID;deal_id:UUID|None;bonus_type:str;source_type:str
-    source_external_id:str|None;base_amount:Decimal;rate:Decimal;quantity:Decimal;amount_before_divider:Decimal
-    divider_applied:bool;amount_final:Decimal;description:str;details_json:str
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    calculation_id: UUID
+    employee_id: UUID
+    deal_id: UUID | None
+    deal_title: str | None = None
+    deal_bitrix_id: int | None = None
+    bonus_type: str
+    source_type: str
+    source_external_id: str | None
+    base_amount: Decimal
+    rate: Decimal
+    quantity: Decimal
+    amount_before_divider: Decimal
+    divider_applied: bool
+    amount_final: Decimal
+    description: str
+    details_json: str
+
 
 class CalculationDetail(CalculationResponse):
-    employee_name:str
-    items:list[CalculationItemResponse]
+    employee_name: str
+    items: list[CalculationItemResponse]
+
 
 class ManualEventCreate(BaseModel):
-    event_date:date
-    employee_id:UUID
-    deal_id:UUID|None=None
-    event_type:str=Field(pattern="^(support_hours|training)$")
-    quantity:Decimal=Decimal("1")
-    comment:str|None=None
+    event_date: date
+    employee_id: UUID
+    deal_id: UUID | None = None
+    event_type: str = Field(pattern="^(support_hours|training)$")
+    quantity: Decimal = Decimal("1")
+    comment: str | None = None
+
 
 class ManualEventResponse(BaseModel):
-    model_config=ConfigDict(from_attributes=True)
-    id:UUID;event_date:date;employee_id:UUID;deal_id:UUID|None;event_type:str;quantity:Decimal;comment:str|None
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    event_date: date
+    employee_id: UUID
+    deal_id: UUID | None
+    event_type: str
+    quantity: Decimal
+    comment: str | None
 
 
 # Backward-compatible aggregate calculator schema.

@@ -83,19 +83,135 @@ function Bonuses(){
  const q=useQuery({queryKey:['calc',month],queryFn:()=>getCalculations(month)})
  const detail=useQuery({queryKey:['calc-detail',id],queryFn:()=>getCalculation(id!),enabled:Boolean(id)})
  const run=useMutation({mutationFn:()=>runCalculation(month),onSuccess:()=>{message.success('Новая версия расчета создана');void qc.invalidateQueries({queryKey:['calc',month]})}})
+
  const cols:ColumnsType<Calculation>=[
-  {title:'Сотрудник ID',dataIndex:'employee_id',ellipsis:true},{title:'Версия',dataIndex:'version'},
-  {title:'Внедрение база',dataIndex:'implementation_total',render:rub},{title:'Тех интеграция база',dataIndex:'tech_integration_total',render:rub},
-  {title:'Часы',dataIndex:'support_hours'},{title:'Итого',dataIndex:'total_bonus',render:v=><b>{rub(v)}</b>},
+  {title:'Сотрудник',dataIndex:'employee_name',render:(v:string|null)=>v??'—'},
+  {title:'Версия',dataIndex:'version'},
+  {title:'Внедрение база',dataIndex:'implementation_total',render:rub},
+  {title:'Тех интеграция база',dataIndex:'tech_integration_total',render:rub},
+  {title:'Часы',dataIndex:'support_hours'},
+  {title:'Итого',dataIndex:'total_bonus',render:v=><b>{rub(v)}</b>},
   {title:'',render:(_,r)=><Button onClick={()=>setId(r.id)}>Детализация</Button>}
  ]
- const icols=[{title:'Тип',dataIndex:'bonus_type',render:(v:string)=>BONUS[v]??v},{title:'Источник',dataIndex:'source_external_id'},{title:'База',dataIndex:'base_amount',render:rub},{title:'Ставка',dataIndex:'rate'},{title:'До 2.5',dataIndex:'amount_before_divider',render:rub},{title:'2.5',dataIndex:'divider_applied',render:(v:boolean)=>v?'Да':'Нет'},{title:'Итого',dataIndex:'amount_final',render:rub}]
+
+ type Item = CalculationDetail['items'][number]
+
+ const groups=[
+  ['tech_integration','Технические интеграции'],
+  ['implementation','Внедрение'],
+  ['cr_start_fixed','CR Start фиксированный'],
+  ['cr_start_implementation','CR Start как внедрение'],
+  ['current_client','Текущие клиенты'],
+  ['support_hours','Часы по задачам текущих клиентов'],
+  ['training','Обучение'],
+  ['sale','Продажи']
+ ] as const
+
+ const baseValue=(item:Item)=>{
+  if(item.bonus_type==='current_client')return `${num(item.base_amount)} машин`
+  if(item.bonus_type==='support_hours')return `${num(item.quantity)} ч`
+  if(item.bonus_type==='training')return `${num(item.quantity)} шт.`
+  return rub(item.base_amount)
+ }
+
+ const rateValue=(item:Item)=>{
+  if(item.bonus_type==='current_client')return rub(item.rate)
+  if(item.bonus_type==='support_hours')return `${rub(item.rate)}/ч`
+  if(item.bonus_type==='training')return rub(item.rate)
+  return `${num(Number(item.rate)*100)}%`
+ }
+
+ const sourceValue=(item:Item)=>{
+  if(item.deal_title)return item.deal_title
+  if(item.description)return item.description
+  return '—'
+ }
+
+ const itemColumns:ColumnsType<Item>=[
+  {title:'Сделка / источник',render:(_,item)=><div><div>{sourceValue(item)}</div>{(item.deal_bitrix_id??item.source_external_id)&&<Text type="secondary">ID {item.deal_bitrix_id??item.source_external_id}</Text>}</div>},
+  {title:'База',render:(_,item)=>baseValue(item),align:'right'},
+  {title:'Ставка',render:(_,item)=>rateValue(item),align:'right'},
+  {title:'Начислено',dataIndex:'amount_before_divider',render:rub,align:'right'},
+  {title:'Делится на 2,5',dataIndex:'divider_applied',render:(v:boolean)=>v?'Да':'Нет',align:'center'},
+  {title:'К выплате',dataIndex:'amount_final',render:(v:string)=><b>{rub(v)}</b>,align:'right'}
+ ]
+
+ const renderDetail=()=>{
+  if(!detail.data)return null
+  const data=detail.data
+
+  return <>
+   <Descriptions bordered size="small" column={3}>
+    <Descriptions.Item label="Итого">{rub(data.total_bonus)}</Descriptions.Item>
+    <Descriptions.Item label="Версия">{data.version}</Descriptions.Item>
+    <Descriptions.Item label="Делимая часть">{rub(data.subtotal_dividable)}</Descriptions.Item>
+   </Descriptions>
+
+   <Space direction="vertical" size={16} style={{width:'100%',marginTop:20}}>
+    {groups.map(([type,title])=>{
+      const items=data.items.filter(item=>item.bonus_type===type)
+      if(items.length===0)return null
+      const total=items.reduce((sum,item)=>sum+Number(item.amount_final||0),0)
+
+      return <Card
+       key={type}
+       size="small"
+       title={title}
+       extra={<Text strong>Итого: {rub(total)}</Text>}
+      >
+       <Table
+        rowKey="id"
+        columns={itemColumns}
+        dataSource={items}
+        pagination={false}
+        size="small"
+        scroll={{x:900}}
+       />
+      </Card>
+    })}
+
+    {data.items.length===0&&<Alert type="warning" showIcon message="В расчете нет детализации начислений."/>}
+
+    {!data.items.some(item=>item.bonus_type==='support_hours')&&
+     <Alert
+      type="warning"
+      showIcon
+      message="Часы по задачам текущих клиентов отсутствуют в расчете"
+      description="Это не проблема отображения: backend не вернул ни одного начисления support_hours для этого сотрудника и месяца."
+     />}
+   </Space>
+  </>
+ }
+
  return <Space direction="vertical" size={24} style={{width:'100%'}}>
-  <Row justify="space-between"><Title level={2}>Расчет премий</Title><Space><Month value={month} onChange={setMonth}/><Button type="primary" loading={run.isPending} onClick={()=>run.mutate()}>Пересчитать</Button><Button icon={<DownloadOutlined/>} href={excelUrl(month)}>Excel</Button></Space></Row>
+  <Row justify="space-between">
+   <Title level={2}>Расчет премий</Title>
+   <Space>
+    <Month value={month} onChange={setMonth}/>
+    <Button type="primary" loading={run.isPending} onClick={()=>run.mutate()}>Пересчитать</Button>
+    <Button icon={<DownloadOutlined/>} href={excelUrl(month)}>Excel</Button>
+   </Space>
+  </Row>
+
   <Alert type="info" showIcon message="Каждый перерасчет создает новую версию; история не перезаписывается."/>
-  <Card><Table rowKey="id" columns={cols} dataSource={q.data??[]} loading={q.isLoading} scroll={{x:1100}}/></Card>
-  <Drawer open={Boolean(id)} onClose={()=>setId(null)} width={1000} title={detail.data?.employee_name??'Детализация'}>
-   {detail.data&&<><Descriptions bordered size="small"><Descriptions.Item label="Итого">{rub(detail.data.total_bonus)}</Descriptions.Item><Descriptions.Item label="Версия">{detail.data.version}</Descriptions.Item><Descriptions.Item label="Делимая часть">{rub(detail.data.subtotal_dividable)}</Descriptions.Item></Descriptions><Table style={{marginTop:20}} rowKey="id" columns={icols} dataSource={detail.data.items} pagination={false}/></>}
+
+  <Card>
+   <Table
+    rowKey="id"
+    columns={cols}
+    dataSource={q.data??[]}
+    loading={q.isLoading}
+    scroll={{x:1100}}
+   />
+  </Card>
+
+  <Drawer
+   open={Boolean(id)}
+   onClose={()=>setId(null)}
+   width={1200}
+   title={detail.data?.employee_name??'Детализация'}
+  >
+   {renderDetail()}
   </Drawer>
  </Space>
 }
@@ -146,4 +262,5 @@ export default function App(){
   <Layout><Header className="app-header"><Text strong>CR Integration Portal</Text><Tag color="green" icon={<CheckCircleOutlined/>}>Bitrix24 подключён</Tag></Header><Content className="app-content"><div className="content-container">{content}</div></Content></Layout>
  </Layout>
 }
+
 
