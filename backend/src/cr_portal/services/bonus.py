@@ -61,6 +61,39 @@ def raw_value(deal: Deal, field_name: str):
     return data.get(field_name)
 
 
+def raw_decimal(deal: Deal, field_name: str) -> Decimal:
+    """Parse Bitrix numeric/money field values safely.
+
+    Bitrix money fields can arrive as plain numbers or strings such as
+    "42500|RUB". Invalid/empty values are treated as zero so one malformed
+    deal cannot abort the entire monthly calculation.
+    """
+    value = raw_value(deal, field_name)
+    if value in (None, ""):
+        return Decimal("0")
+
+    if isinstance(value, (int, float, Decimal)):
+        try:
+            return Decimal(str(value))
+        except Exception:
+            return Decimal("0")
+
+    raw = str(value).strip()
+    if not raw:
+        return Decimal("0")
+
+    # CRM money fields commonly use "<amount>|<currency>".
+    if "|" in raw:
+        raw = raw.split("|", 1)[0].strip()
+
+    # Be tolerant of spaces/non-breaking spaces and decimal comma.
+    raw = raw.replace("\u00a0", "").replace(" ", "").replace(",", ".")
+
+    try:
+        return Decimal(raw)
+    except Exception:
+        return Decimal("0")
+
 def raw_date(deal: Deal, field_name: str) -> date | None:
     value = raw_value(deal, field_name)
     if value in (None, ""):
@@ -570,7 +603,7 @@ async def calculate_month(
         if not employee_id or not deal.integration_1c:
             continue
 
-        base = Decimal(raw_value(deal, business.field_integration_amount) or 0)
+        base = raw_decimal(deal, business.field_integration_amount)
         if base <= 0:
             continue
         rate = decimal(rules["tech_integration_rate"])
