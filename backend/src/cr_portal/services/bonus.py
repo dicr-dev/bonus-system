@@ -1,4 +1,4 @@
-import json
+﻿import json
 from collections import defaultdict
 from datetime import date, datetime, time, timezone
 from decimal import Decimal, ROUND_HALF_UP
@@ -356,7 +356,10 @@ async def diagnose_month(session: AsyncSession, month: date):
         select(Deal).where(
             Deal.funnel == "cr_start",
             Deal.status == "won",
-            Deal.closed_time >= dt(start3),
+            # Для CR Start closed_time хранит movedTime успешной стадии
+            # "Коммерческое использование". В расчёт попадают только
+            # сделки, перешедшие на эту стадию в выбранном месяце.
+            Deal.closed_time >= dt(month),
             Deal.closed_time < dt(end),
         )
     )
@@ -588,6 +591,12 @@ async def calculate_month(
             - closed_month.month
         )
         if delta not in {0, 1, 2}:
+            continue
+
+        # Обычное Внедрение может участвовать в расчёте 3 месяца.
+        # CR Start начисляется только в месяце перехода сделки
+        # на успешную стадию "Коммерческое использование".
+        if deal.funnel == "cr_start" and delta != 0:
             continue
 
         if deal.funnel == "cr_start":
@@ -999,3 +1008,4 @@ def calculate_bonus(data: BonusInput) -> BonusResult:
         subtotal=subtotal,
         total=total,
     )
+
