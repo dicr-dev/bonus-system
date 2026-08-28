@@ -1,4 +1,4 @@
-import json
+﻿import json
 from collections.abc import Awaitable, Callable
 from datetime import datetime
 from decimal import Decimal
@@ -363,6 +363,7 @@ async def sync_deals(
         business.field_sales_bonus_user_id,
         business.field_client_works,
         business.field_integration_amount,
+        business.field_cr_start_commercial_use_date,
         *business.cr_start_boolean_fields,
     ]
 
@@ -729,3 +730,4 @@ async def sync_deals(
             )
 
     return total
+
