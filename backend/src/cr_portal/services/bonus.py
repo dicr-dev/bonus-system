@@ -416,7 +416,7 @@ async def diagnose_month(session: AsyncSession, month: date):
         )
         if (
             commercial_use_date is None
-            or not (month <= commercial_use_date < end)
+            or not (start3 <= commercial_use_date < end)
         ):
             continue
         if deal.implementation_responsible_user_id is None:
@@ -670,18 +670,19 @@ async def calculate_month(
             deal,
             business.field_cr_start_commercial_use_date,
         )
-        if (
-            commercial_use_date is None
-            or not (month <= commercial_use_date < end)
-        ):
-            continue
-
         fields = business.cr_start_boolean_fields
         if not fields:
             continue
 
         values = [raw_value(deal, field) for field in fields]
         is_fixed = any(truthy(value) for value in values)
+
+        if commercial_use_date is None:
+            continue
+        if is_fixed and not (month <= commercial_use_date < end):
+            continue
+        if not is_fixed and not (start3 <= commercial_use_date < end):
+            continue
 
         if is_fixed:
             fixed = decimal(rules["cr_start_fixed"])
@@ -703,7 +704,11 @@ async def calculate_month(
             continue
 
         eligible[employee_id].append(
-            (deal, "cr_start_implementation", month)
+            (
+                deal,
+                "cr_start_implementation",
+                month_start(commercial_use_date),
+            )
         )
     for employee_id, rows in eligible.items():
         initial_totals = defaultdict(lambda: Decimal("0"))
