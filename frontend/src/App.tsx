@@ -29,7 +29,8 @@ const monthNow=()=>{const d=new Date();return `${d.getFullYear()}-${String(d.get
 const Month=({value,onChange}:{value:string;onChange:(v:string)=>void})=><Input type="month" value={value} onChange={e=>onChange(e.target.value)} style={{width:180}}/>
 
 function Dashboard(){
- const q=useQuery({queryKey:['dashboard'],queryFn:getDashboard,refetchInterval:60000})
+ const [month,setMonth]=useState(monthNow())
+ const q=useQuery({queryKey:['dashboard',month],queryFn:()=>getDashboard(month),refetchInterval:60000})
  if(q.isLoading)return <Card loading/>
  if(!q.data)return <Alert type="error" message="Не удалось загрузить дашборд"/>
  const fcols:ColumnsType<FunnelSummary>=[
@@ -43,13 +44,20 @@ function Dashboard(){
  ]
  const d=q.data
  return <Space direction="vertical" size={24} style={{width:'100%'}}>
-  <Title level={2}>Главная</Title>
+  <Row justify="space-between"><Title level={2}>Главная</Title><Month value={month} onChange={setMonth}/></Row>
   <Row gutter={[16,16]}>
    <Col xs={24} md={6}><Card><Statistic title="Сделок в работе" value={d.active_deals}/></Card></Col>
    <Col xs={24} md={6}><Card><Statistic title="Оплата в месяц" value={Number(d.monthly_amount)} formatter={v=>rub(Number(v))}/></Card></Col>
    <Col xs={24} md={6}><Card><Statistic title="Машин" value={d.machines_count}/></Card></Col>
    <Col xs={24} md={6}><Card><Statistic title="Интеграций 1С" value={d.integration_1c_deals}/></Card></Col>
   </Row>
+  <Card title={`Сумма переданных на подписку сделок за ${month}`}>
+   <Row gutter={[16,16]}>
+    <Col xs={24} md={8}><Statistic title="Воронка «Внедрение»" value={Number(d.subscription_implementation_amount)} formatter={v=>rub(Number(v))}/></Col>
+    <Col xs={24} md={8}><Statistic title="Воронка «CR Start»" value={Number(d.subscription_cr_start_amount)} formatter={v=>rub(Number(v))}/></Col>
+    <Col xs={24} md={8}><Statistic title="Итого" value={Number(d.subscription_total_amount)} formatter={v=>rub(Number(v))}/></Col>
+   </Row>
+  </Card>
   <Card title="Воронки"><Table rowKey="funnel" columns={fcols} dataSource={d.funnels} pagination={false}/></Card>
   <Card title="Ответственные за внедрение"><Table rowKey="user_id" columns={rcols} dataSource={d.responsibles} pagination={{pageSize:20}}/></Card>
  </Space>
@@ -192,7 +200,6 @@ function Bonuses(){
     <Button icon={<DownloadOutlined/>} href={excelUrl(month)}>Excel</Button>
    </Space>
   </Row>
-
   <Alert type="info" showIcon message="Каждый перерасчет создает новую версию; история не перезаписывается."/>
 
   <Card>
