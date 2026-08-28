@@ -406,6 +406,7 @@ async def diagnose_month(session: AsyncSession, month: date):
     cr_start_result = await session.execute(
         select(Deal).where(
             Deal.funnel == "cr_start",
+            Deal.status == "in_progress",
         )
     )
     for deal in cr_start_result.scalars().all():
@@ -650,11 +651,14 @@ async def calculate_month(
         if Decimal(deal.monthly_amount or 0) <= 0:
             continue
 
-        eligible[employee_id].append((deal, "implementation"))
+        eligible[employee_id].append(
+            (deal, "implementation", closed_month)
+        )
 
     cr_start_result = await session.execute(
         select(Deal).where(
             Deal.funnel == "cr_start",
+            Deal.status == "in_progress",
         )
     )
     for deal in cr_start_result.scalars().all():
@@ -699,17 +703,21 @@ async def calculate_month(
             continue
 
         eligible[employee_id].append(
-            (deal, "cr_start_implementation")
+            (deal, "cr_start_implementation", month)
         )
     for employee_id, rows in eligible.items():
-        total = sum(
-            (Decimal(deal.monthly_amount or 0) for deal, _ in rows),
-            Decimal("0"),
-        )
-        rate = implementation_rate(total, rules)
+        initial_totals = defaultdict(lambda: Decimal("0"))
+        for deal, _, initial_month in rows:
+            initial_totals[initial_month] += Decimal(
+                deal.monthly_amount or 0
+            )
 
-        for deal, bonus_type in rows:
+        for deal, bonus_type, initial_month in rows:
             base = Decimal(deal.monthly_amount or 0)
+            rate = implementation_rate(
+                initial_totals[initial_month],
+                rules,
+            )
             before = money(base * rate)
             contributions[employee_id].append(
                 (
