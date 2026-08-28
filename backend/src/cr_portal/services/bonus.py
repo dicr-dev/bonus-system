@@ -1,4 +1,4 @@
-﻿import json
+import json
 from collections import defaultdict
 from datetime import date, datetime, time, timezone
 from decimal import Decimal, ROUND_HALF_UP
@@ -350,257 +350,6 @@ async def diagnose_month(session: AsyncSession, month: date):
         )
     )
     for deal in implementation_result.scalars().all():
-        if deal.implementation_responsible_user_id is None:
-            await add_issue(
-                session,
-                month,
-                "critical",
-                "NO_IMPLEMENTATION_RESPONSIBLE",
-                "Нет «Ответственного за внедрение».",
-                deal_id=deal.id,
-            )
-        if Decimal(deal.monthly_amount or 0) <= 0:
-            await add_issue(
-                session,
-                month,
-                "critical",
-                "NO_MONTHLY_AMOUNT",
-                "Нет суммы оплаты в месяц.",
-                employee_id=deal.implementation_responsible_user_id,
-                deal_id=deal.id,
-            )
-
-    cr_start_result = await session.execute(
-        select(Deal).where(
-            Deal.funnel == "cr_start",
-        )
-    )
-    for deal in cr_start_result.scalars().all():
-        commercial_use_date = raw_date(
-            deal,
-            business.field_cr_start_commercial_use_date,
-        )
-        if (
-            commercial_use_date is None
-            or not (month <= commercial_use_date < end)
-        ):
-            continue
-        if deal.implementation_responsible_user_id is None:
-            await add_issue(
-                session,
-                month,
-                "critical",
-                "NO_IMPLEMENTATION_RESPONSIBLE",
-                "Нет «Ответственного за внедрение».",
-                deal_id=deal.id,
-            )
-
-        fields = business.cr_start_boolean_fields
-        if not fields:
-            continue
-
-        values = [raw_value(deal, field) for field in fields]
-        is_fixed = any(truthy(value) for value in values)
-        if is_fixed:
-            continue
-
-        if Decimal(deal.monthly_amount or 0) <= 0:
-            await add_issue(
-                session,
-                month,
-                "critical",
-                "NO_MONTHLY_AMOUNT",
-                "Нет суммы оплаты в месяц для CR Start, рассчитываемого как внедрение.",
-                employee_id=deal.implementation_responsible_user_id,
-                deal_id=deal.id,
-            )
-
-    if business.field_source_deal_id:
-        period_end_exclusive = end_of_month_dt(month)
-
-        support_result = await session.execute(
-            select(Deal).where(
-                Deal.funnel == "support",
-                *active_on_date_conditions(period_end_exclusive),
-            )
-        )
-
-        for deal in support_result.scalars().all():
-            implementations = await linked_implementation_deals(
-                session,
-                deal,
-                business.field_source_deal_id,
-            )
-
-            #
-            # Если среди связанных сделок есть Внедрение,
-            # которое было активно на конец месяца,
-            # клиент еще не считается текущим.
-            #
-            active_implementation_exists = any(
-                deal_active_at_period_end(
-                    implementation,
-                    period_end_exclusive,
-                )
-                for implementation in implementations
-            )
-
-            if active_implementation_exists:
-                continue
-
-            #
-            # Если ссылки на Внедрение нет или Внедрение
-            # среди связанных ID не найдено, бонус это НЕ блокирует.
-            # Но диагностика должна показать проблему связи.
-            #
-            if not implementations:
-                linked_ids = linked_deal_ids(deal, business.field_source_deal_id)
-
-                issue = await add_issue(
-                    session,
-                    month,
-                    "warning",
-                    "SUPPORT_WITHOUT_IMPLEMENTATION_LINK",
-                    (
-                        "У активной сделки Сопровождения "
-                        "нет ссылки на сделку Внедрения."
-                    ),
-                    deal_id=deal.id,
-                )
-
-                issue.details_json = json.dumps(
-                    {
-                        "support_bitrix_id": deal.bitrix_id,
-                        "support_title": deal.title,
-                        "linked_bitrix_ids": linked_ids,
-                    },
-                    ensure_ascii=False,
-                )
-
-            #
-            # Ответственного для бонуса текущего клиента
-            # ВСЕГДА берем из самой сделки Сопровождения.
-            #
-            if (
-                deal.implementation_responsible_user_id
-                is None
-            ):
-                await add_issue(
-                    session,
-                    month,
-                    "critical",
-                    "NO_IMPLEMENTATION_RESPONSIBLE",
-                    (
-                        "У сделки Сопровождения нет "
-                        "«Ответственного за внедрение». "
-                        "Бонус текущего клиента начислить некому."
-                    ),
-                    deal_id=deal.id,
-                )
-
-            #
-            # Количество машин также всегда берем
-            # из сделки Сопровождения.
-            #
-            if deal.machines_count <= 0:
-                await add_issue(
-                    session,
-                    month,
-                    "warning",
-                    "NO_MACHINES",
-                    (
-                        "Нет количества машин у активного "
-                        "клиента сопровождения."
-                    ),
-                    employee_id=(
-                        deal.implementation_responsible_user_id
-                    ),
-                    deal_id=deal.id,
-                )
-
-    await session.flush()
-
-    result = await session.execute(
-        select(CalculationIssue)
-        .where(CalculationIssue.month == month)
-        .order_by(CalculationIssue.severity, CalculationIssue.code)
-    )
-    return list(result.scalars().all())
-
-
-async def latest_version(session: AsyncSession, employee_id, month):
-    result = await session.execute(
-        select(func.max(BonusCalculation.version)).where(
-            BonusCalculation.employee_id == employee_id,
-            BonusCalculation.month == month,
-        )
-    )
-    return int(result.scalar_one_or_none() or 0) + 1
-
-
-async def calculate_month(
-    session: AsyncSession,
-    month: date,
-    initiated_by_id: UUID | None = None,
-):
-    month = month_start(month)
-    end = add_months(month, 1)
-    period_to = date.fromordinal(end.toordinal() - 1)
-
-    business = await get_business_settings(session)
-    rules_version, rules = await get_rules(session, month)
-    issues = await diagnose_month(session, month)
-
-    users_result = await session.execute(select(User))
-    users = users_result.scalars().all()
-    user_ids = {user.id for user in users}
-
-    contributions = defaultdict(list)
-
-    tech_result = await session.execute(
-        select(Deal).where(
-            Deal.funnel == "tech_integration",
-            Deal.status == "won",
-            Deal.closed_time >= dt(month),
-            Deal.closed_time < dt(end),
-        )
-    )
-    for deal in tech_result.scalars().all():
-        employee_id = deal.implementation_responsible_user_id
-        if not employee_id or not deal.integration_1c:
-            continue
-
-        base = Decimal(raw_value(deal, business.field_integration_amount) or 0)
-        if base <= 0:
-            continue
-        rate = decimal(rules["tech_integration_rate"])
-        before = money(base * rate)
-
-        contributions[employee_id].append(
-            (
-                deal,
-                "tech_integration",
-                base,
-                rate,
-                Decimal("1"),
-                before,
-                True,
-                "Тех интеграция: 50% × «Сумма за интеграцию»",
-            )
-        )
-
-    eligible = defaultdict(list)
-    start3 = add_months(month, -2)
-
-    implementation_result = await session.execute(
-        select(Deal).where(
-            Deal.funnel.in_(["implementation", "cr_start"]),
-            Deal.status == "won",
-            Deal.closed_time >= dt(start3),
-            Deal.closed_time < dt(end),
-        )
-    )
-    for deal in implementation_result.scalars().all():
         employee_id = deal.implementation_responsible_user_id
         if not employee_id or not deal.closed_time:
             continue
@@ -614,47 +363,73 @@ async def calculate_month(
         if delta not in {0, 1, 2}:
             continue
 
-        # Обычное Внедрение может участвовать в расчёте 3 месяца.
-        # CR Start начисляется только в месяце перехода сделки
-        # на успешную стадию "Коммерческое использование".
-        if deal.funnel == "cr_start" and delta != 0:
+        if Decimal(deal.monthly_amount or 0) <= 0:
             continue
 
-        if deal.funnel == "cr_start":
-            fields = business.cr_start_boolean_fields
-            if not fields:
-                continue
+        eligible[employee_id].append(
+            (deal, "implementation")
+        )
 
-            values = [raw_value(deal, field) for field in fields]
-            is_fixed = any(truthy(value) for value in values)
+    cr_start_result = await session.execute(
+        select(Deal).where(
+            Deal.funnel == "cr_start",
+        )
+    )
+    for deal in cr_start_result.scalars().all():
+        employee_id = deal.implementation_responsible_user_id
+        if not employee_id:
+            continue
 
-            if is_fixed:
-                if delta == 0:
-                    fixed = decimal(rules["cr_start_fixed"])
-                    contributions[employee_id].append(
-                        (
-                            deal,
-                            "cr_start_fixed",
-                            fixed,
-                            Decimal("1"),
-                            Decimal("1"),
-                            fixed,
-                            False,
-                            "CR Start: фиксированный бонус 10 000 ₽",
-                        )
-                    )
-                continue
+        commercial_use_date = raw_date(
+            deal,
+            business.field_cr_start_commercial_use_date,
+        )
+        if (
+            commercial_use_date is None
+            or not (month <= commercial_use_date < end)
+        ):
+            continue
+
+        fields = business.cr_start_boolean_fields
+        if not fields:
+            continue
+
+        values = [
+            raw_value(deal, field)
+            for field in fields
+        ]
+        is_fixed = any(
+            truthy(value)
+            for value in values
+        )
+
+        if is_fixed:
+            fixed = decimal(
+                rules["cr_start_fixed"]
+            )
+            contributions[employee_id].append(
+                (
+                    deal,
+                    "cr_start_fixed",
+                    fixed,
+                    Decimal("1"),
+                    Decimal("1"),
+                    fixed,
+                    False,
+                    "CR Start: фиксированный бонус 10 000 ₽",
+                )
+            )
+            continue
 
         if Decimal(deal.monthly_amount or 0) <= 0:
             continue
 
-        bonus_type = (
-            "cr_start_implementation"
-            if deal.funnel == "cr_start"
-            else "implementation"
+        eligible[employee_id].append(
+            (
+                deal,
+                "cr_start_implementation",
+            )
         )
-        eligible[employee_id].append((deal, bonus_type))
-
     for employee_id, rows in eligible.items():
         total = sum(
             (Decimal(deal.monthly_amount or 0) for deal, _ in rows),
