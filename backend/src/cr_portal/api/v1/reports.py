@@ -35,7 +35,7 @@ async def dashboard(month: str | None = None, session:AsyncSession=Depends(db_se
     )
     business = await get_business_settings(session)
     implementation_amount = await session.scalar(
-        select(func.coalesce(func.sum(Deal.monthly_amount), 0)).where(
+        select(func.coalesce(func.sum(Deal.opportunity), 0)).where(
             Deal.funnel == "implementation",
             Deal.status == "won",
             Deal.closed_time >= selected_month,
@@ -44,7 +44,10 @@ async def dashboard(month: str | None = None, session:AsyncSession=Depends(db_se
     )
     cr_start_amount = Decimal("0")
     cr_start_result = await session.execute(
-        select(Deal).where(Deal.funnel == "cr_start")
+        select(Deal).where(
+            Deal.funnel == "cr_start",
+            Deal.status == "in_progress",
+        )
     )
     for deal in cr_start_result.scalars().all():
         commercial_use_date = raw_date(
@@ -52,7 +55,7 @@ async def dashboard(month: str | None = None, session:AsyncSession=Depends(db_se
             business.field_cr_start_commercial_use_date,
         )
         if commercial_use_date and selected_month <= commercial_use_date < next_month:
-            cr_start_amount += Decimal(deal.monthly_amount or 0)
+            cr_start_amount += Decimal(deal.opportunity or 0)
     t=(await session.execute(select(func.count(Deal.id),func.coalesce(func.sum(Deal.monthly_amount),0),func.coalesce(func.sum(Deal.machines_count),0),func.count(Deal.id).filter(Deal.integration_1c.is_(True))).where(Deal.status=="in_progress"))).one()
     fr=await session.execute(select(Deal.funnel,func.count(Deal.id),func.coalesce(func.sum(Deal.monthly_amount),0),func.coalesce(func.sum(Deal.machines_count),0),func.count(Deal.id).filter(Deal.integration_1c.is_(True))).where(Deal.status=="in_progress").group_by(Deal.funnel).order_by(Deal.funnel))
     funnels=[FunnelSummary(funnel=x[0],active_deals=x[1],monthly_amount=Decimal(x[2] or 0),machines_count=int(x[3] or 0),integration_1c_deals=x[4]) for x in fr.all()]
