@@ -61,6 +61,24 @@ def raw_value(deal: Deal, field_name: str):
     return data.get(field_name)
 
 
+def raw_date(deal: Deal, field_name: str) -> date | None:
+    value = raw_value(deal, field_name)
+    if value in (None, ""):
+        return None
+
+    raw = str(value).strip()
+    if not raw:
+        return None
+
+    try:
+        return datetime.fromisoformat(raw.replace("Z", "+00:00")).date()
+    except ValueError:
+        try:
+            return date.fromisoformat(raw[:10])
+        except ValueError:
+            return None
+
+
 def truthy(value) -> bool:
     if isinstance(value, bool):
         return value
@@ -355,15 +373,18 @@ async def diagnose_month(session: AsyncSession, month: date):
     cr_start_result = await session.execute(
         select(Deal).where(
             Deal.funnel == "cr_start",
-            Deal.status == "won",
-            # Для CR Start closed_time хранит movedTime успешной стадии
-            # "Коммерческое использование". В расчёт попадают только
-            # сделки, перешедшие на эту стадию в выбранном месяце.
-            Deal.closed_time >= dt(month),
-            Deal.closed_time < dt(end),
         )
     )
     for deal in cr_start_result.scalars().all():
+        commercial_use_date = raw_date(
+            deal,
+            business.field_cr_start_commercial_use_date,
+        )
+        if (
+            commercial_use_date is None
+            or not (month <= commercial_use_date < end)
+        ):
+            continue
         if deal.implementation_responsible_user_id is None:
             await add_issue(
                 session,
@@ -1008,4 +1029,5 @@ def calculate_bonus(data: BonusInput) -> BonusResult:
         subtotal=subtotal,
         total=total,
     )
+
 

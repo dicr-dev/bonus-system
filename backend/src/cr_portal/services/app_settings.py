@@ -1,4 +1,4 @@
-from dataclasses import asdict, dataclass
+﻿from dataclasses import asdict, dataclass
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -24,6 +24,7 @@ class BusinessSettings:
     task_training_bonus_field: str
     field_module: str
     field_integration_amount: str
+    field_cr_start_commercial_use_date: str
 
 
 KEYS = {
@@ -42,6 +43,7 @@ KEYS = {
     "task_training_bonus_field": "BITRIX_TASK_TRAINING_BONUS_FIELD",
     "field_module": "BITRIX_FIELD_MODULE",
     "field_integration_amount": "BITRIX_FIELD_INTEGRATION_AMOUNT",
+    "field_cr_start_commercial_use_date": "BITRIX_FIELD_CR_START_COMMERCIAL_USE_DATE",
 }
 
 
@@ -101,6 +103,7 @@ async def get_business_settings(session: AsyncSession) -> BusinessSettings:
         task_training_bonus_field=value("task_training_bonus_field"),
         field_module=value("field_module") or "ufCrm_1650618044049",
         field_integration_amount=value("field_integration_amount"),
+        field_cr_start_commercial_use_date=(value("field_cr_start_commercial_use_date") or "ufCrm_1766747976363"),
     )
 
 
@@ -133,3 +136,4 @@ async def save_app_settings(session: AsyncSession, data: dict) -> BusinessSettin
 
     await session.commit()
     return await get_business_settings(session)
+
