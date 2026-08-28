@@ -31,7 +31,7 @@ Run-Step "2. Backend tests" {
 
 Run-Step "3. Frontend build" {
     Set-Location (Join-Path $RepoPath "frontend")
-    npm run build
+    npm.cmd run build
 }
 
 Run-Step "4. Git add" {
@@ -55,8 +55,17 @@ cd "$ProjectPath"
 echo "=== Git pull ==="
 git pull origin develop
 
-echo "=== Build images ==="
-docker compose build backend worker frontend
+echo "=== Memory before build ==="
+free -h
+
+echo "=== Build backend ==="
+docker compose build backend
+
+echo "=== Build worker ==="
+docker compose build worker
+
+echo "=== Build frontend ==="
+docker compose build frontend
 
 echo "=== Database migrations ==="
 docker compose run --rm backend alembic upgrade head
@@ -66,6 +75,9 @@ docker compose up -d backend worker frontend
 
 echo "=== Containers ==="
 docker compose ps
+
+echo "=== Memory after deploy ==="
+free -h
 
 echo "=== Diagnostics $Month ==="
 curl -fsS -X POST "https://integration.crmicro.ru/api/v1/diagnostics/run?month=$Month" > /tmp/cr_diagnostics.json
@@ -81,7 +93,7 @@ docker compose exec -T postgres psql -P pager=off -U cr_portal -d cr_portal -c "
 "@
 
 Run-Step "7. Server deploy" {
-    $RemoteScript | ssh $Server "bash -s"
+    $RemoteScript | ssh -o ServerAliveInterval=15 -o ServerAliveCountMax=20 $Server "bash -s"
 }
 
 Write-Host ""
