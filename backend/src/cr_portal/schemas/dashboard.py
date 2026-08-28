@@ -25,5 +25,8 @@ class DashboardSummary(BaseModel):
     monthly_amount: Decimal
     machines_count: int
     integration_1c_deals: int
+    subscription_implementation_amount: Decimal
+    subscription_cr_start_amount: Decimal
+    subscription_total_amount: Decimal
     funnels: list[FunnelSummary]
     responsibles: list[ResponsibleSummary]
