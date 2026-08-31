@@ -25,6 +25,9 @@ export interface Calculation {
   training_count:number
   subtotal_dividable:string
   cr_start_fixed_total:string
+  current_client_total:string
+  kpi_total:string
+  kpi_divided_total:string
   total_bonus:string
   issues_count:number
   created_at:string

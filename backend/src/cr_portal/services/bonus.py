@@ -118,6 +118,16 @@ def truthy(value) -> bool:
     return str(value).strip().upper() in {"Y", "YES", "TRUE", "1", "ДА", "199"}
 
 
+def bonus_month_number(current_month: date, initial_month: date) -> int:
+    delta = (
+        (current_month.year - initial_month.year) * 12
+        + (current_month.month - initial_month.month)
+    )
+    if delta < 0:
+        return 1
+    return delta + 1
+
+
 async def add_issue(
     session: AsyncSession,
     month: date,
@@ -652,7 +662,12 @@ async def calculate_month(
             continue
 
         eligible[employee_id].append(
-            (deal, "implementation", closed_month)
+            (
+                deal,
+                "implementation",
+                closed_month,
+                {"bonus_month_number": bonus_month_number(month, closed_month)},
+            )
         )
 
     cr_start_result = await session.execute(
@@ -708,6 +723,12 @@ async def calculate_month(
                 deal,
                 "cr_start_implementation",
                 month_start(commercial_use_date),
+                {
+                    "bonus_month_number": bonus_month_number(
+                        month,
+                        month_start(commercial_use_date),
+                    )
+                },
             )
         )
     for employee_id, rows in eligible.items():
@@ -734,6 +755,12 @@ async def calculate_month(
                     before,
                     True,
                     f"Внедрение: {rate * 100}% × сумма оплаты в месяц",
+                    {
+                        "bonus_month_number": bonus_month_number(
+                            month,
+                            initial_month,
+                        )
+                    },
                 )
             )
 
@@ -977,7 +1004,13 @@ async def calculate_month(
                 description,
             ) = row[:8]
 
-            event = row[8] if len(row) > 8 else None
+            extra = row[8] if len(row) > 8 else {}
+            event = None
+            if isinstance(extra, dict):
+                details = extra
+            else:
+                event = extra
+                details = {}
             final_amount = money(before / divider) if use_divider else money(before)
 
             calculation_item = BonusCalculationItem(
@@ -1016,6 +1049,9 @@ async def calculate_month(
                             str(divider)
                             if use_divider
                             else None
+                        ),
+                        "bonus_month_number": details.get(
+                            "bonus_month_number"
                         ),
                     },
                     ensure_ascii=False,

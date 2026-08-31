@@ -1,0 +1,15 @@
+{
+    "chat.tools.terminal.autoApprove": {
+        "ForEach-Object": true,
+        "/^git add backend/src/cr_portal/api/v1/reports\\.py backend/src/cr_portal/schemas/dashboard\\.py frontend/src/App\\.tsx frontend/src/api\\.ts frontend/src/types\\.ts; git commit -m \"Add monthly subscription handoff dashboard\"; git push origin develop; git log -1 --oneline$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^git add backend/src/cr_portal/api/v1/reports\\.py; git commit -m \"Use deal totals in subscription dashboard\"; git push origin develop; git log -1 --oneline$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "uv": true,
+        "npm.cmd": true
+    }
+}

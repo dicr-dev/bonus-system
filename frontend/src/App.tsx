@@ -93,11 +93,13 @@ function Bonuses(){
  const run=useMutation({mutationFn:()=>runCalculation(month),onSuccess:()=>{message.success('Новая версия расчета создана');void qc.invalidateQueries({queryKey:['calc',month]})}})
 
  const cols:ColumnsType<Calculation>=[
-  {title:'Сотрудник',dataIndex:'employee_name',render:(v:string|null)=>v??'—'},
+  {title:'ФИО сотрудника',dataIndex:'employee_name',render:(v:string|null)=>v??'—'},
   {title:'Версия',dataIndex:'version'},
-  {title:'Внедрение база',dataIndex:'implementation_total',render:rub},
-  {title:'Тех интеграция база',dataIndex:'tech_integration_total',render:rub},
-  {title:'Часы',dataIndex:'support_hours'},
+  {title:'За текущих клиентов',dataIndex:'current_client_total',render:rub},
+  {title:'KPI',dataIndex:'kpi_total',render:rub},
+  {title:'KPI/2,5',dataIndex:'kpi_divided_total',render:rub},
+  {title:'CR Start',dataIndex:'cr_start_fixed_total',render:rub},
+  {title:'Кол-во часов переработки',dataIndex:'support_hours'},
   {title:'Итого',dataIndex:'total_bonus',render:v=><b>{rub(v)}</b>},
   {title:'',render:(_,r)=><Button onClick={()=>setId(r.id)}>Детализация</Button>}
  ]
@@ -137,6 +139,7 @@ function Bonuses(){
 
  const itemColumns:ColumnsType<Item>=[
   {title:'Сделка / источник',render:(_,item)=><div><div>{sourceValue(item)}</div>{(item.deal_bitrix_id??item.source_external_id)&&<Text type="secondary">ID {item.deal_bitrix_id??item.source_external_id}</Text>}</div>},
+  {title:'Месяц',render:(_,item)=>{try{const json=JSON.parse(item.details_json||'{}');const month=json.bonus_month_number;return month?`${month}-й месяц`:'—'}catch{return '—'}},align:'center'},
   {title:'База',render:(_,item)=>baseValue(item),align:'right'},
   {title:'Ставка',render:(_,item)=>rateValue(item),align:'right'},
   {title:'Начислено',dataIndex:'amount_before_divider',render:rub,align:'right'},
@@ -148,7 +151,42 @@ function Bonuses(){
   if(!detail.data)return null
   const data=detail.data
 
+  const totalBy=(type:string)=>data.items.filter(item=>item.bonus_type===type).reduce((sum,item)=>sum+Number(item.amount_before_divider||0),0)
+  const hoursBy=(type:string)=>data.items.filter(item=>item.bonus_type===type).reduce((sum,item)=>sum+Number(item.quantity||0),0)
+  const sectionRows=(type:string, labelFactory?:(item:Item)=>string)=>{
+    const items=data.items.filter(item=>item.bonus_type===type)
+    return items.map(item=>({
+      label: labelFactory?labelFactory(item):sourceValue(item),
+      value: rub(item.amount_before_divider)
+    }))
+  }
+
+  const summarySections=[
+   {label:'Интеграции', total:totalBy('tech_integration'), rows:sectionRows('tech_integration',item=>sourceValue(item))},
+   {label:'Внедрение', total:totalBy('implementation'), rows:sectionRows('implementation',item=>sourceValue(item))},
+   {label:'CR Start как внедрение', total:totalBy('cr_start_implementation'), rows:sectionRows('cr_start_implementation',item=>sourceValue(item))},
+   {label:'Обучения', total:totalBy('training'), rows:sectionRows('training',item=>item.description||sourceValue(item))},
+   {label:'Оплата за часы', total:totalBy('support_hours'), rows:[]},
+   {label:'Переработка', total:hoursBy('support_hours'), rows:[], suffix:' ч'},
+   {label:'CR Start', total:totalBy('cr_start_fixed'), rows:sectionRows('cr_start_fixed',item=>sourceValue(item))},
+   {label:'Текущие', total:totalBy('current_client'), rows:[]}
+  ]
+
   return <>
+   <Card size="small" title="Общая информация" style={{marginBottom:20}}>
+    <Space direction="vertical" size={12} style={{width:'100%'}}>
+     {summarySections.map(section=>{
+      if(section.rows.length===0 && section.total===0 && section.label!=='Переработка' && section.label!=='Оплата за часы' && section.label!=='Текущие') return null
+      return <div key={section.label}>
+       <Text strong>{section.label} — {section.label==='Переработка'?`${num(section.total)}${section.suffix ?? ''}`:rub(section.total)}</Text>
+       {section.rows.length>0&&<div style={{marginTop:8, paddingLeft:16}}>
+        {section.rows.map(row=><div key={`${section.label}-${row.label}`} style={{display:'flex',justifyContent:'space-between',gap:12,marginBottom:4}}><span>{row.label}</span><span>{row.value}</span></div>)}
+       </div>}
+      </div>
+     })}
+    </Space>
+   </Card>
+
    <Descriptions bordered size="small" column={3}>
     <Descriptions.Item label="Итого">{rub(data.total_bonus)}</Descriptions.Item>
     <Descriptions.Item label="Версия">{data.version}</Descriptions.Item>
