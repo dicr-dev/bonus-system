@@ -53,6 +53,9 @@ class CalculationResponse(BaseModel):
     training_count: int
     subtotal_dividable: Decimal
     cr_start_fixed_total: Decimal
+    current_client_total: Decimal = Decimal("0")
+    kpi_total: Decimal = Decimal("0")
+    kpi_divided_total: Decimal = Decimal("0")
     total_bonus: Decimal
     issues_count: int
     created_at: datetime

@@ -1,13 +1,18 @@
 from datetime import date
+from decimal import Decimal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from cr_portal.api.deps import db_session
-from cr_portal.models.bonus import BonusCalculation, ManualBonusEvent
+from cr_portal.models.bonus import (
+    BonusCalculation,
+    BonusCalculationItem,
+    ManualBonusEvent,
+)
 from cr_portal.models.deal import Deal
 from cr_portal.models.user import User
 from cr_portal.schemas.bonus import (
@@ -46,10 +51,49 @@ async def _employee_names(
 def _calculation_response(
     calculation: BonusCalculation,
     employee_name: str | None,
+    extra_totals: dict[str, Decimal] | None = None,
 ) -> CalculationResponse:
     data = CalculationResponse.model_validate(calculation).model_dump()
     data["employee_name"] = employee_name
+    extra = extra_totals or {}
+    data["current_client_total"] = extra.get("current_client_total", Decimal("0"))
+    data["kpi_total"] = extra.get("kpi_total", calculation.implementation_total)
+    data["kpi_divided_total"] = extra.get("kpi_divided_total", calculation.subtotal_dividable)
     return CalculationResponse(**data)
+
+
+async def _bonus_totals_by_calculation(
+    session: AsyncSession,
+    calculations: list[BonusCalculation],
+) -> dict[UUID, dict[str, Decimal]]:
+    if not calculations:
+        return {}
+
+    calculation_ids = [calculation.id for calculation in calculations]
+    result = await session.execute(
+        select(
+            BonusCalculationItem.calculation_id,
+            BonusCalculationItem.bonus_type,
+            func.coalesce(func.sum(BonusCalculationItem.amount_final), Decimal("0")),
+        )
+        .where(BonusCalculationItem.calculation_id.in_(calculation_ids))
+        .group_by(BonusCalculationItem.calculation_id, BonusCalculationItem.bonus_type)
+    )
+
+    totals: dict[UUID, dict[str, Decimal]] = {
+        calculation.id: {
+            "current_client_total": Decimal("0"),
+            "kpi_total": calculation.implementation_total,
+            "kpi_divided_total": calculation.subtotal_dividable,
+        }
+        for calculation in calculations
+    }
+
+    for calculation_id, bonus_type, amount in result.all():
+        if bonus_type == "current_client":
+            totals[calculation_id]["current_client_total"] = Decimal(str(amount or 0))
+
+    return totals
 
 
 @router.post("/run", response_model=list[CalculationResponse])
@@ -62,10 +106,12 @@ async def run(
         session,
         {calculation.employee_id for calculation in calculations},
     )
+    totals = await _bonus_totals_by_calculation(session, calculations)
     return [
         _calculation_response(
             calculation,
             names.get(calculation.employee_id),
+            totals.get(calculation.id),
         )
         for calculation in calculations
     ]
@@ -96,11 +142,13 @@ async def list_calculations(
         session,
         {calculation.employee_id for calculation in calculations},
     )
+    totals = await _bonus_totals_by_calculation(session, calculations)
 
     return [
         _calculation_response(
             calculation,
             names.get(calculation.employee_id),
+            totals.get(calculation.id),
         )
         for calculation in calculations
     ]
