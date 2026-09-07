@@ -3,7 +3,7 @@
   ExclamationCircleOutlined,FundOutlined,ReloadOutlined,SettingOutlined,TrophyOutlined
 } from '@ant-design/icons'
 import {
-  Alert,Button,Card,Col,Descriptions,Drawer,Input,InputNumber,Layout,Menu,Progress,Row,Space,
+  Alert,Button,Card,Col,Descriptions,Drawer,Form,Input,InputNumber,Layout,Menu,Progress,Row,Space,
   Statistic,Table,Tag,Typography,message
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
@@ -12,14 +12,14 @@ import { useEffect,useMemo,useState } from 'react'
 import SettingsPage from './SettingsPage'
 import {
   excelUrl,getCalculation,getCalculations,getDashboard,getDepartmentDeals,getDiagnostics,getKPI,getRules,
-  getSyncJob,getSyncStatus,runCalculation,runDiagnostics,savePlan,startDealsSync
+  getSyncJob,getSyncStatus,runCalculation,runDiagnostics,savePlan,startDealsSync,getCurrentUser,login,logout
 } from './api'
 import type {
   Calculation,CalculationDetail,Deal,FunnelSummary,Issue,KPIDeal,KPIEmployee,ResponsibleSummary,RuleVersion,SyncJob
 } from './types'
 
 const {Header,Content,Sider}=Layout
-const {Title,Text}=Typography
+const {Title,Text,Link}=Typography
 const FUNNELS:Record<string,string>={tech_integration:'Тех интеграция',implementation:'Внедрение',cr_start:'CR Start',support:'Сопровождение'}
 const BONUS:Record<string,string>={tech_integration:'Тех интеграция',implementation:'Внедрение',cr_start_implementation:'CR Start как внедрение',cr_start_fixed:'CR Start фикс.',sale:'Продажа',support_hours:'Сопровождение по часам',current_client:'Текущий клиент',training:'Обучение'}
 const funnel=(v:string)=>FUNNELS[v]??v
@@ -271,7 +271,7 @@ function Diagnostics(){
  const [month,setMonth]=useState(monthNow());const qc=useQueryClient()
  const q=useQuery({queryKey:['issues',month],queryFn:()=>getDiagnostics(month)})
  const run=useMutation({mutationFn:()=>runDiagnostics(month),onSuccess:()=>void qc.invalidateQueries({queryKey:['issues',month]})})
- const cols:ColumnsType<Issue>=[{title:'Уровень',dataIndex:'severity',render:v=><Tag color={v==='critical'?'red':'orange'}>{v}</Tag>},{title:'Код',dataIndex:'code'},{title:'Причина',dataIndex:'message'},{title:'Сделка',dataIndex:'deal_id',ellipsis:true}]
+ const cols:ColumnsType<Issue>=[{title:'Уровень',dataIndex:'severity',render:v=><Tag color={v==='critical'?'red':'orange'}>{v}</Tag>},{title:'Код',dataIndex:'code'},{title:'Причина',dataIndex:'message'},{title:'Сделка',dataIndex:'deal_bitrix_id',render:(id:number|null)=>id?<Link href={`https://bx.crg.im/crm/deal/details/${id}/`} target="_blank" rel="noreferrer">Открыть сделку #{id}</Link>:'—'}]
  return <Space direction="vertical" size={24} style={{width:'100%'}}><Row justify="space-between"><Title level={2}>Диагностика</Title><Space><Month value={month} onChange={setMonth}/><Button icon={<ReloadOutlined/>} onClick={()=>run.mutate()}>Проверить</Button></Space></Row><Card><Table rowKey="id" columns={cols} dataSource={q.data??[]} pagination={{pageSize:30}}/></Card></Space>
 }
 
@@ -290,8 +290,26 @@ function Sync(){
  return <Space direction="vertical" size={24} style={{width:'100%'}}><Title level={2}>Синхронизация</Title><Card><Space direction="vertical"><Text>Последняя успешная: {status.data?.last_success??'—'}</Text><Space><Button type="primary" icon={<CloudSyncOutlined/>} onClick={()=>start.mutate(false)}>Инкрементальная</Button><Button icon={<ReloadOutlined/>} onClick={()=>start.mutate(true)}>Полная</Button></Space></Space></Card>{job.data&&<Card title={`Job ${job.data.job_id}`}><Progress percent={job.data.progress}/><Text>{job.data.status}; обработано {job.data.processed}</Text>{job.data.error&&<Alert type="error" message={job.data.error}/>}</Card>}</Space>
 }
 
+function Login({onSuccess}:{onSuccess:()=>void}){
+ const [form]=Form.useForm<{login:string;password:string}>()
+ const mutation=useMutation({mutationFn:(v:{login:string;password:string})=>login(v.login,v.password),onSuccess})
+ return <Layout style={{minHeight:'100vh',alignItems:'center',justifyContent:'center'}}><Card title="Вход администратора" style={{width:380}}>
+  <Form form={form} layout="vertical" onFinish={v=>mutation.mutate(v)}>
+   <Form.Item name="login" label="Логин" rules={[{required:true}]}><Input autoComplete="username"/></Form.Item>
+   <Form.Item name="password" label="Пароль" rules={[{required:true}]}><Input.Password autoComplete="current-password"/></Form.Item>
+   {mutation.isError&&<Alert type="error" message="Неверный логин или пароль" showIcon/>}
+  <Button type="primary" htmlType="submit" loading={mutation.isPending} block>Войти</Button>
+  <Button href="/api/v1/auth/bitrix/login" block style={{marginTop:12}}>Войти через Bitrix24</Button>
+  </Form>
+ </Card></Layout>
+}
+
 export default function App(){
  const [page,setPage]=useState('dashboard')
+ const [authVersion,setAuthVersion]=useState(0)
+ const user=useQuery({queryKey:['current-user',authVersion],queryFn:getCurrentUser,retry:false})
+ if(user.isLoading)return <Card loading/>
+ if(user.isError)return <Login onSuccess={()=>setAuthVersion(v=>v+1)}/>
  const content=useMemo(()=>({dashboard:<Dashboard/>,kpi:<KPI/>,bonus:<Bonuses/>,deals:<Deals/>,diagnostics:<Diagnostics/>,rules:<Rules/>,settings:<SettingsPage/>,sync:<Sync/>}[page]??<Dashboard/>),[page])
  return <Layout className="app-layout">
   <Sider breakpoint="lg" collapsedWidth={0} width={240} className="app-sider">
@@ -304,7 +322,7 @@ export default function App(){
     {key:'sync',icon:<CloudSyncOutlined/>,label:'Синхронизация'}
    ]}/>
   </Sider>
-  <Layout><Header className="app-header"><Text strong>CR Integration Portal</Text><Tag color="green" icon={<CheckCircleOutlined/>}>Bitrix24 подключён</Tag></Header><Content className="app-content"><div className="content-container">{content}</div></Content></Layout>
+  <Layout><Header className="app-header"><Text strong>CR Integration Portal</Text><Space><Tag color="green" icon={<CheckCircleOutlined/>}>{user.data.full_name}</Tag><Button size="small" onClick={async()=>{await logout();setAuthVersion(v=>v+1)}}>Выйти</Button></Space></Header><Content className="app-content"><div className="content-container">{content}</div></Content></Layout>
  </Layout>
 }
 

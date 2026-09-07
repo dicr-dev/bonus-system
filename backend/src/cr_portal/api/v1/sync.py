@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from cr_portal.api.deps import bitrix_client, db_session
+from cr_portal.api.deps import admin_user, bitrix_client, db_session
 from cr_portal.db.redis import get_redis
 from cr_portal.integrations.bitrix.client import BitrixClient
 from cr_portal.services.bitrix_sync import sync_users
@@ -27,6 +27,7 @@ def utc_now() -> str:
 async def users_sync(
     session: AsyncSession = Depends(db_session),
     client: BitrixClient = Depends(bitrix_client),
+    _admin=Depends(admin_user),
 ) -> dict[str, int]:
     count = await sync_users(
         session,
@@ -41,6 +42,7 @@ async def users_sync(
 @router.post("/deals")
 async def deals_sync(
     full: bool = Query(default=False),
+    _admin=Depends(admin_user),
 ) -> dict:
     redis: Redis = get_redis()
 
@@ -80,6 +82,7 @@ async def deals_sync(
 @router.get("/jobs/{job_id}")
 async def sync_job(
     job_id: str,
+    _admin=Depends(admin_user),
 ) -> dict:
     redis: Redis = get_redis()
 
@@ -97,7 +100,7 @@ async def sync_job(
 
 
 @router.get("/deals/status")
-async def deals_sync_status() -> dict:
+async def deals_sync_status(_admin=Depends(admin_user)) -> dict:
     redis: Redis = get_redis()
 
     last_success = await redis.get(

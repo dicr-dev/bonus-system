@@ -24,7 +24,7 @@ async def refresh_installation_token(
 
     async with httpx.AsyncClient(timeout=30.0) as client:
         response = await client.get(
-            "https://oauth.bitrix.info/oauth/token/",
+            f"{settings.BITRIX_BASE_URL.rstrip('/')}/oauth/token/",
             params=params,
         )
 

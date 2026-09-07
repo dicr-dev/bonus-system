@@ -2,17 +2,114 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
+import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from cr_portal.api.deps import db_session
 from cr_portal.core.config import settings
 from cr_portal.integrations.bitrix.client import BitrixClient
+from cr_portal.models.user import User
 from cr_portal.models.oauth import BitrixInstallation
 from cr_portal.repositories.users import UserRepository
 
 router = APIRouter()
+
+
+@router.post("/login")
+async def login(request: Request) -> dict[str, object]:
+    data = await request.json()
+    login_value = str(data.get("login") or "").strip()
+    password = str(data.get("password") or "")
+
+    if (
+        not settings.ADMIN_PASSWORD
+        or login_value != settings.ADMIN_LOGIN
+        or password != settings.ADMIN_PASSWORD
+    ):
+        raise HTTPException(status_code=401, detail="Неверный логин или пароль")
+
+    async for session in db_session():
+        user = (
+            await session.execute(
+                select(User).where(User.full_name == "Дамир Искандеров")
+            )
+        ).scalar_one_or_none()
+        if user is None or not user.is_active:
+            raise HTTPException(status_code=403, detail="Администратор не найден или отключен")
+        request.session["user_id"] = str(user.id)
+        request.session["bitrix_user_id"] = user.bitrix_id
+        return {"id": str(user.id), "full_name": user.full_name, "is_admin": True}
+
+
+@router.get("/bitrix/login")
+async def bitrix_login() -> RedirectResponse:
+    if not settings.BITRIX_CLIENT_ID or not settings.BITRIX_REDIRECT_URI:
+        raise HTTPException(status_code=503, detail="Bitrix OAuth is not configured")
+    authorize_url = httpx.URL(
+        f"{settings.BITRIX_BASE_URL.rstrip('/')}/oauth/authorize/",
+        params={
+            "client_id": settings.BITRIX_CLIENT_ID,
+            "response_type": "code",
+            "redirect_uri": settings.BITRIX_REDIRECT_URI,
+        },
+    )
+    return RedirectResponse(str(authorize_url), status_code=302)
+
+
+@router.get("/bitrix/callback")
+async def bitrix_callback(
+    request: Request,
+    session: AsyncSession = Depends(db_session),
+) -> RedirectResponse:
+    code = request.query_params.get("code")
+    if not code:
+        raise HTTPException(status_code=400, detail="Bitrix authorization code is missing")
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        response = await client.get(
+            f"{settings.BITRIX_BASE_URL.rstrip('/')}/oauth/token/",
+            params={
+                "grant_type": "authorization_code",
+                "client_id": settings.BITRIX_CLIENT_ID,
+                "client_secret": settings.BITRIX_CLIENT_SECRET,
+                "redirect_uri": settings.BITRIX_REDIRECT_URI,
+                "code": code,
+            },
+        )
+    response.raise_for_status()
+    data = response.json()
+    if data.get("error"):
+        raise HTTPException(status_code=400, detail=data.get("error_description", data["error"]))
+
+    installation = await _save_installation(session, data)
+    user = await _resolve_current_user(session, installation)
+    request.session["user_id"] = str(user.id)
+    request.session["bitrix_user_id"] = user.bitrix_id
+    request.session["bitrix_access_token"] = installation.access_token
+    request.session["bitrix_refresh_token"] = installation.refresh_token
+    request.session["bitrix_client_endpoint"] = installation.client_endpoint
+
+    frontend_url = f"{request.url.scheme}://{request.headers.get('host', '')}"
+    return RedirectResponse(frontend_url, status_code=302)
+
+
+@router.get("/me")
+async def me(request: Request, session: AsyncSession = Depends(db_session)):
+    user_id = request.session.get("user_id")
+    bitrix_id = request.session.get("bitrix_user_id")
+    query = select(User)
+    if user_id:
+        query = query.where(User.id == user_id)
+    elif bitrix_id is not None:
+        query = query.where(User.bitrix_id == int(bitrix_id))
+    else:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    user = (await session.execute(query)).scalar_one_or_none()
+    if user is None or not user.is_active:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    return user
 
 
 def _first(data: dict[str, Any], *names: str) -> str:
@@ -83,6 +180,47 @@ async def _read_request_data(request: Request) -> dict[str, Any]:
     )
 
     return normalized
+
+
+async def _exchange_authorization_code(
+    request: Request,
+    data: dict[str, Any],
+) -> dict[str, Any]:
+    code = str(data.get("code") or "").strip()
+    if not code:
+        return data
+
+    server_domain = str(
+        data.get("server_domain") or "oauth.bitrix24.tech"
+    ).strip()
+    if server_domain.startswith("http"):
+        token_url = f"{server_domain.rstrip('/')}/oauth/token/"
+    else:
+        token_url = f"https://{server_domain}/oauth/token/"
+
+    token_params = {
+        "grant_type": "authorization_code",
+        "client_id": settings.BITRIX_CLIENT_ID,
+        "client_secret": settings.BITRIX_CLIENT_SECRET,
+        "code": code,
+    }
+    if request.url.path.endswith("/callback"):
+        token_params["redirect_uri"] = settings.BITRIX_REDIRECT_URI
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        response = await client.get(
+            token_url,
+            params=token_params,
+        )
+
+    response.raise_for_status()
+    token_data = response.json()
+    if token_data.get("error"):
+        raise HTTPException(
+            status_code=400,
+            detail=token_data.get("error_description", token_data["error"]),
+        )
+    return {**data, **token_data}
 
 
 async def _save_installation(
@@ -219,6 +357,7 @@ async def bitrix_install(
     session: AsyncSession = Depends(db_session),
 ) -> HTMLResponse:
     data = await _read_request_data(request)
+    data = await _exchange_authorization_code(request, data)
 
     installation = await _save_installation(
         session,
@@ -254,6 +393,7 @@ async def bitrix_app(
     session: AsyncSession = Depends(db_session),
 ) -> HTMLResponse:
     data = await _read_request_data(request)
+    data = await _exchange_authorization_code(request, data)
 
     installation = await _save_installation(
         session,
@@ -276,7 +416,8 @@ async def bitrix_app(
         installation.client_endpoint
     )
 
-    frontend_url = settings.FRONTEND_URL
+    # Keep the Bitrix session and frontend on the same public host.
+    frontend_url = f"{request.url.scheme}://{request.headers.get('host', '')}"
 
     return HTMLResponse(
         content=f"""

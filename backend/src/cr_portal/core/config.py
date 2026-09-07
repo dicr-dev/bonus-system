@@ -15,6 +15,8 @@ class Settings(BaseSettings):
     REDIS_URL: str
     FRONTEND_URL: str = "http://localhost:3000"
     SESSION_SECRET: str = "dev-only-change-me"
+    ADMIN_LOGIN: str = "admin"
+    ADMIN_PASSWORD: str = ""
     CORS_ORIGINS: list[str] = Field(default_factory=list)
 
     # Technical / secret Bitrix parameters remain in .env.

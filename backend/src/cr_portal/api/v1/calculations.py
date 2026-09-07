@@ -7,7 +7,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from cr_portal.api.deps import db_session
+from cr_portal.api.deps import admin_user, db_session
 from cr_portal.models.bonus import (
     BonusCalculation,
     BonusCalculationItem,
@@ -100,6 +100,7 @@ async def _bonus_totals_by_calculation(
 async def run(
     month: str = Query(...),
     session: AsyncSession = Depends(db_session),
+    _admin=Depends(admin_user),
 ):
     calculations = await calculate_month(session, parse_month(month))
     names = await _employee_names(
@@ -121,6 +122,7 @@ async def run(
 async def list_calculations(
     month: str = Query(...),
     session: AsyncSession = Depends(db_session),
+    _admin=Depends(admin_user),
 ):
     month_date = parse_month(month)
 
@@ -158,6 +160,7 @@ async def list_calculations(
 async def detail(
     calculation_id: UUID,
     session: AsyncSession = Depends(db_session),
+    _admin=Depends(admin_user),
 ):
     result = await session.execute(
         select(BonusCalculation)

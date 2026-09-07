@@ -63,3 +63,11 @@ async def current_user(
         )
 
     return user
+
+
+async def admin_user(
+    user=Depends(current_user),
+):
+    if not user.is_admin:
+        raise HTTPException(status_code=403, detail="Administrator access required")
+    return user

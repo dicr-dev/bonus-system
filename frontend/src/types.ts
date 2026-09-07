@@ -58,7 +58,7 @@ export interface CalculationDetail extends Calculation {
   items:CalculationItem[]
 }
 
-export interface Issue { id:string; calculation_id:string|null; month:string; severity:string; code:string; message:string; employee_id:string|null; deal_id:string|null; details_json:string; created_at:string }
+export interface Issue { id:string; calculation_id:string|null; month:string; severity:string; code:string; message:string; employee_id:string|null; deal_id:string|null; deal_bitrix_id:number|null; details_json:string; created_at:string }
 export interface RuleVersion { id:string; version:number; effective_from:string; effective_to:string|null; config_json:string; comment:string|null; created_at:string }
 
 export interface AppSettings {

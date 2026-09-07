@@ -29,4 +29,4 @@ class KPISummary(BaseModel):
 class IssueResponse(BaseModel):
     model_config=ConfigDict(from_attributes=True)
     id:UUID;calculation_id:UUID|None;month:date;severity:str;code:str;message:str
-    employee_id:UUID|None;deal_id:UUID|None;details_json:str;created_at:datetime
+    employee_id:UUID|None;deal_id:UUID|None;deal_bitrix_id:int|None=None;details_json:str;created_at:datetime

@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from cr_portal.api.deps import db_session
+from cr_portal.api.deps import admin_user, db_session
 from cr_portal.models.bonus import BonusRule
 from cr_portal.schemas.app_settings import AppSettingsPayload
 from cr_portal.schemas.bonus import RuleCreate, RuleVersionResponse
@@ -16,7 +16,7 @@ router = APIRouter()
 
 
 @router.get("/app", response_model=AppSettingsPayload)
-async def get_app_settings(session: AsyncSession = Depends(db_session)):
+async def get_app_settings(session: AsyncSession = Depends(db_session), _admin=Depends(admin_user)):
     data = await get_app_settings_dict(session)
     await session.commit()
     return AppSettingsPayload(**data)
@@ -26,13 +26,14 @@ async def get_app_settings(session: AsyncSession = Depends(db_session)):
 async def update_app_settings(
     data: AppSettingsPayload,
     session: AsyncSession = Depends(db_session),
+    _admin=Depends(admin_user),
 ):
     saved = await save_app_settings(session, data.model_dump())
     return AppSettingsPayload(**asdict(saved))
 
 
 @router.get("/rules", response_model=list[RuleVersionResponse])
-async def list_rules(session: AsyncSession = Depends(db_session)):
+async def list_rules(session: AsyncSession = Depends(db_session), _admin=Depends(admin_user)):
     result = await session.execute(
         select(BonusRule).order_by(BonusRule.version.desc())
     )
@@ -43,6 +44,7 @@ async def list_rules(session: AsyncSession = Depends(db_session)):
 async def create_rule(
     data: RuleCreate,
     session: AsyncSession = Depends(db_session),
+    _admin=Depends(admin_user),
 ):
     next_version = int(
         (await session.execute(select(func.max(BonusRule.version)))).scalar_one_or_none()

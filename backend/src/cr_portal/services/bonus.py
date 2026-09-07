@@ -733,12 +733,12 @@ async def calculate_month(
         )
     for employee_id, rows in eligible.items():
         initial_totals = defaultdict(lambda: Decimal("0"))
-        for deal, _, initial_month in rows:
+        for deal, _, initial_month, _ in rows:
             initial_totals[initial_month] += Decimal(
                 deal.monthly_amount or 0
             )
 
-        for deal, bonus_type, initial_month in rows:
+        for deal, bonus_type, initial_month, _ in rows:
             base = Decimal(deal.monthly_amount or 0)
             rate = implementation_rate(
                 initial_totals[initial_month],
