@@ -1,17 +1,55 @@
 import unittest
 from datetime import datetime, timezone
+from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
+from uuid import uuid4
 
+from cr_portal.schemas.kpi import KPISummary
 from cr_portal.services.bitrix_sync import sync_users
-from cr_portal.services.kpi import (
+from cr_portal.services.employee_scope import (
+    eligible_bonus_users,
     employee_is_in_kpi_department,
-    ensure_kpi_event,
     kpi_department_name_from_user_data,
 )
+from cr_portal.services.kpi import ensure_kpi_event, kpi_summary
+from cr_portal.services.subscriptions import SubscriptionDeals
 
 
 class KPIDepartmentTests(unittest.IsolatedAsyncioTestCase):
+    async def test_kpi_fact_is_sum_of_dashboard_subscription_deals(self):
+        implementation = SimpleNamespace(
+            id=uuid4(), bitrix_id=101, title="Внедрение", opportunity=Decimal("120000")
+        )
+        cr_start = SimpleNamespace(
+            id=uuid4(), bitrix_id=102, title="CR Start", opportunity=Decimal("30000")
+        )
+        plan_result = SimpleNamespace(
+            scalar_one_or_none=lambda: SimpleNamespace(plan_value=Decimal("200000"))
+        )
+        session = SimpleNamespace(execute=AsyncMock(return_value=plan_result))
+
+        with (
+            patch("cr_portal.services.kpi.get_business_settings", AsyncMock(return_value=object())),
+            patch(
+                "cr_portal.services.kpi.subscription_deals_for_month",
+                AsyncMock(return_value=SubscriptionDeals([implementation], [cr_start])),
+            ),
+            patch(
+                "cr_portal.services.kpi.planned_subscription_deals_for_month",
+                AsyncMock(return_value=[]),
+            ),
+        ):
+            result = await kpi_summary(session, datetime(2026, 8, 1).date())
+
+        self.assertEqual(result["plan"], Decimal("200000"))
+        self.assertEqual(result["fact"], Decimal("150000"))
+        self.assertEqual(result["implementation_total"], Decimal("120000"))
+        self.assertEqual(result["cr_start_total"], Decimal("30000"))
+        self.assertEqual(result["implementation_deals"][0]["bitrix_id"], 101)
+        self.assertEqual(result["cr_start_deals"][0]["bitrix_id"], 102)
+        self.assertEqual(KPISummary.model_validate(result).fact, Decimal("150000"))
+
     def test_bitrix_department_ids_are_mapped_to_kpi_departments(self):
         self.assertEqual(
             kpi_department_name_from_user_data({"UF_DEPARTMENT": [20, 33]}),
@@ -32,6 +70,22 @@ class KPIDepartmentTests(unittest.IsolatedAsyncioTestCase):
             SimpleNamespace(department_name="Отдел сопровождения")
         ))
         self.assertFalse(employee_is_in_kpi_department(None))
+
+    def test_bonus_users_are_active_and_in_configured_departments(self):
+        eligible = SimpleNamespace(
+            id="eligible", is_active=True, department_name="Отдел внедрения"
+        )
+        wrong_department = SimpleNamespace(
+            id="wrong", is_active=True, department_name="Отдел сопровождения"
+        )
+        inactive = SimpleNamespace(
+            id="inactive", is_active=False, department_name="Разработка 1С"
+        )
+
+        self.assertEqual(
+            eligible_bonus_users([eligible, wrong_department, inactive]),
+            [eligible],
+        )
 
     async def test_user_sync_keeps_only_kpi_departments(self):
         client = SimpleNamespace(call_all=AsyncMock(side_effect=[

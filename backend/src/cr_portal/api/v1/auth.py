@@ -2,19 +2,19 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import urlsplit
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from cr_portal.api.deps import db_session
 from cr_portal.core.config import settings
 from cr_portal.integrations.bitrix.client import BitrixClient
-from cr_portal.models.user import User
 from cr_portal.models.oauth import BitrixInstallation
+from cr_portal.models.user import User
 from cr_portal.repositories.users import UserRepository
-from cr_portal.services.kpi import kpi_department_name_from_user_data
+from cr_portal.services.employee_scope import kpi_department_name_from_user_data
 
 router = APIRouter()
 

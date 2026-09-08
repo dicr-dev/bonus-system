@@ -1,13 +1,12 @@
 import json
 from collections import defaultdict
 from datetime import date, datetime, time, timezone
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import ROUND_HALF_UP, Decimal
 from uuid import UUID
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from cr_portal.services.app_settings import get_business_settings
 from cr_portal.models.bonus import (
     BonusCalculation,
     BonusCalculationItem,
@@ -17,6 +16,8 @@ from cr_portal.models.deal import Deal
 from cr_portal.models.kpi import CalculationIssue
 from cr_portal.models.user import User
 from cr_portal.schemas.bonus import BonusInput, BonusResult
+from cr_portal.services.app_settings import get_business_settings
+from cr_portal.services.employee_scope import eligible_bonus_users
 from cr_portal.services.rules import (
     DEFAULT_RULES,
     current_client_bonus,
@@ -596,7 +597,7 @@ async def calculate_month(
     rules_version, rules = await get_rules(session, month)
 
     users_result = await session.execute(select(User))
-    users = users_result.scalars().all()
+    users = eligible_bonus_users(users_result.scalars().all())
     user_ids = {user.id for user in users}
 
     contributions = defaultdict(list)

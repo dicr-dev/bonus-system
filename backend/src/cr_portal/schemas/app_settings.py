@@ -25,3 +25,4 @@ class AppSettingsPayload(BaseModel):
     task_training_bonus_field: str = ""
     field_module: str = "ufCrm_1650618044049"
     field_integration_amount: str = ""
+    field_planned_subscription_date: str = "ufCrm_1774423053267"

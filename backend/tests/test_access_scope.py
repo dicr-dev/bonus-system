@@ -22,6 +22,18 @@ class EmployeeAccessScopeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result, [])
         query = session.execute.await_args.args[0]
         self.assertIn("bonus_calculations.employee_id", str(query.whereclause))
+        self.assertIn("users.department_name", str(query.whereclause))
+
+    async def test_admin_calculation_list_is_limited_to_kpi_departments(self):
+        session = SimpleNamespace(execute=AsyncMock(return_value=empty_result()))
+        user = SimpleNamespace(id="admin-id", is_admin=True)
+
+        result = await list_calculations("2026-08", session, user)
+
+        self.assertEqual(result, [])
+        query = session.execute.await_args.args[0]
+        self.assertIn("users.department_name", str(query.whereclause))
+        self.assertIn("users.is_active", str(query.whereclause))
 
     async def test_deal_list_is_limited_to_implementation_responsible(self):
         session = SimpleNamespace(execute=AsyncMock(return_value=empty_result()))

@@ -13,7 +13,7 @@ from cr_portal.repositories.deals import DealRepository
 from cr_portal.schemas.dashboard import DashboardSummary, FunnelSummary, ResponsibleSummary
 from cr_portal.schemas.deals import DealResponse
 from cr_portal.services.app_settings import get_business_settings
-from cr_portal.services.bonus import raw_date
+from cr_portal.services.subscriptions import subscription_deals_for_month
 
 router = APIRouter()
 
@@ -69,41 +69,24 @@ async def dashboard(
     except ValueError:
         selected_month = datetime.now(UTC).date().replace(day=1)
 
-    following_month = date(
-        selected_month.year + (selected_month.month == 12),
-        selected_month.month % 12 + 1,
-        1,
-    )
     business = await get_business_settings(session)
     user_scope = (
         [] if user.is_admin else [Deal.implementation_responsible_user_id == user.id]
     )
-
-    implementation_amount = await session.scalar(
-        select(func.coalesce(func.sum(Deal.opportunity), 0)).where(
-            Deal.funnel == "implementation",
-            Deal.status == "won",
-            Deal.closed_time >= selected_month,
-            Deal.closed_time < following_month,
-            *user_scope,
-        )
+    subscription_deals = await subscription_deals_for_month(
+        session,
+        business,
+        selected_month,
+        employee_id=None if user.is_admin else user.id,
     )
-
-    cr_start_amount = Decimal(0)
-    cr_start_result = await session.execute(
-        select(Deal).where(
-            Deal.funnel == "cr_start",
-            Deal.status == "in_progress",
-            *user_scope,
-        )
+    implementation_amount = sum(
+        (Decimal(deal.opportunity or 0) for deal in subscription_deals.implementation),
+        Decimal(0),
     )
-    for deal in cr_start_result.scalars().all():
-        commercial_use_date = raw_date(
-            deal,
-            business.field_cr_start_commercial_use_date,
-        )
-        if commercial_use_date and selected_month <= commercial_use_date < following_month:
-            cr_start_amount += Decimal(deal.opportunity or 0)
+    cr_start_amount = sum(
+        (Decimal(deal.opportunity or 0) for deal in subscription_deals.cr_start),
+        Decimal(0),
+    )
 
     totals = (
         await session.execute(
@@ -187,7 +170,6 @@ async def dashboard(
                 )
             )
 
-    implementation_amount = Decimal(implementation_amount or 0)
     return DashboardSummary(
         active_deals=totals[0],
         monthly_amount=Decimal(totals[1] or 0),

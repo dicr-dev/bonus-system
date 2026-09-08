@@ -1,10 +1,10 @@
 from datetime import date
 from decimal import Decimal
-import httpx
 from uuid import UUID
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -25,6 +25,7 @@ from cr_portal.schemas.bonus import (
     ManualEventResponse,
 )
 from cr_portal.services.bonus import calculate_month
+from cr_portal.services.employee_scope import KPI_DEPARTMENT_NAMES
 
 router = APIRouter()
 
@@ -142,7 +143,17 @@ async def list_calculations(
 
     query = (
         select(BonusCalculation)
+        .join(User, User.id == BonusCalculation.employee_id)
         .where(BonusCalculation.month == month_date)
+        .where(
+            User.is_active.is_(True),
+            or_(
+                *(
+                    User.department_name.contains(department_name)
+                    for department_name in KPI_DEPARTMENT_NAMES
+                )
+            ),
+        )
         .order_by(
             BonusCalculation.employee_id,
             BonusCalculation.version.desc(),

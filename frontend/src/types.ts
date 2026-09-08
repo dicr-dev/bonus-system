@@ -6,9 +6,9 @@ export interface Deal { id:string; bitrix_id:number; category_id:number; funnel:
 export interface SyncJob { job_id:string; type:string; full:boolean; status:'queued'|'running'|'completed'|'failed'; progress:number; processed:number; current_funnel:string|null; created_at:string; started_at:string|null; finished_at:string|null; error:string|null }
 export interface NightlySyncResult { users:number; deals:number; tasks:number; elapsed_items:number; period_from:string; period_to:string; finished_at:string }
 export interface SyncStatus { last_success:string|null; nightly_last_attempt:string|null; nightly_last_success:string|null; nightly_last_error:string|null; nightly_last_result:NightlySyncResult|null; nightly_hour:number; nightly_timezone:string; nightly_task_months:number }
-export interface KPIEmployee { employee_id:string|null; employee_name:string; implementation:number; cr_start:number; fact:number }
-export interface KPIDeal { deal_id:string; bitrix_id:number; title:string; funnel:string; employee_name:string|null; monthly_amount:string; machines_count:number }
-export interface KPISummary { month:string; plan:string; fact:string; implementation_fact:number; cr_start_fact:number; remaining:string; completion_percent:string; potential:number; forecast:string; employees:KPIEmployee[]; result_deals:KPIDeal[]; potential_deals:KPIDeal[] }
+export interface KPIDeal { deal_id:string; bitrix_id:number; title:string; amount:string }
+export interface KPIPlannedDeal { deal_id:string; bitrix_id:number; title:string; planned_date:string; amount:string; machines_count:number }
+export interface KPISummary { month:string; plan:string; fact:string; implementation_total:string; cr_start_total:string; implementation_deals:KPIDeal[]; cr_start_deals:KPIDeal[]; planned_deals:KPIPlannedDeal[] }
 
 export interface Calculation {
   id:string
@@ -86,6 +86,7 @@ export interface AppSettings {
   overtime_time_priority:'manual'|'tracker'
   field_module:string
   field_integration_amount:string
+  field_planned_subscription_date:string
 }
 
 export interface RuleConfig {

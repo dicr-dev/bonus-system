@@ -1,5 +1,5 @@
 ﻿import {
-  CheckCircleOutlined,CloudSyncOutlined,DashboardOutlined,DatabaseOutlined,DownloadOutlined,
+  BookOutlined,CheckCircleOutlined,CloudSyncOutlined,DashboardOutlined,DatabaseOutlined,DownloadOutlined,
   ExclamationCircleOutlined,FundOutlined,ReloadOutlined,SettingOutlined,TrophyOutlined
 } from '@ant-design/icons'
 import {
@@ -10,13 +10,14 @@ import type { ColumnsType } from 'antd/es/table'
 import { useMutation,useQuery,useQueryClient } from '@tanstack/react-query'
 import { useEffect,useState } from 'react'
 import SettingsPage from './SettingsPage'
+import InstructionPage from './InstructionPage'
 import {BitrixLink,dealUrl,sourceUrl} from './BitrixLink'
 import {
   excelUrl,getCalculation,getCalculations,getDashboard,getDepartmentDeals,getDiagnostics,getKPI,getRules,
   getSyncJob,getSyncStatus,runCalculation,runDiagnostics,savePlan,startDealsSync,getCurrentUser,login,logout
 } from './api'
 import type {
-  Calculation,CalculationDetail,Deal,FunnelSummary,Issue,KPIDeal,KPIEmployee,ResponsibleSummary,RuleVersion,SyncJob
+  Calculation,CalculationDetail,Deal,FunnelSummary,Issue,KPIDeal,KPIPlannedDeal,ResponsibleSummary,RuleVersion,SyncJob
 } from './types'
 
 const {Header,Content,Sider}=Layout
@@ -27,6 +28,7 @@ const funnel=(v:string)=>FUNNELS[v]??v
 const rub=(v:string|number)=>new Intl.NumberFormat('ru-RU',{style:'currency',currency:'RUB',maximumFractionDigits:0}).format(Number(v||0))
 const num=(v:string|number)=>new Intl.NumberFormat('ru-RU').format(Number(v||0))
 const dateTime=(v:string|null|undefined)=>v?new Date(v).toLocaleString('ru-RU'):'—'
+const shortDate=(v:string)=>{const [y,m,d]=v.split('-').map(Number);return new Date(y,m-1,d).toLocaleDateString('ru-RU')}
 const monthNow=()=>{const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`}
 const Month=({value,onChange}:{value:string;onChange:(v:string)=>void})=><Input type="month" value={value} onChange={e=>onChange(e.target.value)} style={{width:180}}/>
 
@@ -70,21 +72,32 @@ function KPI(){
  const q=useQuery({queryKey:['kpi',month],queryFn:()=>getKPI(month)})
  useEffect(()=>{if(q.data)setPlan(Number(q.data.plan))},[q.data])
  const save=useMutation({mutationFn:()=>savePlan(month,plan??0),onSuccess:()=>{message.success('План сохранен');void qc.invalidateQueries({queryKey:['kpi',month]})}})
- const ec:ColumnsType<KPIEmployee>=[{title:'Сотрудник',dataIndex:'employee_name'},{title:'Внедрение',dataIndex:'implementation'},{title:'CR Start',dataIndex:'cr_start'},{title:'Факт',dataIndex:'fact'}]
- const dc:ColumnsType<KPIDeal>=[{title:'ID',dataIndex:'bitrix_id',render:id=><BitrixLink href={dealUrl(id)}>{id}</BitrixLink>},{title:'Сделка',dataIndex:'title',render:(title,deal)=><BitrixLink href={dealUrl(deal.bitrix_id)}>{title}</BitrixLink>},{title:'Воронка',dataIndex:'funnel',render:funnel},{title:'Сотрудник',dataIndex:'employee_name',render:v=>v??'Без ответственного'}]
+ const dc:ColumnsType<KPIDeal>=[
+  {title:'Сделка',dataIndex:'title',render:(title,deal)=><BitrixLink href={dealUrl(deal.bitrix_id)}>№{deal.bitrix_id} — {title}</BitrixLink>},
+  {title:'Сумма',dataIndex:'amount',render:rub,align:'right'}
+ ]
+ const plannedColumns:ColumnsType<KPIPlannedDeal>=[
+  {title:'Сделка',dataIndex:'title',render:(title,deal)=><BitrixLink href={dealUrl(deal.bitrix_id)}>№{deal.bitrix_id} — {title}</BitrixLink>},
+  {title:'Расчетная дата перевода на подписку',dataIndex:'planned_date',render:shortDate},
+  {title:'Сумма сделки',dataIndex:'amount',render:rub,align:'right'},
+  {title:'Кол-во машин',dataIndex:'machines_count',render:num,align:'right'}
+ ]
  if(!q.data)return <Card loading/>
  const d=q.data
  return <Space direction="vertical" size={24} style={{width:'100%'}}>
   <Row justify="space-between"><Title level={2}>KPI отдела</Title><Month value={month} onChange={setMonth}/></Row>
-  <Row gutter={[12,12]}>
-   {[
-    ['План',d.plan],['Факт',d.fact],['Выполнение, %',d.completion_percent],['Осталось',d.remaining],['Потенциально',d.potential],['Прогноз',d.forecast]
-   ].map(([t,v])=><Col xs={12} md={4} key={String(t)}><Card><Statistic title={String(t)} value={Number(v)}/></Card></Col>)}
+  <Row gutter={[16,16]}>
+   <Col xs={24} md={12}><Card><Statistic title="План" value={Number(d.plan)} formatter={v=>rub(Number(v))}/></Card></Col>
+   <Col xs={24} md={12}><Card><Statistic title="Факт" value={Number(d.fact)} formatter={v=>rub(Number(v))}/></Card></Col>
   </Row>
-  <Card title="План месяца"><Space><InputNumber min={0} value={plan} onChange={v=>setPlan(v)}/><Button type="primary" loading={save.isPending} onClick={()=>save.mutate()}>Сохранить</Button></Space></Card>
-  <Card title={`Факт = Внедрение ${d.implementation_fact} + CR Start ${d.cr_start_fact}`}><Table rowKey={r=>r.employee_id??r.employee_name} columns={ec} dataSource={d.employees} pagination={false}/></Card>
-  <Card title="Сделки результата"><Table rowKey="deal_id" columns={dc} dataSource={d.result_deals} pagination={{pageSize:20}}/></Card>
-  <Card title="Потенциальные сделки"><Table rowKey="deal_id" columns={dc} dataSource={d.potential_deals} pagination={{pageSize:20}}/></Card>
+  <Card title="План месяца"><Space><InputNumber min={0} value={plan} onChange={v=>setPlan(v)} addonAfter="₽"/><Button type="primary" loading={save.isPending} onClick={()=>save.mutate()}>Сохранить</Button></Space></Card>
+  <Card title="Переданные на подписку сделки"><Collapse defaultActiveKey={[]} items={[
+    {key:'implementation',label:<Space><Text strong>Внедрение</Text><Text type="secondary">{d.implementation_deals.length} сделок · {rub(d.implementation_total)}</Text></Space>,children:<Table rowKey="deal_id" columns={dc} dataSource={d.implementation_deals} pagination={false}/>},
+    {key:'cr_start',label:<Space><Text strong>CR Start</Text><Text type="secondary">{d.cr_start_deals.length} сделок · {rub(d.cr_start_total)}</Text></Space>,children:<Table rowKey="deal_id" columns={dc} dataSource={d.cr_start_deals} pagination={false}/>}
+  ]}/></Card>
+  <Card title="Сделки, которые планируется передать в этом месяце"><Collapse defaultActiveKey={[]} items={[
+   {key:'planned',label:<Space><Text strong>Список сделок</Text><Text type="secondary">{d.planned_deals.length}</Text></Space>,children:<Table rowKey="deal_id" columns={plannedColumns} dataSource={d.planned_deals} pagination={false} scroll={{x:850}}/>}
+  ]}/></Card>
  </Space>
 }
 
@@ -369,16 +382,18 @@ export default function App(){
  if(user.isLoading)return <Card loading/>
  if(user.isError||!user.data)return <Login onSuccess={()=>setAuthVersion(v=>v+1)}/>
  const isAdmin=user.data.is_admin
- const effectivePage=!isAdmin&&!['dashboard','bonus','deals'].includes(page)?'dashboard':page
- const content=({dashboard:<Dashboard isAdmin={isAdmin} userId={user.data.id}/>,kpi:<KPI/>,bonus:<Bonuses isAdmin={isAdmin} userId={user.data.id}/>,deals:<Deals isAdmin={isAdmin} userId={user.data.id}/>,diagnostics:<Diagnostics/>,rules:<Rules/>,settings:<SettingsPage/>,sync:<Sync/>}[effectivePage]??<Dashboard isAdmin={isAdmin} userId={user.data.id}/>)
+ const effectivePage=!isAdmin&&!['dashboard','bonus','deals','instruction'].includes(page)?'dashboard':page
+ const content=({dashboard:<Dashboard isAdmin={isAdmin} userId={user.data.id}/>,kpi:<KPI/>,bonus:<Bonuses isAdmin={isAdmin} userId={user.data.id}/>,deals:<Deals isAdmin={isAdmin} userId={user.data.id}/>,instruction:<InstructionPage/>,diagnostics:<Diagnostics/>,rules:<Rules/>,settings:<SettingsPage/>,sync:<Sync/>}[effectivePage]??<Dashboard isAdmin={isAdmin} userId={user.data.id}/>)
  const employeeMenu=[
   {key:'dashboard',icon:<DashboardOutlined/>,label:'Главная'},
   {key:'bonus',icon:<FundOutlined/>,label:'Моя премия'},
-  {key:'deals',icon:<DatabaseOutlined/>,label:'Мои сделки'}
+  {key:'deals',icon:<DatabaseOutlined/>,label:'Мои сделки'},
+  {key:'instruction',icon:<BookOutlined/>,label:'Инструкция'}
  ]
  const adminMenu=[
   {key:'dashboard',icon:<DashboardOutlined/>,label:'Главная'},{key:'kpi',icon:<TrophyOutlined/>,label:'KPI отдела'},
   {key:'bonus',icon:<FundOutlined/>,label:'Расчет премий'},{key:'deals',icon:<DatabaseOutlined/>,label:'Сделки'},
+  {key:'instruction',icon:<BookOutlined/>,label:'Инструкция'},
   {key:'diagnostics',icon:<ExclamationCircleOutlined/>,label:'Диагностика'},{key:'rules',icon:<SettingOutlined/>,label:'Правила'},
   {key:'settings',icon:<SettingOutlined/>,label:'\u041d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0438'},
   {key:'sync',icon:<CloudSyncOutlined/>,label:'Синхронизация'}

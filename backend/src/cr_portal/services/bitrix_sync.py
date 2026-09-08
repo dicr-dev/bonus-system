@@ -6,13 +6,13 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from cr_portal.services.app_settings import BusinessSettings, get_business_settings
 from cr_portal.integrations.bitrix.client import BitrixClient
 from cr_portal.models.deal import Deal
 from cr_portal.repositories.deals import DealRepository
 from cr_portal.repositories.users import UserRepository
-from cr_portal.services.kpi import KPI_DEPARTMENT_IDS, ensure_kpi_event
-
+from cr_portal.services.app_settings import BusinessSettings, get_business_settings
+from cr_portal.services.employee_scope import KPI_DEPARTMENT_IDS
+from cr_portal.services.kpi import ensure_kpi_event
 
 STATUS_MAP = {
     "process": "in_progress",
@@ -391,6 +391,7 @@ async def sync_deals(
         business.field_client_works,
         business.field_integration_amount,
         business.field_cr_start_commercial_use_date,
+        business.field_planned_subscription_date,
         *business.cr_start_boolean_fields,
     ]
 
