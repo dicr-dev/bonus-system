@@ -24,13 +24,18 @@ async def refresh_installation_token(
 
     async with httpx.AsyncClient(timeout=30.0) as client:
         response = await client.get(
-            f"{settings.BITRIX_BASE_URL.rstrip('/')}/oauth/token/",
+            settings.BITRIX_OAUTH_TOKEN_URL,
             params=params,
         )
 
     response.raise_for_status()
 
-    data: dict[str, Any] = response.json()
+    try:
+        data: dict[str, Any] = response.json()
+    except ValueError as exc:
+        raise RuntimeError("Bitrix OAuth returned an invalid JSON response") from exc
+    if not isinstance(data, dict):
+        raise RuntimeError("Bitrix OAuth returned an invalid response")
 
     if "error" in data:
         raise RuntimeError(

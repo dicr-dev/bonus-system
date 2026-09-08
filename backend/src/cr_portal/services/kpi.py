@@ -1,11 +1,41 @@
 import json
 from datetime import date, datetime, timezone
 from decimal import Decimal
+from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from cr_portal.models.deal import Deal
 from cr_portal.models.kpi import KPIEvent, MonthlyPlan
 from cr_portal.models.user import User
+
+KPI_DEPARTMENT_IDS = {
+    "20": "Отдел внедрения",
+    "33": "Разработка 1С",
+}
+KPI_DEPARTMENT_NAMES = frozenset(KPI_DEPARTMENT_IDS.values())
+
+
+def kpi_department_name_from_user_data(data: dict) -> str | None:
+    department_ids = data.get("UF_DEPARTMENT") or data.get("ufDepartment") or []
+    if not isinstance(department_ids, list):
+        department_ids = [department_ids]
+    names = list(dict.fromkeys(
+        KPI_DEPARTMENT_IDS[str(department_id)]
+        for department_id in department_ids
+        if str(department_id) in KPI_DEPARTMENT_IDS
+    ))
+    return "; ".join(names) or None
+
+
+def employee_is_in_kpi_department(user: User | None) -> bool:
+    if user is None or not user.department_name:
+        return False
+    departments = {
+        value.strip()
+        for value in user.department_name.split(";")
+        if value.strip()
+    }
+    return bool(departments & KPI_DEPARTMENT_NAMES)
 
 def month_start(v:date|datetime)->date:
     if isinstance(v,datetime): v=v.date()
@@ -18,8 +48,12 @@ async def ensure_kpi_event(session:AsyncSession,deal:Deal)->None:
     t="implementation_won" if deal.funnel=="implementation" else "cr_start_won"
     m=month_start(deal.closed_time)
     key=f"{t}:{deal.bitrix_id}:{m.isoformat()}"
-    r=await session.execute(select(KPIEvent.id).where(KPIEvent.event_key==key))
-    if r.scalar_one_or_none() is not None:return
+    r=await session.execute(select(KPIEvent).where(KPIEvent.event_key==key))
+    existing = r.scalar_one_or_none()
+    if existing is not None:
+        if existing.employee_id is None and deal.implementation_responsible_user_id is not None:
+            existing.employee_id = deal.implementation_responsible_user_id
+        return
     session.add(KPIEvent(
       event_key=key,month=m,event_date=deal.closed_time,event_type=t,
       employee_id=deal.implementation_responsible_user_id,deal_id=deal.id,value=Decimal("1"),
@@ -36,13 +70,22 @@ async def rebuild_missing_events(session:AsyncSession,month:date)->None:
     for d in r.scalars().all(): await ensure_kpi_event(session,d)
     await session.flush()
 
-async def kpi_summary(session:AsyncSession,month:date)->dict:
+async def kpi_summary(
+    session: AsyncSession,
+    month: date,
+    employee_id: UUID | None = None,
+) -> dict:
     s=month_start(month); await rebuild_missing_events(session,s)
     pr=await session.execute(select(MonthlyPlan).where(MonthlyPlan.month==s))
     p=pr.scalar_one_or_none(); plan=p.plan_value if p else Decimal("0")
-    rr=await session.execute(select(KPIEvent,Deal,User).join(Deal,KPIEvent.deal_id==Deal.id).outerjoin(User,KPIEvent.employee_id==User.id).where(KPIEvent.month==s).order_by(KPIEvent.event_date))
+    result_query = select(KPIEvent,Deal,User).join(Deal,KPIEvent.deal_id==Deal.id).outerjoin(User,KPIEvent.employee_id==User.id).where(KPIEvent.month==s).order_by(KPIEvent.event_date)
+    if employee_id is not None:
+        result_query = result_query.where(KPIEvent.employee_id == employee_id)
+    rr=await session.execute(result_query)
     impl=cr=0; emp={}; result=[]
     for ev,d,u in rr.all():
+        if not employee_is_in_kpi_department(u):
+            continue
         if ev.event_type=="implementation_won": impl+=1
         else: cr+=1
         k=ev.employee_id
@@ -51,7 +94,10 @@ async def kpi_summary(session:AsyncSession,month:date)->dict:
         else:x["cr_start"]+=1
         x["fact"]+=1
         result.append({"deal_id":d.id,"bitrix_id":d.bitrix_id,"title":d.title,"funnel":d.funnel,"employee_name":u.full_name if u else None,"monthly_amount":d.monthly_amount,"machines_count":d.machines_count})
-    pr=await session.execute(select(Deal,User).outerjoin(User,Deal.implementation_responsible_user_id==User.id).where(Deal.status=="in_progress",Deal.funnel.in_(["implementation","cr_start"])))
-    potential=[{"deal_id":d.id,"bitrix_id":d.bitrix_id,"title":d.title,"funnel":d.funnel,"employee_name":u.full_name if u else None,"monthly_amount":d.monthly_amount,"machines_count":d.machines_count} for d,u in pr.all()]
+    potential_query = select(Deal,User).outerjoin(User,Deal.implementation_responsible_user_id==User.id).where(Deal.status=="in_progress",Deal.funnel.in_(["implementation","cr_start"]))
+    if employee_id is not None:
+        potential_query = potential_query.where(Deal.implementation_responsible_user_id == employee_id)
+    pr=await session.execute(potential_query)
+    potential=[{"deal_id":d.id,"bitrix_id":d.bitrix_id,"title":d.title,"funnel":d.funnel,"employee_name":u.full_name if u else None,"monthly_amount":d.monthly_amount,"machines_count":d.machines_count} for d,u in pr.all() if employee_is_in_kpi_department(u)]
     fact=Decimal(impl+cr); rem=max(Decimal("0"),plan-fact); percent=Decimal("0") if plan==0 else fact/plan*100
     return {"month":s,"plan":plan,"fact":fact,"implementation_fact":impl,"cr_start_fact":cr,"remaining":rem,"completion_percent":percent.quantize(Decimal("0.01")),"potential":len(potential),"forecast":fact+len(potential),"employees":sorted(emp.values(),key=lambda x:-x["fact"]),"result_deals":result,"potential_deals":potential}

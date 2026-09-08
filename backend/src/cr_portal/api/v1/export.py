@@ -6,7 +6,7 @@ from openpyxl import Workbook
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
-from cr_portal.api.deps import db_session
+from cr_portal.api.deps import admin_user, db_session
 from cr_portal.models.bonus import BonusCalculation
 from cr_portal.models.kpi import CalculationIssue
 from cr_portal.models.user import User
@@ -16,15 +16,15 @@ def parse_month(v:str)->date:
     except Exception as e:raise HTTPException(422,"month must be YYYY-MM") from e
 
 @router.get("/excel")
-async def excel(month:str=Query(...),session:AsyncSession=Depends(db_session)):
+async def excel(month:str=Query(...),session:AsyncSession=Depends(db_session),_admin=Depends(admin_user)):
     m=parse_month(month)
     rr=await session.execute(select(BonusCalculation).options(selectinload(BonusCalculation.items)).where(BonusCalculation.month==m).order_by(BonusCalculation.employee_id,BonusCalculation.version.desc()))
     latest={}
     for x in rr.scalars().all():latest.setdefault(x.employee_id,x)
     users={u.id:u.full_name for u in (await session.execute(select(User))).scalars().all()}
     wb=Workbook();ws=wb.active;ws.title="Общий отчет"
-    ws.append(["Сотрудник","Внедрение база","Тех интеграция база","Часы","Продажа","Обучение","CR Start фикс","Делимая часть","Итого","Версия"])
-    for c in latest.values():ws.append([users.get(c.employee_id,str(c.employee_id)),float(c.implementation_total),float(c.tech_integration_total),float(c.support_hours),float(c.sales_total),c.training_count,float(c.cr_start_fixed_total),float(c.subtotal_dividable),float(c.total_bonus),c.version])
+    ws.append(["Сотрудник","Внедрение база","Тех интеграция база","Часы текущих клиентов","Продажа","Обучение","CR Start фикс","Делимая часть","Итого","Версия","Часы переработок"])
+    for c in latest.values():ws.append([users.get(c.employee_id,str(c.employee_id)),float(c.implementation_total),float(c.tech_integration_total),float(c.support_hours),float(c.sales_total),c.training_count,float(c.cr_start_fixed_total),float(c.subtotal_dividable),float(c.total_bonus),c.version,float(sum(i.quantity for i in c.items if i.bonus_type == "overtime_hours"))])
     d=wb.create_sheet("Детализация");d.append(["Сотрудник","Тип","Источник","База","Ставка","Количество","До делителя","2.5","Итого","Описание"])
     for c in latest.values():
         for i in c.items:d.append([users.get(c.employee_id,str(c.employee_id)),i.bonus_type,i.source_external_id,float(i.base_amount),float(i.rate),float(i.quantity),float(i.amount_before_divider),"Да" if i.divider_applied else "Нет",float(i.amount_final),i.description])

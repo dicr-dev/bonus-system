@@ -11,7 +11,7 @@ from cr_portal.integrations.bitrix.client import BitrixClient
 from cr_portal.models.deal import Deal
 from cr_portal.repositories.deals import DealRepository
 from cr_portal.repositories.users import UserRepository
-from cr_portal.services.kpi import ensure_kpi_event
+from cr_portal.services.kpi import KPI_DEPARTMENT_IDS, ensure_kpi_event
 
 
 STATUS_MAP = {
@@ -214,6 +214,18 @@ async def sync_users(
     session: AsyncSession,
     client: BitrixClient,
 ) -> int:
+    departments = await client.call_all(
+        "department.get",
+        {},
+    )
+    department_names = {
+        str(item.get("ID") or item.get("id")): str(
+            item.get("NAME") or item.get("name") or ""
+        ).strip()
+        for item in departments
+        if item.get("ID") or item.get("id")
+    }
+
     items = await client.call_all(
         "user.get",
         {},
@@ -258,14 +270,28 @@ async def sync_users(
                 f"Bitrix user {raw_id}"
             )
 
+        raw_department_ids = (
+            item.get("UF_DEPARTMENT")
+            or item.get("ufDepartment")
+            or []
+        )
+        if not isinstance(raw_department_ids, list):
+            raw_department_ids = [raw_department_ids]
+        user_department_names = list(dict.fromkeys(
+            department_names.get(str(department_id), "")
+            for department_id in raw_department_ids
+            if str(department_id) in KPI_DEPARTMENT_IDS
+            and department_names.get(str(department_id), "")
+        ))
+
         user = await repository.upsert(
-            int(raw_id),
-            (
+            bitrix_id=int(raw_id),
+            email=(
                 item.get("EMAIL")
                 or item.get("email")
             ),
-            full_name,
-            (
+            full_name=full_name,
+            position=(
                 item.get(
                     "WORK_POSITION"
                 )
@@ -273,6 +299,7 @@ async def sync_users(
                     "workPosition"
                 )
             ),
+            department_name="; ".join(user_department_names) or None,
         )
 
         active = (

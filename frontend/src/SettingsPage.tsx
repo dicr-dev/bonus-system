@@ -1,4 +1,4 @@
-import {Button,Card,Col,Form,Input,InputNumber,Row,Space,Tabs,Typography,message} from 'antd'
+import {Button,Card,Col,Form,Input,InputNumber,Row,Select,Space,Tabs,Typography,message} from 'antd'
 import {useMutation,useQuery,useQueryClient} from '@tanstack/react-query'
 import {useEffect,useMemo} from 'react'
 
@@ -52,9 +52,20 @@ function BitrixSettings(){
     <Col xs={24} md={12}><Form.Item name="field_source_deal_id" label="ID сделки-источника"><Input/></Form.Item></Col>
     <Col xs={24} md={12}><Form.Item name="field_module" label="Направление (Модуль)"><Input/></Form.Item></Col>
     <Col xs={24} md={12}><Form.Item name="field_client_works" label="Клиент работает (если используется отдельное поле)"><Input/></Form.Item></Col>
-    <Col xs={24} md={12}><Form.Item name="task_training_bonus_field" label="Поле задачи «Бонус за обучение»"><Input/></Form.Item></Col>
     <Col span={24}><Form.Item name="cr_start_boolean_fields_text" label="Поля CR Start"><Input.TextArea rows={3} placeholder="ufCrm_..., ufCrm_..."/></Form.Item></Col>
    </Row>
+  </Card>
+  <Card title="Задачи: обучение и переработки" style={{marginTop:16}}>
+   <Row gutter={16}>
+    <Col xs={24} md={12}><Form.Item name="task_training_bonus_field" label="Поле задачи «Бонус за обучение»"><Input placeholder="UF_TASK_BONUS"/></Form.Item></Col>
+    <Col xs={24} md={12}><Form.Item name="task_training_yes_value" label="Значение «Да» (ID элемента списка)"><Input placeholder="783"/></Form.Item></Col>
+    <Col xs={24} md={12}><Form.Item name="task_training_date_field" label="Месяц обучения определяется по"><Select options={[{value:'CLOSED_DATE',label:'Дате завершения'},{value:'DEADLINE',label:'Крайнему сроку'}]}/></Form.Item></Col>
+    <Col xs={24} md={12}><Form.Item name="overtime_project_id" label="ID проекта «Отдел внедрения - переработки»"><InputNumber min={1} placeholder="192" style={{width:'100%'}}/></Form.Item></Col>
+    <Col xs={24} md={12}><Form.Item name="overtime_department_ids" label="ID отделов исполнителей переработок через запятую"><Input placeholder="20,33"/></Form.Item></Col>
+    <Col xs={24} md={12}><Form.Item name="task_overtime_hours_field" label="Поле ручных часов переработки" extra="Если поле не задано или не заполнено, используется таймер задачи."><Input placeholder="Код поля задачи"/></Form.Item></Col>
+    <Col xs={24} md={12}><Form.Item name="overtime_time_priority" label="Приоритет источника часов"><Select options={[{value:'manual',label:'Ручное поле, иначе таймер'},{value:'tracker',label:'Таймер, иначе ручное поле'}]}/></Form.Item></Col>
+   </Row>
+   <Text type="secondary">Переработки учитываются по крайнему сроку задачи. Здесь настраивается учёт часов; оплата по окладу пока не начисляется.</Text>
   </Card>
   <Button type="primary" htmlType="submit" loading={save.isPending} style={{marginTop:16}}>Сохранить настройки Bitrix24</Button>
  </Form>

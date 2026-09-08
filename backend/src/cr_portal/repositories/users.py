@@ -7,8 +7,28 @@ class UserRepository:
         r=await self.s.execute(select(User).order_by(User.full_name)); return list(r.scalars().all())
     async def by_bitrix_id(self,i:int):
         r=await self.s.execute(select(User).where(User.bitrix_id==i)); return r.scalar_one_or_none()
-    async def upsert(self,bitrix_id:int,email:str|None,full_name:str,position:str|None=None):
+    async def upsert(
+        self,
+        bitrix_id: int,
+        email: str | None,
+        full_name: str,
+        position: str | None = None,
+        department_name: str | None = None,
+    ):
         u=await self.by_bitrix_id(bitrix_id)
-        if u is None: u=User(bitrix_id=bitrix_id,email=email,full_name=full_name,position=position); self.s.add(u)
-        else: u.email=email; u.full_name=full_name; u.position=position; u.is_active=True
+        if u is None:
+            u=User(
+                bitrix_id=bitrix_id,
+                email=email,
+                full_name=full_name,
+                position=position,
+                department_name=department_name,
+            )
+            self.s.add(u)
+        else:
+            u.email=email
+            u.full_name=full_name
+            u.position=position
+            u.department_name=department_name
+            u.is_active=True
         return u

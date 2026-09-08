@@ -14,6 +14,9 @@ class Settings(BaseSettings):
     DATABASE_URL: str
     REDIS_URL: str
     FRONTEND_URL: str = "http://localhost:3000"
+    NIGHTLY_SYNC_HOUR: int = Field(default=2, ge=0, le=23)
+    NIGHTLY_TASK_MONTHS: int = Field(default=2, ge=1, le=12)
+    NIGHTLY_SYNC_TIMEZONE: str = "Europe/Moscow"
     SESSION_SECRET: str = "dev-only-change-me"
     ADMIN_LOGIN: str = "admin"
     ADMIN_PASSWORD: str = ""
@@ -21,6 +24,7 @@ class Settings(BaseSettings):
 
     # Technical / secret Bitrix parameters remain in .env.
     BITRIX_BASE_URL: str = "https://bx.crg.im"
+    BITRIX_OAUTH_TOKEN_URL: str = "https://oauth.bitrix24.tech/oauth/token/"
     BITRIX_CLIENT_ID: str = ""
     BITRIX_CLIENT_SECRET: str = ""
     BITRIX_REDIRECT_URI: str = ""

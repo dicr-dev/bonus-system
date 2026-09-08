@@ -3,13 +3,14 @@
   ExclamationCircleOutlined,FundOutlined,ReloadOutlined,SettingOutlined,TrophyOutlined
 } from '@ant-design/icons'
 import {
-  Alert,Button,Card,Col,Descriptions,Drawer,Form,Input,InputNumber,Layout,Menu,Progress,Row,Space,
+  Alert,Button,Card,Col,Collapse,Descriptions,Drawer,Form,Input,InputNumber,Layout,Menu,Progress,Row,Space,
   Statistic,Table,Tag,Typography,message
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import { useMutation,useQuery,useQueryClient } from '@tanstack/react-query'
-import { useEffect,useMemo,useState } from 'react'
+import { useEffect,useState } from 'react'
 import SettingsPage from './SettingsPage'
+import {BitrixLink,dealUrl,sourceUrl} from './BitrixLink'
 import {
   excelUrl,getCalculation,getCalculations,getDashboard,getDepartmentDeals,getDiagnostics,getKPI,getRules,
   getSyncJob,getSyncStatus,runCalculation,runDiagnostics,savePlan,startDealsSync,getCurrentUser,login,logout
@@ -19,18 +20,19 @@ import type {
 } from './types'
 
 const {Header,Content,Sider}=Layout
-const {Title,Text,Link}=Typography
+const {Title,Text}=Typography
 const FUNNELS:Record<string,string>={tech_integration:'Тех интеграция',implementation:'Внедрение',cr_start:'CR Start',support:'Сопровождение'}
-const BONUS:Record<string,string>={tech_integration:'Тех интеграция',implementation:'Внедрение',cr_start_implementation:'CR Start как внедрение',cr_start_fixed:'CR Start фикс.',sale:'Продажа',support_hours:'Сопровождение по часам',current_client:'Текущий клиент',training:'Обучение'}
+const BONUS:Record<string,string>={tech_integration:'Тех интеграция',implementation:'Внедрение',cr_start_implementation:'CR Start как внедрение',cr_start_fixed:'CR Start фикс.',sale:'Продажа',support_hours:'Сопровождение по часам',task_hours_reference:'Справочные часы по задачам',current_client:'Текущий клиент',training:'Обучение'}
 const funnel=(v:string)=>FUNNELS[v]??v
 const rub=(v:string|number)=>new Intl.NumberFormat('ru-RU',{style:'currency',currency:'RUB',maximumFractionDigits:0}).format(Number(v||0))
 const num=(v:string|number)=>new Intl.NumberFormat('ru-RU').format(Number(v||0))
+const dateTime=(v:string|null|undefined)=>v?new Date(v).toLocaleString('ru-RU'):'—'
 const monthNow=()=>{const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`}
 const Month=({value,onChange}:{value:string;onChange:(v:string)=>void})=><Input type="month" value={value} onChange={e=>onChange(e.target.value)} style={{width:180}}/>
 
-function Dashboard(){
+function Dashboard({isAdmin,userId}:{isAdmin:boolean;userId:string}){
  const [month,setMonth]=useState(monthNow())
- const q=useQuery({queryKey:['dashboard',month],queryFn:()=>getDashboard(month),refetchInterval:60000})
+ const q=useQuery({queryKey:['dashboard',userId,month],queryFn:()=>getDashboard(month),refetchInterval:60000})
  if(q.isLoading)return <Card loading/>
  if(!q.data)return <Alert type="error" message="Не удалось загрузить дашборд"/>
  const fcols:ColumnsType<FunnelSummary>=[
@@ -59,7 +61,7 @@ function Dashboard(){
    </Row>
   </Card>
   <Card title="Воронки"><Table rowKey="funnel" columns={fcols} dataSource={d.funnels} pagination={false}/></Card>
-  <Card title="Ответственные за внедрение"><Table rowKey="user_id" columns={rcols} dataSource={d.responsibles} pagination={{pageSize:20}}/></Card>
+  {isAdmin&&<Card title="Ответственные за внедрение"><Table rowKey="user_id" columns={rcols} dataSource={d.responsibles} pagination={{pageSize:20}}/></Card>}
  </Space>
 }
 
@@ -69,7 +71,7 @@ function KPI(){
  useEffect(()=>{if(q.data)setPlan(Number(q.data.plan))},[q.data])
  const save=useMutation({mutationFn:()=>savePlan(month,plan??0),onSuccess:()=>{message.success('План сохранен');void qc.invalidateQueries({queryKey:['kpi',month]})}})
  const ec:ColumnsType<KPIEmployee>=[{title:'Сотрудник',dataIndex:'employee_name'},{title:'Внедрение',dataIndex:'implementation'},{title:'CR Start',dataIndex:'cr_start'},{title:'Факт',dataIndex:'fact'}]
- const dc:ColumnsType<KPIDeal>=[{title:'ID',dataIndex:'bitrix_id'},{title:'Сделка',dataIndex:'title'},{title:'Воронка',dataIndex:'funnel',render:funnel},{title:'Сотрудник',dataIndex:'employee_name',render:v=>v??'Без ответственного'}]
+ const dc:ColumnsType<KPIDeal>=[{title:'ID',dataIndex:'bitrix_id',render:id=><BitrixLink href={dealUrl(id)}>{id}</BitrixLink>},{title:'Сделка',dataIndex:'title',render:(title,deal)=><BitrixLink href={dealUrl(deal.bitrix_id)}>{title}</BitrixLink>},{title:'Воронка',dataIndex:'funnel',render:funnel},{title:'Сотрудник',dataIndex:'employee_name',render:v=>v??'Без ответственного'}]
  if(!q.data)return <Card loading/>
  const d=q.data
  return <Space direction="vertical" size={24} style={{width:'100%'}}>
@@ -86,11 +88,11 @@ function KPI(){
  </Space>
 }
 
-function Bonuses(){
+function Bonuses({isAdmin,userId}:{isAdmin:boolean;userId:string}){
  const [month,setMonth]=useState(monthNow());const [id,setId]=useState<string|null>(null);const qc=useQueryClient()
- const q=useQuery({queryKey:['calc',month],queryFn:()=>getCalculations(month)})
- const detail=useQuery({queryKey:['calc-detail',id],queryFn:()=>getCalculation(id!),enabled:Boolean(id)})
- const run=useMutation({mutationFn:()=>runCalculation(month),onSuccess:()=>{message.success('Новая версия расчета создана');void qc.invalidateQueries({queryKey:['calc',month]})}})
+ const q=useQuery({queryKey:['calc',userId,month],queryFn:()=>getCalculations(month)})
+ const detail=useQuery({queryKey:['calc-detail',userId,id],queryFn:()=>getCalculation(id!),enabled:Boolean(id)})
+ const run=useMutation({mutationFn:()=>runCalculation(month),onSuccess:()=>{message.success('Новая версия расчета создана');void qc.invalidateQueries({queryKey:['calc',userId,month]})},onError:(error:any)=>message.error(error.response?.data?.detail||'Не удалось выполнить расчёт')})
 
  const cols:ColumnsType<Calculation>=[
   {title:'ФИО сотрудника',dataIndex:'employee_name',render:(v:string|null)=>v??'—'},
@@ -99,7 +101,8 @@ function Bonuses(){
   {title:'KPI',dataIndex:'kpi_total',render:rub},
   {title:'KPI/2,5',dataIndex:'kpi_divided_total',render:rub},
   {title:'CR Start',dataIndex:'cr_start_fixed_total',render:rub},
-  {title:'Кол-во часов переработки',dataIndex:'support_hours'},
+  {title:'Часы текущих клиентов',dataIndex:'support_hours'},
+  {title:'Кол-во часов переработки',dataIndex:'overtime_hours'},
   {title:'Итого',dataIndex:'total_bonus',render:v=><b>{rub(v)}</b>},
   {title:'',render:(_,r)=><Button onClick={()=>setId(r.id)}>Детализация</Button>}
  ]
@@ -112,19 +115,21 @@ function Bonuses(){
   ['cr_start_fixed','CR Start фиксированный'],
   ['cr_start_implementation','CR Start как внедрение'],
   ['current_client','Текущие клиенты'],
-  ['support_hours','Часы по задачам текущих клиентов'],
   ['training','Обучение'],
+  ['overtime_hours','Переработки — учёт часов'],
   ['sale','Продажи']
  ] as const
 
  const baseValue=(item:Item)=>{
   if(item.bonus_type==='current_client')return `${num(item.base_amount)} машин`
-  if(item.bonus_type==='support_hours')return `${num(item.quantity)} ч`
+  if(['support_hours','task_hours_reference','overtime_hours'].includes(item.bonus_type))return `${num(item.quantity)} ч`
   if(item.bonus_type==='training')return `${num(item.quantity)} шт.`
   return rub(item.base_amount)
  }
 
  const rateValue=(item:Item)=>{
+  if(item.bonus_type==='overtime_hours')return 'Только часы'
+  if(item.bonus_type==='task_hours_reference')return 'Справочно'
   if(item.bonus_type==='current_client')return rub(item.rate)
   if(item.bonus_type==='support_hours')return `${rub(item.rate)}/ч`
   if(item.bonus_type==='training')return rub(item.rate)
@@ -132,19 +137,45 @@ function Bonuses(){
  }
 
  const sourceValue=(item:Item)=>{
+  if(item.source_type==='task'){
+   try{
+    const task=JSON.parse(item.details_json||'{}').task
+    if(task?.title)return task.title
+    if(task?.TITLE)return task.TITLE
+   }catch{/* Older snapshots may have no task data. */}
+  }
   if(item.deal_title)return item.deal_title
   if(item.description)return item.description
   return '—'
  }
 
  const itemColumns:ColumnsType<Item>=[
-  {title:'Сделка / источник',render:(_,item)=><div><div>{sourceValue(item)}</div>{(item.deal_bitrix_id??item.source_external_id)&&<Text type="secondary">ID {item.deal_bitrix_id??item.source_external_id}</Text>}</div>},
+  {title:'Сделка / источник',render:(_,item)=><div><div><BitrixLink href={sourceUrl(item)}>{sourceValue(item)}</BitrixLink></div>{item.source_type==='task'&&item.source_external_id&&<div><BitrixLink href={sourceUrl(item)}>Задача #{item.source_external_id}</BitrixLink></div>}{item.deal_bitrix_id&&item.source_type==='task'&&<div><BitrixLink href={dealUrl(item.deal_bitrix_id)}>Сделка #{item.deal_bitrix_id}: {item.deal_title}</BitrixLink></div>}{item.deal_bitrix_id&&item.source_type!=='task'&&<BitrixLink href={dealUrl(item.deal_bitrix_id)}>ID {item.deal_bitrix_id}</BitrixLink>}</div>},
   {title:'Месяц',render:(_,item)=>{try{const json=JSON.parse(item.details_json||'{}');const month=json.bonus_month_number;return month?`${month}-й месяц`:'—'}catch{return '—'}},align:'center'},
   {title:'База',render:(_,item)=>baseValue(item),align:'right'},
   {title:'Ставка',render:(_,item)=>rateValue(item),align:'right'},
   {title:'Начислено',dataIndex:'amount_before_divider',render:rub,align:'right'},
   {title:'Делится на 2,5',dataIndex:'divider_applied',render:(v:boolean)=>v?'Да':'Нет',align:'center'},
   {title:'К выплате',dataIndex:'amount_final',render:(v:string)=><b>{rub(v)}</b>,align:'right'}
+ ]
+
+ const detailsValue=(item:Item):Record<string,any>=>{
+  try{return JSON.parse(item.details_json||'{}')}catch{return {}}
+ }
+
+ const taskHourFunnel=(item:Item)=>{
+  const value=detailsValue(item).client_deal_funnel
+  if(value)return String(value)
+  return item.bonus_type==='support_hours'?'support':''
+ }
+
+ const taskHourColumns:ColumnsType<Item>=[
+  {title:'Задача',render:(_,item)=><BitrixLink href={sourceUrl(item)}>{item.source_external_id?`№${item.source_external_id} — `:''}{sourceValue(item)}</BitrixLink>},
+  {title:'Сделка',render:(_,item)=>item.deal_bitrix_id?<BitrixLink href={dealUrl(item.deal_bitrix_id)}>{item.deal_title||`Сделка №${item.deal_bitrix_id}`}</BitrixLink>:'—'},
+  {title:'Часы',dataIndex:'quantity',render:num,align:'right'},
+  {title:'В KPI',render:(_,item)=>item.bonus_type==='support_hours'?<Tag color="green">Да</Tag>:<Tag>Нет</Tag>,align:'center'},
+  {title:'Ставка',render:(_,item)=>item.bonus_type==='support_hours'?`${rub(item.rate)}/ч`:'—',align:'right'},
+  {title:'К выплате',render:(_,item)=>item.bonus_type==='support_hours'?<b>{rub(item.amount_final)}</b>:'—',align:'right'}
  ]
 
  const renderDetail=()=>{
@@ -156,6 +187,8 @@ function Bonuses(){
   const sectionRows=(type:string, labelFactory?:(item:Item)=>string)=>{
     const items=data.items.filter(item=>item.bonus_type===type)
     return items.map(item=>({
+      id:item.id,
+      href:sourceUrl(item),
       label: labelFactory?labelFactory(item):sourceValue(item),
       value: rub(item.amount_before_divider)
     }))
@@ -166,21 +199,30 @@ function Bonuses(){
    {label:'Внедрение', total:totalBy('implementation'), rows:sectionRows('implementation',item=>sourceValue(item))},
    {label:'CR Start как внедрение', total:totalBy('cr_start_implementation'), rows:sectionRows('cr_start_implementation',item=>sourceValue(item))},
    {label:'Обучения', total:totalBy('training'), rows:sectionRows('training',item=>item.description||sourceValue(item))},
-   {label:'Оплата за часы', total:totalBy('support_hours'), rows:[]},
-   {label:'Переработка', total:hoursBy('support_hours'), rows:[], suffix:' ч'},
+   {label:'Оплата за часы текущих клиентов', total:totalBy('support_hours'), rows:[]},
+   {label:'Часы текущих клиентов', total:hoursBy('support_hours'), rows:[], suffix:' ч'},
+   {label:'Переработка', total:hoursBy('overtime_hours'), rows:[], suffix:' ч'},
    {label:'CR Start', total:totalBy('cr_start_fixed'), rows:sectionRows('cr_start_fixed',item=>sourceValue(item))},
    {label:'Текущие', total:totalBy('current_client'), rows:[]}
   ]
+
+  const taskHourItems=data.items.filter(item=>['support_hours','task_hours_reference'].includes(item.bonus_type))
+  const taskHourFunnels=[
+   ['tech_integration','Тех интеграция'],
+   ['implementation','Внедрение'],
+   ['support','Сопровождение'],
+   ['cr_start','CR Start']
+  ] as const
 
   return <>
    <Card size="small" title="Общая информация" style={{marginBottom:20}}>
     <Space direction="vertical" size={12} style={{width:'100%'}}>
      {summarySections.map(section=>{
-      if(section.rows.length===0 && section.total===0 && section.label!=='Переработка' && section.label!=='Оплата за часы' && section.label!=='Текущие') return null
+      if(section.rows.length===0 && section.total===0 && !['Переработка','Оплата за часы текущих клиентов','Часы текущих клиентов','Текущие'].includes(section.label)) return null
       return <div key={section.label}>
-       <Text strong>{section.label} — {section.label==='Переработка'?`${num(section.total)}${section.suffix ?? ''}`:rub(section.total)}</Text>
+       <Text strong>{section.label} — {section.suffix?`${num(section.total)}${section.suffix}`:rub(section.total)}</Text>
        {section.rows.length>0&&<div style={{marginTop:8, paddingLeft:16}}>
-        {section.rows.map(row=><div key={`${section.label}-${row.label}`} style={{display:'flex',justifyContent:'space-between',gap:12,marginBottom:4}}><span>{row.label}</span><span>{row.value}</span></div>)}
+        {section.rows.map(row=><div key={row.id} style={{display:'flex',justifyContent:'space-between',gap:12,marginBottom:4}}><BitrixLink href={row.href}>{row.label}</BitrixLink><span>{row.value}</span></div>)}
        </div>}
       </div>
      })}
@@ -194,6 +236,21 @@ function Bonuses(){
    </Descriptions>
 
    <Space direction="vertical" size={16} style={{width:'100%',marginTop:20}}>
+    <Card size="small" title="Расшифровка по часам задач">
+     <Collapse
+      defaultActiveKey={[]}
+      items={taskHourFunnels.map(([funnelKey,title])=>{
+       const items=taskHourItems.filter(item=>taskHourFunnel(item)===funnelKey)
+       const hours=items.reduce((sum,item)=>sum+Number(item.quantity||0),0)
+       return {
+        key:funnelKey,
+        label:<Space><Text strong>{title}</Text><Text type="secondary">{items.length} задач · {num(hours)} ч</Text></Space>,
+        children:items.length>0?<Table rowKey="id" columns={taskHourColumns} dataSource={items} pagination={false} size="small" scroll={{x:800}}/>:<Text type="secondary">Нет записей времени за выбранный месяц</Text>
+       }
+      })}
+     />
+    </Card>
+
     {groups.map(([type,title])=>{
       const items=data.items.filter(item=>item.bonus_type===type)
       if(items.length===0)return null
@@ -231,14 +288,14 @@ function Bonuses(){
 
  return <Space direction="vertical" size={24} style={{width:'100%'}}>
   <Row justify="space-between">
-   <Title level={2}>Расчет премий</Title>
+   <Title level={2}>{isAdmin?'Расчет премий':'Моя премия'}</Title>
    <Space>
     <Month value={month} onChange={setMonth}/>
-    <Button type="primary" loading={run.isPending} onClick={()=>run.mutate()}>Пересчитать</Button>
-    <Button icon={<DownloadOutlined/>} href={excelUrl(month)}>Excel</Button>
+    {isAdmin&&<Button type="primary" loading={run.isPending} onClick={()=>run.mutate()}>Пересчитать</Button>}
+    {isAdmin&&<Button icon={<DownloadOutlined/>} href={excelUrl(month)}>Excel</Button>}
    </Space>
   </Row>
-  <Alert type="info" showIcon message="Каждый перерасчет создает новую версию; история не перезаписывается."/>
+  {isAdmin&&<Alert type="info" showIcon message="Каждый перерасчет создает новую версию; история не перезаписывается."/>}
 
   <Card>
    <Table
@@ -261,17 +318,17 @@ function Bonuses(){
  </Space>
 }
 
-function Deals(){
- const q=useQuery({queryKey:['deals'],queryFn:getDepartmentDeals})
- const cols:ColumnsType<Deal>=[{title:'ID',dataIndex:'bitrix_id'},{title:'Сделка',dataIndex:'title'},{title:'Воронка',dataIndex:'funnel',render:funnel},{title:'Оплата/мес.',dataIndex:'monthly_amount',render:rub},{title:'Машин',dataIndex:'machines_count'},{title:'1С',dataIndex:'integration_1c',render:v=>v?<Tag color="green">Да</Tag>:<Tag>Нет</Tag>}]
- return <Space direction="vertical" size={24} style={{width:'100%'}}><Title level={2}>Сделки</Title><Card><Table rowKey="id" columns={cols} dataSource={q.data??[]} loading={q.isLoading} pagination={{pageSize:25}}/></Card></Space>
+function Deals({isAdmin,userId}:{isAdmin:boolean;userId:string}){
+ const q=useQuery({queryKey:['deals',userId],queryFn:getDepartmentDeals})
+ const cols:ColumnsType<Deal>=[{title:'ID',dataIndex:'bitrix_id',render:id=><BitrixLink href={dealUrl(id)}>{id}</BitrixLink>},{title:'Сделка',dataIndex:'title',render:(title,deal)=><BitrixLink href={dealUrl(deal.bitrix_id)}>{title}</BitrixLink>},{title:'Воронка',dataIndex:'funnel',render:funnel},{title:'Оплата/мес.',dataIndex:'monthly_amount',render:rub},{title:'Машин',dataIndex:'machines_count'},{title:'1С',dataIndex:'integration_1c',render:v=>v?<Tag color="green">Да</Tag>:<Tag>Нет</Tag>}]
+ return <Space direction="vertical" size={24} style={{width:'100%'}}><Title level={2}>{isAdmin?'Сделки':'Мои сделки'}</Title><Card><Table rowKey="id" columns={cols} dataSource={q.data??[]} loading={q.isLoading} pagination={{pageSize:25}}/></Card></Space>
 }
 
 function Diagnostics(){
  const [month,setMonth]=useState(monthNow());const qc=useQueryClient()
  const q=useQuery({queryKey:['issues',month],queryFn:()=>getDiagnostics(month)})
  const run=useMutation({mutationFn:()=>runDiagnostics(month),onSuccess:()=>void qc.invalidateQueries({queryKey:['issues',month]})})
- const cols:ColumnsType<Issue>=[{title:'Уровень',dataIndex:'severity',render:v=><Tag color={v==='critical'?'red':'orange'}>{v}</Tag>},{title:'Код',dataIndex:'code'},{title:'Причина',dataIndex:'message'},{title:'Сделка',dataIndex:'deal_bitrix_id',render:(id:number|null)=>id?<Link href={`https://bx.crg.im/crm/deal/details/${id}/`} target="_blank" rel="noreferrer">Открыть сделку #{id}</Link>:'—'}]
+ const cols:ColumnsType<Issue>=[{title:'Уровень',dataIndex:'severity',render:v=><Tag color={v==='critical'?'red':'orange'}>{v}</Tag>},{title:'Код',dataIndex:'code'},{title:'Причина',dataIndex:'message'},{title:'Сделка',dataIndex:'deal_bitrix_id',render:(id:number|null)=>id?<BitrixLink href={dealUrl(id)}>Открыть сделку #{id}</BitrixLink>:'—'}]
  return <Space direction="vertical" size={24} style={{width:'100%'}}><Row justify="space-between"><Title level={2}>Диагностика</Title><Space><Month value={month} onChange={setMonth}/><Button icon={<ReloadOutlined/>} onClick={()=>run.mutate()}>Проверить</Button></Space></Row><Card><Table rowKey="id" columns={cols} dataSource={q.data??[]} pagination={{pageSize:30}}/></Card></Space>
 }
 
@@ -287,7 +344,8 @@ function Sync(){
  const job=useQuery({queryKey:['sync-job',jobId],queryFn:()=>getSyncJob(jobId!),enabled:Boolean(jobId),refetchInterval:q=>{const d=q.state.data as SyncJob|undefined;return d?.status==='completed'||d?.status==='failed'?false:1500}})
  const start=useMutation({mutationFn:(full:boolean)=>startDealsSync(full),onSuccess:j=>setJobId(j.job_id)})
  useEffect(()=>{if(job.data?.status==='completed')void qc.invalidateQueries()},[job.data?.status,qc])
- return <Space direction="vertical" size={24} style={{width:'100%'}}><Title level={2}>Синхронизация</Title><Card><Space direction="vertical"><Text>Последняя успешная: {status.data?.last_success??'—'}</Text><Space><Button type="primary" icon={<CloudSyncOutlined/>} onClick={()=>start.mutate(false)}>Инкрементальная</Button><Button icon={<ReloadOutlined/>} onClick={()=>start.mutate(true)}>Полная</Button></Space></Space></Card>{job.data&&<Card title={`Job ${job.data.job_id}`}><Progress percent={job.data.progress}/><Text>{job.data.status}; обработано {job.data.processed}</Text>{job.data.error&&<Alert type="error" message={job.data.error}/>}</Card>}</Space>
+ const nightly=status.data?.nightly_last_result
+ return <Space direction="vertical" size={24} style={{width:'100%'}}><Title level={2}>Синхронизация</Title><Card title="Автоматическая ночная синхронизация"><Space direction="vertical"><Text>Запуск ежедневно в {String(status.data?.nightly_hour??2).padStart(2,'0')}:00 ({status.data?.nightly_timezone??'Europe/Moscow'})</Text><Text>Последняя успешная: {dateTime(status.data?.nightly_last_success)}</Text><Text type="secondary">Последняя попытка: {dateTime(status.data?.nightly_last_attempt)}</Text>{nightly&&<Text>Сотрудников: {nightly.users}; сделок: {nightly.deals}; задач: {nightly.tasks}; записей времени: {nightly.elapsed_items}. Период задач: {nightly.period_from} — {nightly.period_to}</Text>}{status.data?.nightly_last_error&&<Alert type="error" showIcon message="Ошибка ночной синхронизации" description={status.data.nightly_last_error}/>}</Space></Card><Card title="Ручная синхронизация сделок"><Space direction="vertical"><Text>Последняя успешная: {dateTime(status.data?.last_success)}</Text><Space><Button type="primary" icon={<CloudSyncOutlined/>} onClick={()=>start.mutate(false)}>Инкрементальная</Button><Button icon={<ReloadOutlined/>} onClick={()=>start.mutate(true)}>Полная</Button></Space></Space></Card>{job.data&&<Card title={`Job ${job.data.job_id}`}><Progress percent={job.data.progress}/><Text>{job.data.status}; обработано {job.data.processed}</Text>{job.data.error&&<Alert type="error" message={job.data.error}/>}</Card>}</Space>
 }
 
 function Login({onSuccess}:{onSuccess:()=>void}){
@@ -309,21 +367,27 @@ export default function App(){
  const [authVersion,setAuthVersion]=useState(0)
  const user=useQuery({queryKey:['current-user',authVersion],queryFn:getCurrentUser,retry:false})
  if(user.isLoading)return <Card loading/>
- if(user.isError)return <Login onSuccess={()=>setAuthVersion(v=>v+1)}/>
- const content=useMemo(()=>({dashboard:<Dashboard/>,kpi:<KPI/>,bonus:<Bonuses/>,deals:<Deals/>,diagnostics:<Diagnostics/>,rules:<Rules/>,settings:<SettingsPage/>,sync:<Sync/>}[page]??<Dashboard/>),[page])
+ if(user.isError||!user.data)return <Login onSuccess={()=>setAuthVersion(v=>v+1)}/>
+ const isAdmin=user.data.is_admin
+ const effectivePage=!isAdmin&&!['dashboard','bonus','deals'].includes(page)?'dashboard':page
+ const content=({dashboard:<Dashboard isAdmin={isAdmin} userId={user.data.id}/>,kpi:<KPI/>,bonus:<Bonuses isAdmin={isAdmin} userId={user.data.id}/>,deals:<Deals isAdmin={isAdmin} userId={user.data.id}/>,diagnostics:<Diagnostics/>,rules:<Rules/>,settings:<SettingsPage/>,sync:<Sync/>}[effectivePage]??<Dashboard isAdmin={isAdmin} userId={user.data.id}/>)
+ const employeeMenu=[
+  {key:'dashboard',icon:<DashboardOutlined/>,label:'Главная'},
+  {key:'bonus',icon:<FundOutlined/>,label:'Моя премия'},
+  {key:'deals',icon:<DatabaseOutlined/>,label:'Мои сделки'}
+ ]
+ const adminMenu=[
+  {key:'dashboard',icon:<DashboardOutlined/>,label:'Главная'},{key:'kpi',icon:<TrophyOutlined/>,label:'KPI отдела'},
+  {key:'bonus',icon:<FundOutlined/>,label:'Расчет премий'},{key:'deals',icon:<DatabaseOutlined/>,label:'Сделки'},
+  {key:'diagnostics',icon:<ExclamationCircleOutlined/>,label:'Диагностика'},{key:'rules',icon:<SettingOutlined/>,label:'Правила'},
+  {key:'settings',icon:<SettingOutlined/>,label:'\u041d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0438'},
+  {key:'sync',icon:<CloudSyncOutlined/>,label:'Синхронизация'}
+ ]
  return <Layout className="app-layout">
   <Sider breakpoint="lg" collapsedWidth={0} width={240} className="app-sider">
    <div className="app-logo"><div className="logo-mark">CR</div><div><div className="logo-title">CR Portal</div><div className="logo-subtitle">KPI & Bonus</div></div></div>
-   <Menu theme="dark" mode="inline" selectedKeys={[page]} onClick={({key})=>setPage(key)} items={[
-    {key:'dashboard',icon:<DashboardOutlined/>,label:'Главная'},{key:'kpi',icon:<TrophyOutlined/>,label:'KPI отдела'},
-    {key:'bonus',icon:<FundOutlined/>,label:'Расчет премий'},{key:'deals',icon:<DatabaseOutlined/>,label:'Сделки'},
-    {key:'diagnostics',icon:<ExclamationCircleOutlined/>,label:'Диагностика'},{key:'rules',icon:<SettingOutlined/>,label:'Правила'},
-    {key:'settings',icon:<SettingOutlined/>,label:'\u041d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0438'},
-    {key:'sync',icon:<CloudSyncOutlined/>,label:'Синхронизация'}
-   ]}/>
+   <Menu theme="dark" mode="inline" selectedKeys={[effectivePage]} onClick={({key})=>setPage(key)} items={isAdmin?adminMenu:employeeMenu}/>
   </Sider>
   <Layout><Header className="app-header"><Text strong>CR Integration Portal</Text><Space><Tag color="green" icon={<CheckCircleOutlined/>}>{user.data.full_name}</Tag><Button size="small" onClick={async()=>{await logout();setAuthVersion(v=>v+1)}}>Выйти</Button></Space></Header><Content className="app-content"><div className="content-container">{content}</div></Content></Layout>
  </Layout>
 }
-
-

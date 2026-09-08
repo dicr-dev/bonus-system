@@ -49,6 +49,7 @@ class CalculationResponse(BaseModel):
     implementation_total: Decimal
     tech_integration_total: Decimal
     support_hours: Decimal
+    overtime_hours: Decimal = Decimal("0")
     sales_total: Decimal
     training_count: int
     subtotal_dividable: Decimal

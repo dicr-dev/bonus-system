@@ -1,9 +1,11 @@
 export interface FunnelSummary { funnel:string; active_deals:number; monthly_amount:string; machines_count:number; integration_1c_deals:number }
+export interface CurrentUser { id:string; bitrix_id:number; full_name:string; is_admin:boolean; is_active:boolean }
 export interface ResponsibleSummary { user_id:string; full_name:string; active_deals:number; monthly_amount:string; machines_count:number }
 export interface DashboardSummary { active_deals:number; monthly_amount:string; machines_count:number; integration_1c_deals:number; subscription_implementation_amount:string; subscription_cr_start_amount:string; subscription_total_amount:string; funnels:FunnelSummary[]; responsibles:ResponsibleSummary[] }
 export interface Deal { id:string; bitrix_id:number; category_id:number; funnel:string; stage_id:string; status:string; title:string; opportunity:string; monthly_amount:string; machines_count:number; integration_1c:boolean; bitrix_assigned_by_id:number|null; responsible_user_id:string|null; created_time:string|null; closed_time:string|null }
 export interface SyncJob { job_id:string; type:string; full:boolean; status:'queued'|'running'|'completed'|'failed'; progress:number; processed:number; current_funnel:string|null; created_at:string; started_at:string|null; finished_at:string|null; error:string|null }
-export interface SyncStatus { last_success:string|null }
+export interface NightlySyncResult { users:number; deals:number; tasks:number; elapsed_items:number; period_from:string; period_to:string; finished_at:string }
+export interface SyncStatus { last_success:string|null; nightly_last_attempt:string|null; nightly_last_success:string|null; nightly_last_error:string|null; nightly_last_result:NightlySyncResult|null; nightly_hour:number; nightly_timezone:string; nightly_task_months:number }
 export interface KPIEmployee { employee_id:string|null; employee_name:string; implementation:number; cr_start:number; fact:number }
 export interface KPIDeal { deal_id:string; bitrix_id:number; title:string; funnel:string; employee_name:string|null; monthly_amount:string; machines_count:number }
 export interface KPISummary { month:string; plan:string; fact:string; implementation_fact:number; cr_start_fact:number; remaining:string; completion_percent:string; potential:number; forecast:string; employees:KPIEmployee[]; result_deals:KPIDeal[]; potential_deals:KPIDeal[] }
@@ -21,6 +23,7 @@ export interface Calculation {
   implementation_total:string
   tech_integration_total:string
   support_hours:string
+  overtime_hours:string
   sales_total:string
   training_count:number
   subtotal_dividable:string
@@ -75,6 +78,12 @@ export interface AppSettings {
   cr_start_boolean_fields:string[]
   field_client_works:string
   task_training_bonus_field:string
+  task_training_yes_value:string
+  task_training_date_field:'CLOSED_DATE'|'DEADLINE'
+  overtime_project_id:number|null
+  overtime_department_ids:string
+  task_overtime_hours_field:string
+  overtime_time_priority:'manual'|'tracker'
   field_module:string
   field_integration_amount:string
 }

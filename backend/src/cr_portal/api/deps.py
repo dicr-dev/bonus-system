@@ -56,10 +56,10 @@ async def current_user(
         int(bitrix_id)
     )
 
-    if user is None:
+    if user is None or not user.is_active:
         raise HTTPException(
             status_code=401,
-            detail="User is not synchronized",
+            detail="User is not synchronized or inactive",
         )
 
     return user

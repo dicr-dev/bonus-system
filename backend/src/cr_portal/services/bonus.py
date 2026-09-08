@@ -586,6 +586,7 @@ async def calculate_month(
     session: AsyncSession,
     month: date,
     initiated_by_id: UUID | None = None,
+    client=None,
 ):
     month = month_start(month)
     end = add_months(month, 1)
@@ -593,13 +594,45 @@ async def calculate_month(
 
     business = await get_business_settings(session)
     rules_version, rules = await get_rules(session, month)
-    issues = await diagnose_month(session, month)
 
     users_result = await session.execute(select(User))
     users = users_result.scalars().all()
     user_ids = {user.id for user in users}
 
     contributions = defaultdict(list)
+    if client is not None:
+        from cr_portal.services.task_kpi import task_contributions
+        task_deals_result = await session.execute(
+            select(Deal).where(Deal.funnel.in_([
+                "support", "implementation", "tech_integration", "cr_start",
+            ]))
+        )
+        task_deals = task_deals_result.scalars().all()
+        support_deals = [deal for deal in task_deals if deal.funnel == "support"]
+        implementations = {
+            deal.bitrix_id: deal for deal in task_deals if deal.funnel == "implementation"
+        }
+        implementations_by_support = {
+            deal.id: [
+                implementations[bitrix_id]
+                for bitrix_id in linked_deal_ids(deal, business.field_source_deal_id)
+                if bitrix_id in implementations
+            ]
+            for deal in support_deals
+        }
+        for employee_id, contribution in await task_contributions(
+            client,
+            business,
+            month,
+            users,
+            rules,
+            support_deals,
+            implementations_by_support,
+            [deal for deal in task_deals if deal.funnel != "support"],
+        ):
+            contributions[employee_id].append(contribution)
+
+    issues = await diagnose_month(session, month)
 
     tech_result = await session.execute(
         select(Deal).where(
@@ -1026,14 +1059,14 @@ async def calculate_month(
                     )
                 ),
                 bonus_type=bonus_type,
-                source_type=("manual_event" if event else "deal"),
+                source_type=("task" if details.get("task_id") else "manual_event" if event else "deal"),
                 source_external_id=(
-                    str(event.id)
-                    if event
+                    details.get("task_id")
+                    if details.get("task_id")
                     else (
-                        str(deal.bitrix_id)
-                        if deal
-                        else None
+                        str(event.id)
+                        if event
+                        else (str(deal.bitrix_id) if deal else None)
                     )
                 ),
                 base_amount=money(base),
@@ -1045,6 +1078,7 @@ async def calculate_month(
                 description=description,
                 details_json=json.dumps(
                     {
+                        **details,
                         "divider": (
                             str(divider)
                             if use_divider

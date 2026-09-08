@@ -25,9 +25,21 @@ class BusinessSettings:
     field_module: str
     field_integration_amount: str
     field_cr_start_commercial_use_date: str
+    task_training_yes_value: str = ""
+    task_training_date_field: str = "DEADLINE"
+    overtime_project_id: int | None = None
+    overtime_department_ids: str = ""
+    task_overtime_hours_field: str = ""
+    overtime_time_priority: str = "manual"
 
 
 KEYS = {
+    "task_training_yes_value": "BITRIX_TASK_TRAINING_YES_VALUE",
+    "task_training_date_field": "BITRIX_TASK_TRAINING_DATE_FIELD",
+    "overtime_project_id": "BITRIX_OVERTIME_PROJECT_ID",
+    "overtime_department_ids": "BITRIX_OVERTIME_DEPARTMENT_IDS",
+    "task_overtime_hours_field": "BITRIX_TASK_OVERTIME_HOURS_FIELD",
+    "overtime_time_priority": "BITRIX_OVERTIME_TIME_PRIORITY",
     "tech_integration_category_id": "BITRIX_TECH_INTEGRATION_CATEGORY_ID",
     "implementation_category_id": "BITRIX_IMPLEMENTATION_CATEGORY_ID",
     "cr_start_category_id": "BITRIX_CR_START_CATEGORY_ID",
@@ -84,6 +96,12 @@ async def get_business_settings(session: AsyncSession) -> BusinessSettings:
         return values.get(KEYS[field], "").strip()
 
     return BusinessSettings(
+        task_training_yes_value=value("task_training_yes_value"),
+        task_training_date_field=value("task_training_date_field") or "DEADLINE",
+        overtime_project_id=_to_int(value("overtime_project_id")),
+        overtime_department_ids=value("overtime_department_ids"),
+        task_overtime_hours_field=value("task_overtime_hours_field"),
+        overtime_time_priority=value("overtime_time_priority") or "manual",
         tech_integration_category_id=_to_int(value("tech_integration_category_id")),
         implementation_category_id=_to_int(value("implementation_category_id")),
         cr_start_category_id=_to_int(value("cr_start_category_id")),

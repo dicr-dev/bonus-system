@@ -1,9 +1,9 @@
 import axios from 'axios'
-import type { AppSettings,Calculation,CalculationDetail,DashboardSummary,Deal,Issue,KPISummary,RuleConfig,RuleVersion,SyncJob,SyncStatus } from './types'
+import type { AppSettings,Calculation,CalculationDetail,CurrentUser,DashboardSummary,Deal,Issue,KPISummary,RuleConfig,RuleVersion,SyncJob,SyncStatus } from './types'
 
 export const api=axios.create({baseURL:'/api/v1',withCredentials:true,timeout:30000})
 export async function login(login:string,password:string){return (await api.post('/auth/login',{login,password})).data}
-export async function getCurrentUser(){return (await api.get('/auth/me')).data}
+export async function getCurrentUser():Promise<CurrentUser>{return (await api.get('/auth/me')).data}
 export async function logout(){return (await api.post('/auth/logout')).data}
 export async function getDashboard(month?:string):Promise<DashboardSummary>{return (await api.get('/reports/dashboard',{params:month?{month}:undefined})).data}
 export async function getDepartmentDeals():Promise<Deal[]>{return (await api.get('/reports/department-deals')).data}
@@ -12,7 +12,7 @@ export async function startDealsSync(full=false):Promise<SyncJob>{return (await 
 export async function getSyncJob(id:string):Promise<SyncJob>{return (await api.get(`/sync/jobs/${id}`)).data}
 export async function getKPI(month:string):Promise<KPISummary>{return (await api.get('/kpi/summary',{params:{month}})).data}
 export async function savePlan(month:string,plan_value:number){return (await api.put('/kpi/plan',{plan_value,comment:''},{params:{month}})).data}
-export async function runCalculation(month:string):Promise<Calculation[]>{return (await api.post('/calculations/run',null,{params:{month}})).data}
+export async function runCalculation(month:string):Promise<Calculation[]>{return (await api.post('/calculations/run',null,{params:{month},timeout:120000})).data}
 export async function getCalculations(month:string):Promise<Calculation[]>{return (await api.get('/calculations',{params:{month}})).data}
 export async function getCalculation(id:string):Promise<CalculationDetail>{return (await api.get(`/calculations/${id}`)).data}
 export async function runDiagnostics(month:string):Promise<Issue[]>{return (await api.post('/diagnostics/run',null,{params:{month}})).data}

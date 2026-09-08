@@ -160,7 +160,7 @@ class BitrixClient:
             if isinstance(result, list):
                 page = result
             elif isinstance(result, dict):
-                page = result.get("items", [])
+                page = result.get("items", result.get("tasks", []))
             else:
                 page = []
 

@@ -1,5 +1,6 @@
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -13,8 +14,21 @@ from cr_portal.integrations.bitrix.client import BitrixClient
 from cr_portal.models.user import User
 from cr_portal.models.oauth import BitrixInstallation
 from cr_portal.repositories.users import UserRepository
+from cr_portal.services.kpi import kpi_department_name_from_user_data
 
 router = APIRouter()
+
+
+def _public_frontend_url(request: Request) -> str:
+    redirect = urlsplit(settings.BITRIX_REDIRECT_URI)
+    if redirect.scheme in {"http", "https"} and redirect.netloc:
+        return f"{redirect.scheme}://{redirect.netloc}/"
+
+    forwarded_proto = request.headers.get("x-forwarded-proto", "").split(",", 1)[0].strip()
+    forwarded_host = request.headers.get("x-forwarded-host", "").split(",", 1)[0].strip()
+    scheme = forwarded_proto or request.url.scheme
+    host = forwarded_host or request.headers.get("host", "")
+    return f"{scheme}://{host}/"
 
 
 @router.post("/login")
@@ -91,8 +105,7 @@ async def bitrix_callback(
     request.session["bitrix_refresh_token"] = installation.refresh_token
     request.session["bitrix_client_endpoint"] = installation.client_endpoint
 
-    frontend_url = f"{request.url.scheme}://{request.headers.get('host', '')}"
-    return RedirectResponse(frontend_url, status_code=302)
+    return RedirectResponse(_public_frontend_url(request), status_code=302)
 
 
 @router.get("/me")
@@ -339,7 +352,7 @@ async def _resolve_current_user(
             or f"Bitrix user {current['ID']}"
         ),
         position=current.get("WORK_POSITION"),
-        is_active=True,
+        department_name=kpi_department_name_from_user_data(current),
     )
 
     await session.commit()
@@ -386,12 +399,12 @@ async def bitrix_install(
 @router.api_route(
     "/bitrix/app",
     methods=["GET", "POST"],
-    response_class=HTMLResponse,
+    response_class=RedirectResponse,
 )
 async def bitrix_app(
     request: Request,
     session: AsyncSession = Depends(db_session),
-) -> HTMLResponse:
+) -> RedirectResponse:
     data = await _read_request_data(request)
     data = await _exchange_authorization_code(request, data)
 
@@ -416,36 +429,7 @@ async def bitrix_app(
         installation.client_endpoint
     )
 
-    # Keep the Bitrix session and frontend on the same public host.
-    frontend_url = f"{request.url.scheme}://{request.headers.get('host', '')}"
-
-    return HTMLResponse(
-        content=f"""
-<!doctype html>
-<html lang="ru">
-<head>
-    <meta charset="utf-8">
-    <title>CR Integration Portal</title>
-    <style>
-        html, body, iframe {{
-            width: 100%;
-            height: 100%;
-            margin: 0;
-            padding: 0;
-            border: 0;
-        }}
-    </style>
-</head>
-<body>
-    <iframe
-        src="{frontend_url}"
-        title="CR Integration Portal"
-    ></iframe>
-</body>
-</html>
-""",
-        status_code=200,
-    )
+    return RedirectResponse(_public_frontend_url(request), status_code=302)
 
 
 @router.post("/logout")

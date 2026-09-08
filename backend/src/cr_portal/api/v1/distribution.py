@@ -2,13 +2,13 @@ from uuid import UUID
 from fastapi import APIRouter,Depends,HTTPException
 from sqlalchemy import func,select
 from sqlalchemy.ext.asyncio import AsyncSession
-from cr_portal.api.deps import db_session
+from cr_portal.api.deps import admin_user, db_session
 from cr_portal.models.deal import Deal
 from cr_portal.models.user import User
 from cr_portal.models.distribution import DistributionDecision
 router=APIRouter()
 @router.post('/{deal_id}/propose')
-async def propose(deal_id:UUID,s:AsyncSession=Depends(db_session)):
+async def propose(deal_id:UUID,s:AsyncSession=Depends(db_session),_admin=Depends(admin_user)):
     d=await s.get(Deal,deal_id)
     if not d: raise HTTPException(404,'Deal not found')
     if d.funnel!='tech_integration': raise HTTPException(400,'Only Tech Integration deals are distributed')

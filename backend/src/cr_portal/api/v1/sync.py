@@ -7,16 +7,20 @@ from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from cr_portal.api.deps import admin_user, bitrix_client, db_session
+from cr_portal.core.config import settings
 from cr_portal.db.redis import get_redis
 from cr_portal.integrations.bitrix.client import BitrixClient
 from cr_portal.services.bitrix_sync import sync_users
-
 
 router = APIRouter()
 
 QUEUE_KEY = "cr_portal:sync:deals:queue"
 JOB_PREFIX = "cr_portal:sync:job:"
 LAST_SUCCESS_KEY = "cr_portal:sync:deals:last_success"
+NIGHTLY_LAST_ATTEMPT_KEY = "cr_portal:sync:nightly:last_attempt"
+NIGHTLY_LAST_SUCCESS_KEY = "cr_portal:sync:nightly:last_success"
+NIGHTLY_LAST_ERROR_KEY = "cr_portal:sync:nightly:last_error"
+NIGHTLY_LAST_RESULT_KEY = "cr_portal:sync:nightly:last_result"
 
 
 def utc_now() -> str:
@@ -103,10 +107,26 @@ async def sync_job(
 async def deals_sync_status(_admin=Depends(admin_user)) -> dict:
     redis: Redis = get_redis()
 
-    last_success = await redis.get(
-        LAST_SUCCESS_KEY
+    last_success, nightly_attempt, nightly_success, nightly_error, raw_result = await redis.mget(
+        LAST_SUCCESS_KEY,
+        NIGHTLY_LAST_ATTEMPT_KEY,
+        NIGHTLY_LAST_SUCCESS_KEY,
+        NIGHTLY_LAST_ERROR_KEY,
+        NIGHTLY_LAST_RESULT_KEY,
     )
+
+    try:
+        nightly_result = json.loads(raw_result) if raw_result else None
+    except json.JSONDecodeError:
+        nightly_result = None
 
     return {
         "last_success": last_success,
+        "nightly_last_attempt": nightly_attempt,
+        "nightly_last_success": nightly_success,
+        "nightly_last_error": nightly_error,
+        "nightly_last_result": nightly_result,
+        "nightly_hour": settings.NIGHTLY_SYNC_HOUR,
+        "nightly_timezone": settings.NIGHTLY_SYNC_TIMEZONE,
+        "nightly_task_months": settings.NIGHTLY_TASK_MONTHS,
     }

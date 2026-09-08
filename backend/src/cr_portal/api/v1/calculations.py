@@ -1,5 +1,6 @@
 from datetime import date
 from decimal import Decimal
+import httpx
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -7,7 +8,8 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from cr_portal.api.deps import admin_user, db_session
+from cr_portal.api.deps import admin_user, bitrix_client, current_user, db_session
+from cr_portal.integrations.bitrix.client import BitrixClient
 from cr_portal.models.bonus import (
     BonusCalculation,
     BonusCalculationItem,
@@ -56,6 +58,7 @@ def _calculation_response(
     data = CalculationResponse.model_validate(calculation).model_dump()
     data["employee_name"] = employee_name
     extra = extra_totals or {}
+    data["overtime_hours"] = extra.get("overtime_hours", Decimal("0"))
     data["current_client_total"] = extra.get("current_client_total", Decimal("0"))
     data["kpi_total"] = extra.get("kpi_total", calculation.implementation_total)
     data["kpi_divided_total"] = extra.get("kpi_divided_total", calculation.subtotal_dividable)
@@ -75,6 +78,7 @@ async def _bonus_totals_by_calculation(
             BonusCalculationItem.calculation_id,
             BonusCalculationItem.bonus_type,
             func.coalesce(func.sum(BonusCalculationItem.amount_final), Decimal("0")),
+            func.coalesce(func.sum(BonusCalculationItem.quantity), Decimal("0")),
         )
         .where(BonusCalculationItem.calculation_id.in_(calculation_ids))
         .group_by(BonusCalculationItem.calculation_id, BonusCalculationItem.bonus_type)
@@ -89,7 +93,9 @@ async def _bonus_totals_by_calculation(
         for calculation in calculations
     }
 
-    for calculation_id, bonus_type, amount in result.all():
+    for calculation_id, bonus_type, amount, quantity in result.all():
+        if bonus_type == "overtime_hours":
+            totals[calculation_id]["overtime_hours"] = quantity
         if bonus_type == "current_client":
             totals[calculation_id]["current_client_total"] = Decimal(str(amount or 0))
 
@@ -101,8 +107,16 @@ async def run(
     month: str = Query(...),
     session: AsyncSession = Depends(db_session),
     _admin=Depends(admin_user),
+    client: BitrixClient = Depends(bitrix_client),
 ):
-    calculations = await calculate_month(session, parse_month(month))
+    try:
+        calculations = await calculate_month(session, parse_month(month), client=client)
+    except ValueError as exc:
+        await session.rollback()
+        raise HTTPException(422, str(exc)) from exc
+    except (httpx.HTTPError, RuntimeError) as exc:
+        await session.rollback()
+        raise HTTPException(502, "Не удалось получить данные задач Битрикс24. Расчёт не сохранён.") from exc
     names = await _employee_names(
         session,
         {calculation.employee_id for calculation in calculations},
@@ -122,11 +136,11 @@ async def run(
 async def list_calculations(
     month: str = Query(...),
     session: AsyncSession = Depends(db_session),
-    _admin=Depends(admin_user),
+    user=Depends(current_user),
 ):
     month_date = parse_month(month)
 
-    result = await session.execute(
+    query = (
         select(BonusCalculation)
         .where(BonusCalculation.month == month_date)
         .order_by(
@@ -134,6 +148,9 @@ async def list_calculations(
             BonusCalculation.version.desc(),
         )
     )
+    if not user.is_admin:
+        query = query.where(BonusCalculation.employee_id == user.id)
+    result = await session.execute(query)
 
     latest: dict[UUID, BonusCalculation] = {}
     for calculation in result.scalars().all():
@@ -160,13 +177,16 @@ async def list_calculations(
 async def detail(
     calculation_id: UUID,
     session: AsyncSession = Depends(db_session),
-    _admin=Depends(admin_user),
+    user=Depends(current_user),
 ):
-    result = await session.execute(
+    query = (
         select(BonusCalculation)
         .options(selectinload(BonusCalculation.items))
         .where(BonusCalculation.id == calculation_id)
     )
+    if not user.is_admin:
+        query = query.where(BonusCalculation.employee_id == user.id)
+    result = await session.execute(query)
     calculation = result.scalar_one_or_none()
 
     if calculation is None:
@@ -199,7 +219,8 @@ async def detail(
         data["deal_bitrix_id"] = deal.bitrix_id if deal else None
         items.append(CalculationItemResponse(**data))
 
-    base = CalculationResponse.model_validate(calculation).model_dump()
+    totals = await _bonus_totals_by_calculation(session, [calculation])
+    base = _calculation_response(calculation, user.full_name, totals.get(calculation.id)).model_dump()
     base["employee_name"] = user.full_name
 
     return CalculationDetail(
@@ -212,6 +233,7 @@ async def detail(
 async def add_event(
     data: ManualEventCreate,
     session: AsyncSession = Depends(db_session),
+    _admin=Depends(admin_user),
 ):
     event = ManualBonusEvent(**data.model_dump())
     session.add(event)
