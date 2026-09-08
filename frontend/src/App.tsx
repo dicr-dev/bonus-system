@@ -3,8 +3,8 @@
   ExclamationCircleOutlined,FundOutlined,ReloadOutlined,SettingOutlined,TrophyOutlined
 } from '@ant-design/icons'
 import {
-  Alert,Button,Card,Col,Collapse,Descriptions,Drawer,Form,Input,InputNumber,Layout,Menu,Progress,Row,Space,
-  Statistic,Table,Tag,Typography,message
+  Alert,Button,Card,Col,Collapse,Descriptions,Drawer,Empty,Form,Input,InputNumber,Layout,Menu,Popconfirm,
+  Progress,Row,Select,Space,Statistic,Table,Tag,Typography,message
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import { useMutation,useQuery,useQueryClient } from '@tanstack/react-query'
@@ -13,11 +13,13 @@ import SettingsPage from './SettingsPage'
 import InstructionPage from './InstructionPage'
 import {BitrixLink,dealUrl,sourceUrl} from './BitrixLink'
 import {
-  excelUrl,getCalculation,getCalculations,getDashboard,getDepartmentDeals,getDiagnostics,getKPI,getRules,
-  getSyncJob,getSyncStatus,runCalculation,runDiagnostics,savePlan,startDealsSync,getCurrentUser,login,logout
+  deleteDealBonusOverride,excelUrl,getCalculation,getCalculations,getCurrentUser,getDashboard,
+  getDealBonusOverrides,getDepartmentDeals,getDiagnostics,getEmployees,getKPI,getRules,getSyncJob,
+  getSyncStatus,login,logout,runCalculation,runDiagnostics,saveDealBonusOverride,savePlan,startDealsSync
 } from './api'
 import type {
-  Calculation,CalculationDetail,Deal,FunnelSummary,Issue,KPIDeal,KPIPlannedDeal,ResponsibleSummary,RuleVersion,SyncJob
+  Calculation,CalculationDetail,Deal,DealBonusOverride,DealBonusOverrideInput,FunnelSummary,Issue,KPIDeal,
+  KPIPlannedDeal,ResponsibleSummary,RuleVersion,SyncJob
 } from './types'
 
 const {Header,Content,Sider}=Layout
@@ -29,6 +31,7 @@ const rub=(v:string|number)=>new Intl.NumberFormat('ru-RU',{style:'currency',cur
 const num=(v:string|number)=>new Intl.NumberFormat('ru-RU').format(Number(v||0))
 const dateTime=(v:string|null|undefined)=>v?new Date(v).toLocaleString('ru-RU'):'—'
 const shortDate=(v:string)=>{const [y,m,d]=v.split('-').map(Number);return new Date(y,m-1,d).toLocaleDateString('ru-RU')}
+const monthName=(v:string)=>new Date(`${v.slice(0,7)}-01T00:00:00Z`).toLocaleDateString('ru-RU',{month:'long',year:'numeric',timeZone:'UTC'})
 const monthNow=()=>{const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`}
 const Month=({value,onChange}:{value:string;onChange:(v:string)=>void})=><Input type="month" value={value} onChange={e=>onChange(e.target.value)} style={{width:180}}/>
 
@@ -102,10 +105,26 @@ function KPI(){
 }
 
 function Bonuses({isAdmin,userId}:{isAdmin:boolean;userId:string}){
- const [month,setMonth]=useState(monthNow());const [id,setId]=useState<string|null>(null);const qc=useQueryClient()
+ const [month,setMonth]=useState(monthNow());const [id,setId]=useState<string|null>(null);const [overrideForm]=Form.useForm<DealBonusOverrideInput>();const qc=useQueryClient()
  const q=useQuery({queryKey:['calc',userId,month],queryFn:()=>getCalculations(month)})
  const detail=useQuery({queryKey:['calc-detail',userId,id],queryFn:()=>getCalculation(id!),enabled:Boolean(id)})
+ const overrides=useQuery({queryKey:['deal-bonus-overrides'],queryFn:getDealBonusOverrides,enabled:isAdmin})
+ const employees=useQuery({queryKey:['employees'],queryFn:getEmployees,enabled:isAdmin})
  const run=useMutation({mutationFn:()=>runCalculation(month),onSuccess:()=>{message.success('Новая версия расчета создана');void qc.invalidateQueries({queryKey:['calc',userId,month]})},onError:(error:any)=>message.error(error.response?.data?.detail||'Не удалось выполнить расчёт')})
+ const saveOverride=useMutation({
+  mutationFn:saveDealBonusOverride,
+  onSuccess:()=>{
+   message.success('Корректировка сохранена. Пересчитайте нужные месяцы.')
+   overrideForm.resetFields()
+   void qc.invalidateQueries({queryKey:['deal-bonus-overrides']})
+  },
+  onError:(error:any)=>message.error(error.response?.data?.detail||'Не удалось сохранить корректировку')
+ })
+ const removeOverride=useMutation({
+  mutationFn:deleteDealBonusOverride,
+  onSuccess:()=>{message.success('Корректировка удалена');void qc.invalidateQueries({queryKey:['deal-bonus-overrides']})},
+  onError:(error:any)=>message.error(error.response?.data?.detail||'Не удалось удалить корректировку')
+ })
 
  const cols:ColumnsType<Calculation>=[
   {title:'ФИО сотрудника',dataIndex:'employee_name',render:(v:string|null)=>v??'—'},
@@ -118,6 +137,24 @@ function Bonuses({isAdmin,userId}:{isAdmin:boolean;userId:string}){
   {title:'Кол-во часов переработки',dataIndex:'overtime_hours'},
   {title:'Итого',dataIndex:'total_bonus',render:v=><b>{rub(v)}</b>},
   {title:'',render:(_,r)=><Button onClick={()=>setId(r.id)}>Детализация</Button>}
+ ]
+
+ const calculationDepartment=(calculation:Calculation)=>
+  calculation.employee_department?.split(';').map(value=>value.trim()).includes('Разработка 1С')
+   ?'Разработка 1С'
+   :'Отдел внедрения'
+ const departmentGroups=['Отдел внедрения','Разработка 1С'].map(department=>({
+  department,
+  calculations:(q.data??[]).filter(calculation=>calculationDepartment(calculation)===department)
+ }))
+
+ const overrideColumns:ColumnsType<DealBonusOverride>=[
+  {title:'Сделка',render:(_,item)=><BitrixLink href={dealUrl(item.deal_bitrix_id)}>№{item.deal_bitrix_id} — {item.deal_title}</BitrixLink>},
+  {title:'Сотрудник',dataIndex:'employee_name'},
+  {title:'Период',render:(_,item)=>`${monthName(item.start_month)} — ${monthName(item.end_month)}`},
+  {title:'Месяцев',dataIndex:'months',align:'center'},
+  {title:'Комментарий',dataIndex:'comment',render:(value:string|null)=>value||'—'},
+  {title:'',render:(_,item)=><Space><Button size="small" onClick={()=>overrideForm.setFieldsValue({deal_bitrix_id:item.deal_bitrix_id,employee_id:item.employee_id,start_month:item.start_month.slice(0,7),months:item.months,comment:item.comment??undefined})}>Изменить</Button><Popconfirm title="Удалить корректировку?" description="После удаления для сделки снова будет применяться период из Bitrix." okText="Удалить" cancelText="Отмена" onConfirm={()=>removeOverride.mutate(item.id)}><Button size="small" danger>Удалить</Button></Popconfirm></Space>}
  ]
 
  type Item = CalculationDetail['items'][number]
@@ -310,15 +347,33 @@ function Bonuses({isAdmin,userId}:{isAdmin:boolean;userId:string}){
   </Row>
   {isAdmin&&<Alert type="info" showIcon message="Каждый перерасчет создает новую версию; история не перезаписывается."/>}
 
-  <Card>
-   <Table
-    rowKey="id"
-    columns={cols}
-    dataSource={q.data??[]}
-    loading={q.isLoading}
-    scroll={{x:1100}}
-   />
-  </Card>
+  {isAdmin&&<Card title="Корректировки периода начисления CR Start">
+   <Alert type="info" showIcon message="Корректировка заменяет автоматический период начисления только для указанной сделки. После сохранения пересчитайте каждый нужный месяц." style={{marginBottom:20}}/>
+   <Form form={overrideForm} layout="vertical" initialValues={{months:3}} onFinish={values=>saveOverride.mutate(values)}>
+    <Row gutter={[16,0]} align="bottom">
+     <Col xs={24} md={5}><Form.Item name="deal_bitrix_id" label="Номер сделки" rules={[{required:true,message:'Укажите номер сделки'}]}><InputNumber min={1} precision={0} style={{width:'100%'}} placeholder="51524"/></Form.Item></Col>
+     <Col xs={24} md={7}><Form.Item name="employee_id" label="Сотрудник" rules={[{required:true,message:'Выберите сотрудника'}]}><Select showSearch optionFilterProp="label" loading={employees.isLoading} options={(employees.data??[]).filter(employee=>employee.is_active&&['Отдел внедрения','Разработка 1С'].some(department=>employee.department_name?.split(';').map(value=>value.trim()).includes(department))).map(employee=>({value:employee.id,label:`${employee.full_name} · ${employee.department_name}`}))}/></Form.Item></Col>
+     <Col xs={24} md={4}><Form.Item name="start_month" label="Первый месяц" rules={[{required:true,message:'Выберите месяц'}]}><Input type="month"/></Form.Item></Col>
+     <Col xs={24} md={3}><Form.Item name="months" label="Месяцев" rules={[{required:true}]}><InputNumber min={1} max={12} precision={0} style={{width:'100%'}}/></Form.Item></Col>
+     <Col xs={24} md={5}><Form.Item name="comment" label="Комментарий"><Input placeholder="Причина корректировки"/></Form.Item></Col>
+    </Row>
+    <Button type="primary" htmlType="submit" loading={saveOverride.isPending}>Сохранить корректировку</Button>
+   </Form>
+   <div style={{marginTop:24}}>
+    {overrides.data?.length?<Table rowKey="id" columns={overrideColumns} dataSource={overrides.data} pagination={false}/>:<Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Корректировок пока нет"/>}
+   </div>
+  </Card>}
+
+  {isAdmin?departmentGroups.map(group=><Card
+   key={group.department}
+   title={group.department}
+   extra={<Text type="secondary">{group.calculations.length} сотрудников</Text>}
+   loading={q.isLoading}
+  >
+   {group.calculations.length?<Table rowKey="id" columns={cols} dataSource={group.calculations} scroll={{x:1100}}/>:<Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={`Нет расчетов за ${month}`}/>}
+  </Card>):<Card>
+   {(q.data??[]).length?<Table rowKey="id" columns={cols} dataSource={q.data??[]} loading={q.isLoading} scroll={{x:1100}}/>:<Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={`Нет расчета за ${month}`}/>}
+  </Card>}
 
   <Drawer
    open={Boolean(id)}

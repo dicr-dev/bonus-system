@@ -23,7 +23,7 @@ def kpi_department_name_from_user_data(data: dict) -> str | None:
     return "; ".join(names) or None
 
 
-def employee_is_in_kpi_department(user: User | None) -> bool:
+def employee_is_in_department(user: User | None, department_name: str) -> bool:
     if user is None or not user.department_name:
         return False
     departments = {
@@ -31,7 +31,14 @@ def employee_is_in_kpi_department(user: User | None) -> bool:
         for value in user.department_name.split(";")
         if value.strip()
     }
-    return bool(departments & KPI_DEPARTMENT_NAMES)
+    return department_name in departments
+
+
+def employee_is_in_kpi_department(user: User | None) -> bool:
+    return any(
+        employee_is_in_department(user, department_name)
+        for department_name in KPI_DEPARTMENT_NAMES
+    )
 
 
 def eligible_bonus_users(users: Iterable[User]) -> list[User]:

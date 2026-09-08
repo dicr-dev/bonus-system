@@ -27,6 +27,7 @@ from cr_portal.services.rules import (
 )
 
 CENT = Decimal("0.01")
+CR_START_PERIOD_OVERRIDE = "cr_start_period_override"
 
 
 def money(value: Decimal) -> Decimal:
@@ -41,6 +42,12 @@ def add_months(value: date, months: int) -> date:
     year = value.year + (value.month - 1 + months) // 12
     month = (value.month - 1 + months) % 12 + 1
     return date(year, month, 1)
+
+
+def cr_start_override_applies(event: ManualBonusEvent, month: date) -> bool:
+    start = month_start(event.event_date)
+    months = max(int(event.quantity), 1)
+    return start <= month_start(month) < add_months(start, months)
 
 
 def dt(value: date) -> datetime:
@@ -670,6 +677,17 @@ async def calculate_month(
     eligible = defaultdict(list)
     start3 = add_months(month, -2)
 
+    override_result = await session.execute(
+        select(ManualBonusEvent)
+        .where(ManualBonusEvent.event_type == CR_START_PERIOD_OVERRIDE)
+        .order_by(ManualBonusEvent.created_at)
+    )
+    cr_start_overrides = {
+        event.deal_id: event
+        for event in override_result.scalars().all()
+        if event.deal_id is not None
+    }
+
     implementation_result = await session.execute(
         select(Deal).where(
             Deal.funnel == "implementation",
@@ -704,14 +722,25 @@ async def calculate_month(
             )
         )
 
+    cr_start_status_condition = Deal.status == "in_progress"
+    if cr_start_overrides:
+        cr_start_status_condition = or_(
+            cr_start_status_condition,
+            Deal.id.in_(cr_start_overrides),
+        )
     cr_start_result = await session.execute(
         select(Deal).where(
             Deal.funnel == "cr_start",
-            Deal.status == "in_progress",
+            cr_start_status_condition,
         )
     )
     for deal in cr_start_result.scalars().all():
-        employee_id = deal.implementation_responsible_user_id
+        override = cr_start_overrides.get(deal.id)
+        employee_id = (
+            override.employee_id
+            if override is not None
+            else deal.implementation_responsible_user_id
+        )
         if not employee_id:
             continue
 
@@ -726,12 +755,23 @@ async def calculate_month(
         values = [raw_value(deal, field) for field in fields]
         is_fixed = any(truthy(value) for value in values)
 
-        if commercial_use_date is None:
-            continue
-        if is_fixed and not (month <= commercial_use_date < end):
-            continue
-        if not is_fixed and not (start3 <= commercial_use_date < end):
-            continue
+        if override is not None:
+            if not cr_start_override_applies(override, month):
+                continue
+            initial_month = month_start(override.event_date)
+        else:
+            if commercial_use_date is None:
+                continue
+            if is_fixed and not (month <= commercial_use_date < end):
+                continue
+            if not is_fixed and not (start3 <= commercial_use_date < end):
+                continue
+            initial_month = month_start(commercial_use_date)
+
+        period_details = {
+            "bonus_month_number": bonus_month_number(month, initial_month),
+            "period_override_id": str(override.id) if override is not None else None,
+        }
 
         if is_fixed:
             fixed = decimal(rules["cr_start_fixed"])
@@ -745,6 +785,7 @@ async def calculate_month(
                     fixed,
                     False,
                     "CR Start: фиксированный бонус 10 000 ₽",
+                    period_details,
                 )
             )
             continue
@@ -756,13 +797,8 @@ async def calculate_month(
             (
                 deal,
                 "cr_start_implementation",
-                month_start(commercial_use_date),
-                {
-                    "bonus_month_number": bonus_month_number(
-                        month,
-                        month_start(commercial_use_date),
-                    )
-                },
+                initial_month,
+                period_details,
             )
         )
     for employee_id, rows in eligible.items():

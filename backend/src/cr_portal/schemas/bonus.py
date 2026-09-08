@@ -40,6 +40,7 @@ class CalculationResponse(BaseModel):
     id: UUID
     employee_id: UUID
     employee_name: str | None = None
+    employee_department: str | None = None
     period_from: date
     period_to: date
     month: date | None
@@ -108,6 +109,28 @@ class ManualEventResponse(BaseModel):
     event_type: str
     quantity: Decimal
     comment: str | None
+
+
+class DealBonusOverrideCreate(BaseModel):
+    deal_bitrix_id: int = Field(gt=0)
+    employee_id: UUID
+    start_month: date
+    months: int = Field(ge=1, le=12)
+    comment: str | None = Field(default=None, max_length=1000)
+
+
+class DealBonusOverrideResponse(BaseModel):
+    id: UUID
+    deal_id: UUID
+    deal_bitrix_id: int
+    deal_title: str
+    employee_id: UUID
+    employee_name: str
+    start_month: date
+    end_month: date
+    months: int
+    comment: str | None
+    created_at: datetime
 
 
 # Backward-compatible aggregate calculator schema.

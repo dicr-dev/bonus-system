@@ -1,8 +1,12 @@
 """Read task KPI inputs; calculation items preserve the resulting snapshot."""
 from datetime import UTC, date, datetime
-from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from zoneinfo import ZoneInfo
 
+from cr_portal.services.employee_scope import (
+    KPI_DEPARTMENT_IDS,
+    employee_is_in_department,
+)
 from cr_portal.services.kpi import next_month
 
 
@@ -135,6 +139,7 @@ async def support_hour_contributions(
     support_deals,
     implementations_by_support,
     reference_deals=None,
+    paid_employee_ids: set | None = None,
 ):
     """Aggregate task time; only eligible support tasks produce a bonus."""
     logs = await elapsed_items_in_month(client, month)
@@ -184,12 +189,13 @@ async def support_hour_contributions(
             continue
 
         key = (employee_id, task_id, deal.id)
+        paid = paid_employee_ids is None or employee_id in paid_employee_ids
         entry = aggregated.setdefault(key, {
             "employee_id": employee_id,
             "task_id": task_id,
             "task": task,
             "deal": deal,
-            "calculated": support is not None,
+            "calculated": support is not None and paid,
             "seconds": 0,
             "elapsed_ids": [],
         })
@@ -298,6 +304,12 @@ async def task_contributions(
                 Decimal(0), False, f"Переработки: {field_value(task, 'TITLE')} — {hours} ч",
                 {"task_id": task_id, "task": task, "hours_source": source, "hours_only": True})))
     if support_deals is not None:
+        development_department = KPI_DEPARTMENT_IDS["33"]
+        paid_employee_ids = {
+            user.id
+            for user in users
+            if not employee_is_in_department(user, development_department)
+        }
         result.extend(await support_hour_contributions(
             client,
             month,
@@ -306,5 +318,6 @@ async def task_contributions(
             support_deals,
             implementations_by_support or {},
             reference_deals or [],
+            paid_employee_ids,
         ))
     return result

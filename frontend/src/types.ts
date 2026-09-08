@@ -14,6 +14,7 @@ export interface Calculation {
   id:string
   employee_id:string
   employee_name:string|null
+  employee_department:string|null
   period_from:string
   period_to:string
   month:string
@@ -59,6 +60,39 @@ export interface CalculationItem {
 export interface CalculationDetail extends Calculation {
   employee_name:string
   items:CalculationItem[]
+}
+
+export interface Employee {
+  id:string
+  bitrix_id:number
+  email:string|null
+  full_name:string
+  department_name:string|null
+  position:string|null
+  is_active:boolean
+  is_admin:boolean
+}
+
+export interface DealBonusOverrideInput {
+  deal_bitrix_id:number
+  employee_id:string
+  start_month:string
+  months:number
+  comment?:string
+}
+
+export interface DealBonusOverride {
+  id:string
+  deal_id:string
+  deal_bitrix_id:number
+  deal_title:string
+  employee_id:string
+  employee_name:string
+  start_month:string
+  end_month:string
+  months:number
+  comment:string|null
+  created_at:string
 }
 
 export interface Issue { id:string; calculation_id:string|null; month:string; severity:string; code:string; message:string; employee_id:string|null; deal_id:string|null; deal_bitrix_id:number|null; details_json:string; created_at:string }

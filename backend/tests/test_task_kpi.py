@@ -3,6 +3,7 @@ from datetime import date, datetime, timezone
 from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
+
 import httpx
 
 from cr_portal.integrations.bitrix.client import BitrixClient
@@ -24,8 +25,8 @@ def config(**changes):
 
 class TaskTests(unittest.IsolatedAsyncioTestCase):
     async def test_refresh_uses_oauth_server(self):
-        from cr_portal.integrations.bitrix.oauth import refresh_installation_token
         from cr_portal.core.config import settings
+        from cr_portal.integrations.bitrix.oauth import refresh_installation_token
         installation = SimpleNamespace(refresh_token="old-refresh", client_endpoint="https://example.test/rest/", portal_domain="example.test")
         response = httpx.Response(200, json={"access_token": "new-access", "refresh_token": "new-refresh", "expires_in": 3600}, request=httpx.Request("GET", settings.BITRIX_OAUTH_TOKEN_URL))
         with patch("cr_portal.integrations.bitrix.oauth.httpx.AsyncClient") as mocked:
@@ -201,6 +202,37 @@ class TaskTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(rows[0][1][5], Decimal("0"))
         self.assertFalse(rows[0][1][6])
         self.assertEqual(rows[0][1][8]["client_deal_funnel"], "tech_integration")
+
+    async def test_development_employee_support_hours_are_reference_only(self):
+        client = SimpleNamespace(call=AsyncMock(side_effect=[
+            {"result": [{
+                "ID": "1", "TASK_ID": "100", "USER_ID": "10", "SECONDS": "3600",
+                "CREATED_DATE": "2026-09-03T10:00:00+03:00",
+            }]},
+            {"result": {"tasks": [{
+                "id": "100", "title": "Работа с клиентом", "ufCrmTask": ["D_500"],
+            }]}},
+        ]))
+        support = SimpleNamespace(
+            id="support", bitrix_id=500, funnel="support", status="in_progress",
+            created_time=None, closed_time=None, updated_time=None,
+        )
+
+        rows = await support_hour_contributions(
+            client,
+            date(2026, 9, 1),
+            [SimpleNamespace(bitrix_id=10, id="developer")],
+            {"support_hour_rate": "200"},
+            [support],
+            {support.id: []},
+            paid_employee_ids=set(),
+        )
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0][1][1], "task_hours_reference")
+        self.assertEqual(rows[0][1][4], Decimal("1.00"))
+        self.assertEqual(rows[0][1][5], Decimal("0"))
+        self.assertFalse(rows[0][1][6])
 
 
 if __name__ == "__main__":

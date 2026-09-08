@@ -1,5 +1,5 @@
 import axios from 'axios'
-import type { AppSettings,Calculation,CalculationDetail,CurrentUser,DashboardSummary,Deal,Issue,KPISummary,RuleConfig,RuleVersion,SyncJob,SyncStatus } from './types'
+import type { AppSettings,Calculation,CalculationDetail,CurrentUser,DashboardSummary,Deal,DealBonusOverride,DealBonusOverrideInput,Employee,Issue,KPISummary,RuleConfig,RuleVersion,SyncJob,SyncStatus } from './types'
 
 export const api=axios.create({baseURL:'/api/v1',withCredentials:true,timeout:30000})
 export async function login(login:string,password:string){return (await api.post('/auth/login',{login,password})).data}
@@ -15,6 +15,10 @@ export async function savePlan(month:string,plan_value:number){return (await api
 export async function runCalculation(month:string):Promise<Calculation[]>{return (await api.post('/calculations/run',null,{params:{month},timeout:120000})).data}
 export async function getCalculations(month:string):Promise<Calculation[]>{return (await api.get('/calculations',{params:{month}})).data}
 export async function getCalculation(id:string):Promise<CalculationDetail>{return (await api.get(`/calculations/${id}`)).data}
+export async function getDealBonusOverrides():Promise<DealBonusOverride[]>{return (await api.get('/calculations/deal-overrides')).data}
+export async function saveDealBonusOverride(data:DealBonusOverrideInput):Promise<DealBonusOverride>{return (await api.post('/calculations/deal-overrides',{...data,start_month:`${data.start_month}-01`})).data}
+export async function deleteDealBonusOverride(id:string){return api.delete(`/calculations/deal-overrides/${id}`)}
+export async function getEmployees():Promise<Employee[]>{return (await api.get('/users/')).data}
 export async function runDiagnostics(month:string):Promise<Issue[]>{return (await api.post('/diagnostics/run',null,{params:{month}})).data}
 export async function getDiagnostics(month:string):Promise<Issue[]>{return (await api.get('/diagnostics',{params:{month}})).data}
 export async function getRules():Promise<RuleVersion[]>{return (await api.get('/settings/rules')).data}
