@@ -1,5 +1,5 @@
 import axios from 'axios'
-import type { AppSettings,Calculation,CalculationDetail,CurrentUser,DashboardSummary,Deal,DealBonusOverride,DealBonusOverrideInput,Employee,Issue,KPISummary,RuleConfig,RuleVersion,SyncJob,SyncStatus } from './types'
+import type { AppSettings,Calculation,CalculationDetail,CurrentUser,DashboardSummary,Deal,DealBonusOverride,DealBonusOverrideInput,Employee,Issue,KPISummary,ManualBonusAdjustment,ManualBonusAdjustmentInput,RuleConfig,RuleVersion,SyncJob,SyncStatus } from './types'
 
 export const api=axios.create({baseURL:'/api/v1',withCredentials:true,timeout:30000})
 export async function login(login:string,password:string){return (await api.post('/auth/login',{login,password})).data}
@@ -18,6 +18,10 @@ export async function getCalculation(id:string):Promise<CalculationDetail>{retur
 export async function getDealBonusOverrides():Promise<DealBonusOverride[]>{return (await api.get('/calculations/deal-overrides')).data}
 export async function saveDealBonusOverride(data:DealBonusOverrideInput):Promise<DealBonusOverride>{return (await api.post('/calculations/deal-overrides',{...data,start_month:`${data.start_month}-01`})).data}
 export async function deleteDealBonusOverride(id:string){return api.delete(`/calculations/deal-overrides/${id}`)}
+export async function getManualBonusAdjustments():Promise<ManualBonusAdjustment[]>{return (await api.get('/calculations/manual-adjustments')).data}
+export async function createManualBonusAdjustment(data:ManualBonusAdjustmentInput):Promise<ManualBonusAdjustment>{return (await api.post('/calculations/manual-adjustments',{...data,start_month:`${data.start_month}-01`})).data}
+export async function updateManualBonusAdjustment(id:string,data:ManualBonusAdjustmentInput):Promise<ManualBonusAdjustment>{return (await api.put(`/calculations/manual-adjustments/${id}`,{...data,start_month:`${data.start_month}-01`})).data}
+export async function deleteManualBonusAdjustment(id:string){return api.delete(`/calculations/manual-adjustments/${id}`)}
 export async function getEmployees():Promise<Employee[]>{return (await api.get('/users/')).data}
 export async function runDiagnostics(month:string):Promise<Issue[]>{return (await api.post('/diagnostics/run',null,{params:{month}})).data}
 export async function getDiagnostics(month:string):Promise<Issue[]>{return (await api.get('/diagnostics',{params:{month}})).data}

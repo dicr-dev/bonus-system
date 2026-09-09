@@ -1,5 +1,6 @@
 from datetime import date, datetime
 from decimal import Decimal
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -116,6 +117,8 @@ class DealBonusOverrideCreate(BaseModel):
     employee_id: UUID
     start_month: date
     months: int = Field(ge=1, le=12)
+    calculation_mode: Literal["formula", "manual_amount"] = "manual_amount"
+    amount: Decimal | None = None
     comment: str | None = Field(default=None, max_length=1000)
 
 
@@ -124,11 +127,36 @@ class DealBonusOverrideResponse(BaseModel):
     deal_id: UUID
     deal_bitrix_id: int
     deal_title: str
+    funnel: str
     employee_id: UUID
     employee_name: str
     start_month: date
     end_month: date
     months: int
+    calculation_mode: Literal["formula", "manual_amount"]
+    amount: Decimal | None
+    comment: str | None
+    created_at: datetime
+
+
+class ManualBonusAdjustmentCreate(BaseModel):
+    employee_id: UUID
+    title: str = Field(min_length=1, max_length=500)
+    start_month: date
+    months: int = Field(ge=1, le=12)
+    amount: Decimal
+    comment: str | None = Field(default=None, max_length=1000)
+
+
+class ManualBonusAdjustmentResponse(BaseModel):
+    id: UUID
+    employee_id: UUID
+    employee_name: str
+    title: str
+    start_month: date
+    end_month: date
+    months: int
+    amount: Decimal
     comment: str | None
     created_at: datetime
 

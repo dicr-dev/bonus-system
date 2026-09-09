@@ -78,6 +78,8 @@ export interface DealBonusOverrideInput {
   employee_id:string
   start_month:string
   months:number
+  calculation_mode:'formula'|'manual_amount'
+  amount?:number|null
   comment?:string
 }
 
@@ -86,11 +88,36 @@ export interface DealBonusOverride {
   deal_id:string
   deal_bitrix_id:number
   deal_title:string
+  funnel:string
   employee_id:string
   employee_name:string
   start_month:string
   end_month:string
   months:number
+  calculation_mode:'formula'|'manual_amount'
+  amount:string|null
+  comment:string|null
+  created_at:string
+}
+
+export interface ManualBonusAdjustmentInput {
+  employee_id:string
+  title:string
+  start_month:string
+  months:number
+  amount:number
+  comment?:string
+}
+
+export interface ManualBonusAdjustment {
+  id:string
+  employee_id:string
+  employee_name:string
+  title:string
+  start_month:string
+  end_month:string
+  months:number
+  amount:string
   comment:string|null
   created_at:string
 }

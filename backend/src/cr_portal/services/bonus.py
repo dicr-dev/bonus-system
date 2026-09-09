@@ -4,12 +4,13 @@ from datetime import date, datetime, time, timezone
 from decimal import ROUND_HALF_UP, Decimal
 from uuid import UUID
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from cr_portal.models.bonus import (
     BonusCalculation,
     BonusCalculationItem,
+    ManualBonusAdjustment,
     ManualBonusEvent,
 )
 from cr_portal.models.deal import Deal
@@ -28,6 +29,11 @@ from cr_portal.services.rules import (
 
 CENT = Decimal("0.01")
 CR_START_PERIOD_OVERRIDE = "cr_start_period_override"
+IMPLEMENTATION_PERIOD_OVERRIDE = "implementation_period_override"
+DEAL_OVERRIDE_EVENT_TYPES = frozenset(
+    {CR_START_PERIOD_OVERRIDE, IMPLEMENTATION_PERIOD_OVERRIDE}
+)
+MANUAL_AMOUNT_MODE = "manual_amount"
 
 
 def money(value: Decimal) -> Decimal:
@@ -44,10 +50,23 @@ def add_months(value: date, months: int) -> date:
     return date(year, month, 1)
 
 
-def cr_start_override_applies(event: ManualBonusEvent, month: date) -> bool:
-    start = month_start(event.event_date)
-    months = max(int(event.quantity), 1)
+def period_applies(start: date, months: int, month: date) -> bool:
+    start = month_start(start)
+    months = max(months, 1)
     return start <= month_start(month) < add_months(start, months)
+
+
+def cr_start_override_applies(event: ManualBonusEvent, month: date) -> bool:
+    return period_applies(event.event_date, int(event.quantity), month)
+
+
+def cr_start_fixed_amount(
+    override: ManualBonusEvent | None,
+    rules: dict,
+) -> Decimal:
+    if override is not None and override.calculation_mode == MANUAL_AMOUNT_MODE:
+        return money(Decimal(override.amount))
+    return decimal(rules["cr_start_fixed"])
 
 
 def dt(value: date) -> datetime:
@@ -679,36 +698,88 @@ async def calculate_month(
 
     override_result = await session.execute(
         select(ManualBonusEvent)
-        .where(ManualBonusEvent.event_type == CR_START_PERIOD_OVERRIDE)
+        .where(ManualBonusEvent.event_type.in_(DEAL_OVERRIDE_EVENT_TYPES))
         .order_by(ManualBonusEvent.created_at)
     )
-    cr_start_overrides = {
+    deal_overrides = {
         event.deal_id: event
         for event in override_result.scalars().all()
         if event.deal_id is not None
     }
+    implementation_override_ids = [
+        deal_id
+        for deal_id, event in deal_overrides.items()
+        if event.event_type == IMPLEMENTATION_PERIOD_OVERRIDE
+    ]
+    cr_start_overrides = {
+        deal_id: event
+        for deal_id, event in deal_overrides.items()
+        if event.event_type == CR_START_PERIOD_OVERRIDE
+    }
 
+    implementation_automatic_conditions = and_(
+        Deal.status == "won",
+        Deal.closed_time >= dt(start3),
+        Deal.closed_time < dt(end),
+    )
+    implementation_condition = implementation_automatic_conditions
+    if implementation_override_ids:
+        implementation_condition = or_(
+            implementation_automatic_conditions,
+            Deal.id.in_(implementation_override_ids),
+        )
     implementation_result = await session.execute(
         select(Deal).where(
             Deal.funnel == "implementation",
-            Deal.status == "won",
-            Deal.closed_time >= dt(start3),
-            Deal.closed_time < dt(end),
+            implementation_condition,
         )
     )
     for deal in implementation_result.scalars().all():
-        employee_id = deal.implementation_responsible_user_id
-        if not employee_id or not deal.closed_time:
+        override = deal_overrides.get(deal.id)
+        employee_id = (
+            override.employee_id
+            if override is not None
+            else deal.implementation_responsible_user_id
+        )
+        if not employee_id:
             continue
 
-        closed_month = month_start(deal.closed_time.date())
-        delta = (
-            (month.year - closed_month.year) * 12
-            + month.month
-            - closed_month.month
-        )
-        if delta not in {0, 1, 2}:
-            continue
+        if override is not None:
+            if not period_applies(override.event_date, int(override.quantity), month):
+                continue
+            initial_month = month_start(override.event_date)
+            details = {
+                "bonus_month_number": bonus_month_number(month, initial_month),
+                "period_override_id": str(override.id),
+            }
+            if override.calculation_mode == MANUAL_AMOUNT_MODE:
+                amount = money(Decimal(override.amount))
+                contributions[employee_id].append(
+                    (
+                        deal,
+                        "deal_manual_adjustment",
+                        amount,
+                        amount,
+                        Decimal("1"),
+                        amount,
+                        False,
+                        f"Ручная корректировка сделки: {deal.title}",
+                        details,
+                    )
+                )
+                continue
+        else:
+            if not deal.closed_time:
+                continue
+            initial_month = month_start(deal.closed_time.date())
+            delta = (
+                (month.year - initial_month.year) * 12
+                + month.month
+                - initial_month.month
+            )
+            if delta not in {0, 1, 2}:
+                continue
+            details = {"bonus_month_number": bonus_month_number(month, initial_month)}
 
         if Decimal(deal.monthly_amount or 0) <= 0:
             continue
@@ -717,8 +788,8 @@ async def calculate_month(
             (
                 deal,
                 "implementation",
-                closed_month,
-                {"bonus_month_number": bonus_month_number(month, closed_month)},
+                initial_month,
+                details,
             )
         )
 
@@ -742,6 +813,29 @@ async def calculate_month(
             else deal.implementation_responsible_user_id
         )
         if not employee_id:
+            continue
+
+        if override is not None and override.calculation_mode == MANUAL_AMOUNT_MODE:
+            if not cr_start_override_applies(override, month):
+                continue
+            initial_month = month_start(override.event_date)
+            amount = money(Decimal(override.amount))
+            contributions[employee_id].append(
+                (
+                    deal,
+                    "deal_manual_adjustment",
+                    amount,
+                    amount,
+                    Decimal("1"),
+                    amount,
+                    False,
+                    f"Ручная корректировка сделки: {deal.title}",
+                    {
+                        "bonus_month_number": bonus_month_number(month, initial_month),
+                        "period_override_id": str(override.id),
+                    },
+                )
+            )
             continue
 
         commercial_use_date = raw_date(
@@ -774,7 +868,7 @@ async def calculate_month(
         }
 
         if is_fixed:
-            fixed = decimal(rules["cr_start_fixed"])
+            fixed = cr_start_fixed_amount(override, rules)
             contributions[employee_id].append(
                 (
                     deal,
@@ -808,7 +902,7 @@ async def calculate_month(
                 deal.monthly_amount or 0
             )
 
-        for deal, bonus_type, initial_month, _ in rows:
+        for deal, bonus_type, initial_month, details in rows:
             base = Decimal(deal.monthly_amount or 0)
             rate = implementation_rate(
                 initial_totals[initial_month],
@@ -826,6 +920,7 @@ async def calculate_month(
                     True,
                     f"Внедрение: {rate * 100}% × сумма оплаты в месяц",
                     {
+                        **details,
                         "bonus_month_number": bonus_month_number(
                             month,
                             initial_month,
@@ -904,6 +999,25 @@ async def calculate_month(
                     event,
                 )
             )
+
+    adjustment_result = await session.execute(select(ManualBonusAdjustment))
+    for adjustment in adjustment_result.scalars().all():
+        if not period_applies(adjustment.start_month, adjustment.months, month):
+            continue
+        amount = money(Decimal(adjustment.amount))
+        contributions[adjustment.employee_id].append(
+            (
+                None,
+                "manual_adjustment",
+                amount,
+                amount,
+                Decimal("1"),
+                amount,
+                False,
+                adjustment.title,
+                {"manual_adjustment_id": str(adjustment.id)},
+            )
+        )
 
     # Текущие клиенты.
     #
@@ -1096,12 +1210,22 @@ async def calculate_month(
                     )
                 ),
                 bonus_type=bonus_type,
-                source_type=("task" if details.get("task_id") else "manual_event" if event else "deal"),
+                source_type=(
+                    "task"
+                    if details.get("task_id")
+                    else "manual_adjustment"
+                    if details.get("manual_adjustment_id")
+                    else "manual_event"
+                    if event
+                    else "deal"
+                ),
                 source_external_id=(
                     details.get("task_id")
                     if details.get("task_id")
                     else (
-                        str(event.id)
+                        str(details.get("manual_adjustment_id"))
+                        if details.get("manual_adjustment_id")
+                        else str(event.id)
                         if event
                         else (str(deal.bitrix_id) if deal else None)
                     )

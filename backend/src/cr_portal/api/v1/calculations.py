@@ -13,6 +13,7 @@ from cr_portal.integrations.bitrix.client import BitrixClient
 from cr_portal.models.bonus import (
     BonusCalculation,
     BonusCalculationItem,
+    ManualBonusAdjustment,
     ManualBonusEvent,
 )
 from cr_portal.models.deal import Deal
@@ -23,11 +24,15 @@ from cr_portal.schemas.bonus import (
     CalculationResponse,
     DealBonusOverrideCreate,
     DealBonusOverrideResponse,
+    ManualBonusAdjustmentCreate,
+    ManualBonusAdjustmentResponse,
     ManualEventCreate,
     ManualEventResponse,
 )
 from cr_portal.services.bonus import (
     CR_START_PERIOD_OVERRIDE,
+    DEAL_OVERRIDE_EVENT_TYPES,
+    IMPLEMENTATION_PERIOD_OVERRIDE,
     add_months,
     calculate_month,
     month_start,
@@ -219,11 +224,14 @@ def _deal_override_response(
         deal_id=deal.id,
         deal_bitrix_id=deal.bitrix_id,
         deal_title=deal.title,
+        funnel=deal.funnel,
         employee_id=employee.id,
         employee_name=employee.full_name,
         start_month=start_month,
         end_month=add_months(start_month, months - 1),
         months=months,
+        calculation_mode=event.calculation_mode,
+        amount=(event.amount if event.calculation_mode == "manual_amount" else None),
         comment=event.comment,
         created_at=event.created_at,
     )
@@ -238,7 +246,7 @@ async def list_deal_overrides(
         select(ManualBonusEvent, Deal, User)
         .join(Deal, Deal.id == ManualBonusEvent.deal_id)
         .join(User, User.id == ManualBonusEvent.employee_id)
-        .where(ManualBonusEvent.event_type == CR_START_PERIOD_OVERRIDE)
+        .where(ManualBonusEvent.event_type.in_(DEAL_OVERRIDE_EVENT_TYPES))
         .order_by(ManualBonusEvent.event_date.desc(), Deal.bitrix_id)
     )
     return [
@@ -258,8 +266,15 @@ async def save_deal_override(
     ).scalar_one_or_none()
     if deal is None:
         raise HTTPException(404, "Сделка не найдена. Сначала выполните синхронизацию.")
-    if deal.funnel != "cr_start":
-        raise HTTPException(422, "Корректировка периода доступна только для сделок CR Start.")
+    event_type_by_funnel = {
+        "cr_start": CR_START_PERIOD_OVERRIDE,
+        "implementation": IMPLEMENTATION_PERIOD_OVERRIDE,
+    }
+    event_type = event_type_by_funnel.get(deal.funnel)
+    if event_type is None:
+        raise HTTPException(422, "Корректировка доступна только для сделок CR Start и Внедрения.")
+    if data.calculation_mode == "manual_amount" and data.amount is None:
+        raise HTTPException(422, "Укажите сумму ручной корректировки.")
 
     employee = await session.get(User, data.employee_id)
     if employee is None or not employee.is_active or not employee_is_in_kpi_department(employee):
@@ -269,7 +284,7 @@ async def save_deal_override(
         await session.execute(
             select(ManualBonusEvent).where(
                 ManualBonusEvent.deal_id == deal.id,
-                ManualBonusEvent.event_type == CR_START_PERIOD_OVERRIDE,
+                ManualBonusEvent.event_type == event_type,
             )
         )
     ).scalar_one_or_none()
@@ -278,8 +293,10 @@ async def save_deal_override(
             event_date=month_start(data.start_month),
             employee_id=employee.id,
             deal_id=deal.id,
-            event_type=CR_START_PERIOD_OVERRIDE,
+            event_type=event_type,
             quantity=Decimal(data.months),
+            amount=Decimal(data.amount or 0),
+            calculation_mode=data.calculation_mode,
             comment=data.comment,
         )
         session.add(event)
@@ -287,6 +304,8 @@ async def save_deal_override(
         event.event_date = month_start(data.start_month)
         event.employee_id = employee.id
         event.quantity = Decimal(data.months)
+        event.amount = Decimal(data.amount or 0)
+        event.calculation_mode = data.calculation_mode
         event.comment = data.comment
 
     await session.commit()
@@ -301,9 +320,108 @@ async def delete_deal_override(
     _admin=Depends(admin_user),
 ):
     event = await session.get(ManualBonusEvent, override_id)
-    if event is None or event.event_type != CR_START_PERIOD_OVERRIDE:
+    if event is None or event.event_type not in DEAL_OVERRIDE_EVENT_TYPES:
         raise HTTPException(404, "Корректировка не найдена.")
     await session.delete(event)
+    await session.commit()
+
+
+def _manual_adjustment_response(
+    adjustment: ManualBonusAdjustment,
+    employee: User,
+) -> ManualBonusAdjustmentResponse:
+    start_month = month_start(adjustment.start_month)
+    return ManualBonusAdjustmentResponse(
+        id=adjustment.id,
+        employee_id=employee.id,
+        employee_name=employee.full_name,
+        title=adjustment.title,
+        start_month=start_month,
+        end_month=add_months(start_month, adjustment.months - 1),
+        months=adjustment.months,
+        amount=adjustment.amount,
+        comment=adjustment.comment,
+        created_at=adjustment.created_at,
+    )
+
+
+@router.get("/manual-adjustments", response_model=list[ManualBonusAdjustmentResponse])
+async def list_manual_adjustments(
+    session: AsyncSession = Depends(db_session),
+    _admin=Depends(admin_user),
+):
+    result = await session.execute(
+        select(ManualBonusAdjustment, User)
+        .join(User, User.id == ManualBonusAdjustment.employee_id)
+        .order_by(ManualBonusAdjustment.start_month.desc(), ManualBonusAdjustment.created_at.desc())
+    )
+    return [
+        _manual_adjustment_response(adjustment, employee)
+        for adjustment, employee in result.all()
+    ]
+
+
+@router.post("/manual-adjustments", response_model=ManualBonusAdjustmentResponse)
+async def save_manual_adjustment(
+    data: ManualBonusAdjustmentCreate,
+    session: AsyncSession = Depends(db_session),
+    _admin=Depends(admin_user),
+):
+    if data.amount == 0:
+        raise HTTPException(422, "Сумма бонуса или штрафа не может быть нулевой.")
+    employee = await session.get(User, data.employee_id)
+    if employee is None or not employee.is_active or not employee_is_in_kpi_department(employee):
+        raise HTTPException(422, "Выберите активного сотрудника отдела внедрения или Разработки 1С.")
+    adjustment = ManualBonusAdjustment(
+        employee_id=employee.id,
+        title=data.title.strip(),
+        start_month=month_start(data.start_month),
+        months=data.months,
+        amount=data.amount,
+        comment=data.comment,
+    )
+    session.add(adjustment)
+    await session.commit()
+    await session.refresh(adjustment)
+    return _manual_adjustment_response(adjustment, employee)
+
+
+@router.put("/manual-adjustments/{adjustment_id}", response_model=ManualBonusAdjustmentResponse)
+async def update_manual_adjustment(
+    adjustment_id: UUID,
+    data: ManualBonusAdjustmentCreate,
+    session: AsyncSession = Depends(db_session),
+    _admin=Depends(admin_user),
+):
+    if data.amount == 0:
+        raise HTTPException(422, "Сумма бонуса или штрафа не может быть нулевой.")
+    adjustment = await session.get(ManualBonusAdjustment, adjustment_id)
+    if adjustment is None:
+        raise HTTPException(404, "Ручной бонус или штраф не найден.")
+    employee = await session.get(User, data.employee_id)
+    if employee is None or not employee.is_active or not employee_is_in_kpi_department(employee):
+        raise HTTPException(422, "Выберите активного сотрудника отдела внедрения или Разработки 1С.")
+    adjustment.employee_id = employee.id
+    adjustment.title = data.title.strip()
+    adjustment.start_month = month_start(data.start_month)
+    adjustment.months = data.months
+    adjustment.amount = data.amount
+    adjustment.comment = data.comment
+    await session.commit()
+    await session.refresh(adjustment)
+    return _manual_adjustment_response(adjustment, employee)
+
+
+@router.delete("/manual-adjustments/{adjustment_id}", status_code=204)
+async def delete_manual_adjustment(
+    adjustment_id: UUID,
+    session: AsyncSession = Depends(db_session),
+    _admin=Depends(admin_user),
+):
+    adjustment = await session.get(ManualBonusAdjustment, adjustment_id)
+    if adjustment is None:
+        raise HTTPException(404, "Ручной бонус или штраф не найден.")
+    await session.delete(adjustment)
     await session.commit()
 
 

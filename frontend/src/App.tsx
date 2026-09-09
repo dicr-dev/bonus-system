@@ -13,19 +13,20 @@ import SettingsPage from './SettingsPage'
 import InstructionPage from './InstructionPage'
 import {BitrixLink,dealUrl,sourceUrl} from './BitrixLink'
 import {
-  deleteDealBonusOverride,excelUrl,getCalculation,getCalculations,getCurrentUser,getDashboard,
-  getDealBonusOverrides,getDepartmentDeals,getDiagnostics,getEmployees,getKPI,getRules,getSyncJob,
-  getSyncStatus,login,logout,runCalculation,runDiagnostics,saveDealBonusOverride,savePlan,startDealsSync
+  createManualBonusAdjustment,deleteDealBonusOverride,deleteManualBonusAdjustment,excelUrl,getCalculation,
+  getCalculations,getCurrentUser,getDashboard,getDealBonusOverrides,getDepartmentDeals,getDiagnostics,
+  getEmployees,getKPI,getManualBonusAdjustments,getRules,getSyncJob,getSyncStatus,login,logout,runCalculation,
+  runDiagnostics,saveDealBonusOverride,savePlan,startDealsSync,updateManualBonusAdjustment
 } from './api'
 import type {
   Calculation,CalculationDetail,Deal,DealBonusOverride,DealBonusOverrideInput,FunnelSummary,Issue,KPIDeal,
-  KPIPlannedDeal,ResponsibleSummary,RuleVersion,SyncJob
+  KPIPlannedDeal,ManualBonusAdjustment,ManualBonusAdjustmentInput,ResponsibleSummary,RuleVersion,SyncJob
 } from './types'
 
 const {Header,Content,Sider}=Layout
 const {Title,Text}=Typography
 const FUNNELS:Record<string,string>={tech_integration:'Тех интеграция',implementation:'Внедрение',cr_start:'CR Start',support:'Сопровождение'}
-const BONUS:Record<string,string>={tech_integration:'Тех интеграция',implementation:'Внедрение',cr_start_implementation:'CR Start как внедрение',cr_start_fixed:'CR Start фикс.',sale:'Продажа',support_hours:'Сопровождение по часам',task_hours_reference:'Справочные часы по задачам',current_client:'Текущий клиент',training:'Обучение'}
+const BONUS:Record<string,string>={tech_integration:'Тех интеграция',implementation:'Внедрение',cr_start_implementation:'CR Start как внедрение',cr_start_fixed:'CR Start фикс.',deal_manual_adjustment:'Ручная корректировка сделки',manual_adjustment:'Ручной бонус / штраф',sale:'Продажа',support_hours:'Сопровождение по часам',task_hours_reference:'Справочные часы по задачам',current_client:'Текущий клиент',training:'Обучение'}
 const funnel=(v:string)=>FUNNELS[v]??v
 const rub=(v:string|number)=>new Intl.NumberFormat('ru-RU',{style:'currency',currency:'RUB',maximumFractionDigits:0}).format(Number(v||0))
 const num=(v:string|number)=>new Intl.NumberFormat('ru-RU').format(Number(v||0))
@@ -105,10 +106,11 @@ function KPI(){
 }
 
 function Bonuses({isAdmin,userId}:{isAdmin:boolean;userId:string}){
- const [month,setMonth]=useState(monthNow());const [id,setId]=useState<string|null>(null);const [overrideForm]=Form.useForm<DealBonusOverrideInput>();const qc=useQueryClient()
+ const [month,setMonth]=useState(monthNow());const [id,setId]=useState<string|null>(null);const [editingManualId,setEditingManualId]=useState<string|null>(null);const [overrideForm]=Form.useForm<DealBonusOverrideInput>();const [manualForm]=Form.useForm<ManualBonusAdjustmentInput>();const qc=useQueryClient()
  const q=useQuery({queryKey:['calc',userId,month],queryFn:()=>getCalculations(month)})
  const detail=useQuery({queryKey:['calc-detail',userId,id],queryFn:()=>getCalculation(id!),enabled:Boolean(id)})
  const overrides=useQuery({queryKey:['deal-bonus-overrides'],queryFn:getDealBonusOverrides,enabled:isAdmin})
+ const manualAdjustments=useQuery({queryKey:['manual-bonus-adjustments'],queryFn:getManualBonusAdjustments,enabled:isAdmin})
  const employees=useQuery({queryKey:['employees'],queryFn:getEmployees,enabled:isAdmin})
  const run=useMutation({mutationFn:()=>runCalculation(month),onSuccess:()=>{message.success('Новая версия расчета создана');void qc.invalidateQueries({queryKey:['calc',userId,month]})},onError:(error:any)=>message.error(error.response?.data?.detail||'Не удалось выполнить расчёт')})
  const saveOverride=useMutation({
@@ -125,6 +127,17 @@ function Bonuses({isAdmin,userId}:{isAdmin:boolean;userId:string}){
   onSuccess:()=>{message.success('Корректировка удалена');void qc.invalidateQueries({queryKey:['deal-bonus-overrides']})},
   onError:(error:any)=>message.error(error.response?.data?.detail||'Не удалось удалить корректировку')
  })
+ const saveManualAdjustment=useMutation({
+  mutationFn:(values:ManualBonusAdjustmentInput)=>editingManualId?updateManualBonusAdjustment(editingManualId,values):createManualBonusAdjustment(values),
+  onSuccess:()=>{message.success('Ручной бонус или штраф сохранён. Пересчитайте нужные месяцы.');manualForm.resetFields();setEditingManualId(null);void qc.invalidateQueries({queryKey:['manual-bonus-adjustments']})},
+  onError:(error:any)=>message.error(error.response?.data?.detail||'Не удалось сохранить ручную корректировку')
+ })
+ const removeManualAdjustment=useMutation({
+  mutationFn:deleteManualBonusAdjustment,
+  onSuccess:()=>{message.success('Ручной бонус или штраф удалён');void qc.invalidateQueries({queryKey:['manual-bonus-adjustments']})},
+  onError:(error:any)=>message.error(error.response?.data?.detail||'Не удалось удалить ручную корректировку')
+ })
+ const overrideMode=Form.useWatch('calculation_mode',overrideForm)??'manual_amount'
 
  const cols:ColumnsType<Calculation>=[
   {title:'ФИО сотрудника',dataIndex:'employee_name',render:(v:string|null)=>v??'—'},
@@ -147,14 +160,28 @@ function Bonuses({isAdmin,userId}:{isAdmin:boolean;userId:string}){
   department,
   calculations:(q.data??[]).filter(calculation=>calculationDepartment(calculation)===department)
  }))
+ const employeeOptions=(employees.data??[]).filter(employee=>employee.is_active&&['Отдел внедрения','Разработка 1С'].some(department=>employee.department_name?.split(';').map(value=>value.trim()).includes(department))).map(employee=>({value:employee.id,label:`${employee.full_name} · ${employee.department_name}`}))
 
  const overrideColumns:ColumnsType<DealBonusOverride>=[
   {title:'Сделка',render:(_,item)=><BitrixLink href={dealUrl(item.deal_bitrix_id)}>№{item.deal_bitrix_id} — {item.deal_title}</BitrixLink>},
+  {title:'Воронка',dataIndex:'funnel',render:funnel},
   {title:'Сотрудник',dataIndex:'employee_name'},
   {title:'Период',render:(_,item)=>`${monthName(item.start_month)} — ${monthName(item.end_month)}`},
   {title:'Месяцев',dataIndex:'months',align:'center'},
+  {title:'Режим',dataIndex:'calculation_mode',render:mode=>mode==='formula'?'По формуле':'Ручная сумма'},
+  {title:'Сумма за месяц',dataIndex:'amount',render:(value:string|null)=>value===null?'По формуле':rub(value),align:'right'},
   {title:'Комментарий',dataIndex:'comment',render:(value:string|null)=>value||'—'},
-  {title:'',render:(_,item)=><Space><Button size="small" onClick={()=>overrideForm.setFieldsValue({deal_bitrix_id:item.deal_bitrix_id,employee_id:item.employee_id,start_month:item.start_month.slice(0,7),months:item.months,comment:item.comment??undefined})}>Изменить</Button><Popconfirm title="Удалить корректировку?" description="После удаления для сделки снова будет применяться период из Bitrix." okText="Удалить" cancelText="Отмена" onConfirm={()=>removeOverride.mutate(item.id)}><Button size="small" danger>Удалить</Button></Popconfirm></Space>}
+  {title:'',render:(_,item)=><Space><Button size="small" onClick={()=>overrideForm.setFieldsValue({deal_bitrix_id:item.deal_bitrix_id,employee_id:item.employee_id,start_month:item.start_month.slice(0,7),months:item.months,calculation_mode:item.calculation_mode,amount:item.amount===null?undefined:Number(item.amount),comment:item.comment??undefined})}>Изменить</Button><Popconfirm title="Удалить корректировку?" description="После удаления для сделки снова будет применяться период из Bitrix." okText="Удалить" cancelText="Отмена" onConfirm={()=>removeOverride.mutate(item.id)}><Button size="small" danger>Удалить</Button></Popconfirm></Space>}
+ ]
+
+ const manualAdjustmentColumns:ColumnsType<ManualBonusAdjustment>=[
+  {title:'Сотрудник',dataIndex:'employee_name'},
+  {title:'Название',dataIndex:'title'},
+  {title:'Период',render:(_,item)=>`${monthName(item.start_month)} — ${monthName(item.end_month)}`},
+  {title:'Месяцев',dataIndex:'months',align:'center'},
+  {title:'Сумма за месяц',dataIndex:'amount',render:rub,align:'right'},
+  {title:'Комментарий',dataIndex:'comment',render:(value:string|null)=>value||'—'},
+  {title:'',render:(_,item)=><Space><Button size="small" onClick={()=>{setEditingManualId(item.id);manualForm.setFieldsValue({employee_id:item.employee_id,title:item.title,start_month:item.start_month.slice(0,7),months:item.months,amount:Number(item.amount),comment:item.comment??undefined})}}>Изменить</Button><Popconfirm title="Удалить ручную корректировку?" okText="Удалить" cancelText="Отмена" onConfirm={()=>removeManualAdjustment.mutate(item.id)}><Button size="small" danger>Удалить</Button></Popconfirm></Space>}
  ]
 
  type Item = CalculationDetail['items'][number]
@@ -164,6 +191,8 @@ function Bonuses({isAdmin,userId}:{isAdmin:boolean;userId:string}){
   ['implementation','Внедрение'],
   ['cr_start_fixed','CR Start фиксированный'],
   ['cr_start_implementation','CR Start как внедрение'],
+  ['deal_manual_adjustment','Ручные корректировки сделок'],
+  ['manual_adjustment','Ручные бонусы и штрафы'],
   ['current_client','Текущие клиенты'],
   ['training','Обучение'],
   ['overtime_hours','Переработки — учёт часов'],
@@ -183,6 +212,7 @@ function Bonuses({isAdmin,userId}:{isAdmin:boolean;userId:string}){
   if(item.bonus_type==='current_client')return rub(item.rate)
   if(item.bonus_type==='support_hours')return `${rub(item.rate)}/ч`
   if(item.bonus_type==='training')return rub(item.rate)
+  if(['deal_manual_adjustment','manual_adjustment'].includes(item.bonus_type))return 'Ручная сумма'
   return `${num(Number(item.rate)*100)}%`
  }
 
@@ -253,6 +283,8 @@ function Bonuses({isAdmin,userId}:{isAdmin:boolean;userId:string}){
    {label:'Часы текущих клиентов', total:hoursBy('support_hours'), rows:[], suffix:' ч'},
    {label:'Переработка', total:hoursBy('overtime_hours'), rows:[], suffix:' ч'},
    {label:'CR Start', total:totalBy('cr_start_fixed'), rows:sectionRows('cr_start_fixed',item=>sourceValue(item))},
+   {label:'Корректировки сделок', total:totalBy('deal_manual_adjustment'), rows:sectionRows('deal_manual_adjustment',item=>sourceValue(item))},
+   {label:'Ручные бонусы и штрафы', total:totalBy('manual_adjustment'), rows:sectionRows('manual_adjustment',item=>item.description)},
    {label:'Текущие', total:totalBy('current_client'), rows:[]}
   ]
 
@@ -347,20 +379,40 @@ function Bonuses({isAdmin,userId}:{isAdmin:boolean;userId:string}){
   </Row>
   {isAdmin&&<Alert type="info" showIcon message="Каждый перерасчет создает новую версию; история не перезаписывается."/>}
 
-  {isAdmin&&<Card title="Корректировки периода начисления CR Start">
-   <Alert type="info" showIcon message="Корректировка заменяет автоматический период начисления только для указанной сделки. После сохранения пересчитайте каждый нужный месяц." style={{marginBottom:20}}/>
-   <Form form={overrideForm} layout="vertical" initialValues={{months:3}} onFinish={values=>saveOverride.mutate(values)}>
+  {isAdmin&&<Card title="Корректировки начислений сделок">
+   <Alert type="info" showIcon message="Доступны сделки CR Start и Внедрения. Режим «По формуле» сохраняет правила сделки, «Ручная сумма» начисляет указанную сумму без деления на 2,5. После сохранения пересчитайте каждый нужный месяц." style={{marginBottom:20}}/>
+   <Form form={overrideForm} layout="vertical" initialValues={{months:3,calculation_mode:'manual_amount',amount:10000}} onFinish={values=>saveOverride.mutate(values)}>
     <Row gutter={[16,0]} align="bottom">
-     <Col xs={24} md={5}><Form.Item name="deal_bitrix_id" label="Номер сделки" rules={[{required:true,message:'Укажите номер сделки'}]}><InputNumber min={1} precision={0} style={{width:'100%'}} placeholder="51524"/></Form.Item></Col>
-     <Col xs={24} md={7}><Form.Item name="employee_id" label="Сотрудник" rules={[{required:true,message:'Выберите сотрудника'}]}><Select showSearch optionFilterProp="label" loading={employees.isLoading} options={(employees.data??[]).filter(employee=>employee.is_active&&['Отдел внедрения','Разработка 1С'].some(department=>employee.department_name?.split(';').map(value=>value.trim()).includes(department))).map(employee=>({value:employee.id,label:`${employee.full_name} · ${employee.department_name}`}))}/></Form.Item></Col>
-     <Col xs={24} md={4}><Form.Item name="start_month" label="Первый месяц" rules={[{required:true,message:'Выберите месяц'}]}><Input type="month"/></Form.Item></Col>
-     <Col xs={24} md={3}><Form.Item name="months" label="Месяцев" rules={[{required:true}]}><InputNumber min={1} max={12} precision={0} style={{width:'100%'}}/></Form.Item></Col>
-     <Col xs={24} md={5}><Form.Item name="comment" label="Комментарий"><Input placeholder="Причина корректировки"/></Form.Item></Col>
+     <Col xs={24} md={4}><Form.Item name="deal_bitrix_id" label="Номер сделки" rules={[{required:true,message:'Укажите номер сделки'}]}><InputNumber min={1} precision={0} style={{width:'100%'}} placeholder="51524"/></Form.Item></Col>
+     <Col xs={24} md={6}><Form.Item name="employee_id" label="Сотрудник" rules={[{required:true,message:'Выберите сотрудника'}]}><Select showSearch optionFilterProp="label" loading={employees.isLoading} options={employeeOptions}/></Form.Item></Col>
+     <Col xs={24} md={3}><Form.Item name="start_month" label="Первый месяц" rules={[{required:true,message:'Выберите месяц'}]}><Input type="month"/></Form.Item></Col>
+     <Col xs={24} md={2}><Form.Item name="months" label="Месяцев" rules={[{required:true}]}><InputNumber min={1} max={12} precision={0} style={{width:'100%'}}/></Form.Item></Col>
+     <Col xs={24} md={3}><Form.Item name="calculation_mode" label="Режим"><Select options={[{value:'formula',label:'По формуле'},{value:'manual_amount',label:'Ручная сумма'}]}/></Form.Item></Col>
+     <Col xs={24} md={3}><Form.Item name="amount" label="Сумма, ₽" rules={overrideMode==='manual_amount'?[{required:true,message:'Укажите сумму'}]:[]}><InputNumber disabled={overrideMode==='formula'} precision={2} style={{width:'100%'}}/></Form.Item></Col>
+     <Col xs={24} md={3}><Form.Item name="comment" label="Комментарий"><Input placeholder="Причина"/></Form.Item></Col>
     </Row>
     <Button type="primary" htmlType="submit" loading={saveOverride.isPending}>Сохранить корректировку</Button>
    </Form>
    <div style={{marginTop:24}}>
     {overrides.data?.length?<Table rowKey="id" columns={overrideColumns} dataSource={overrides.data} pagination={false}/>:<Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Корректировок пока нет"/>}
+   </div>
+  </Card>}
+
+  {isAdmin&&<Card title="Ручные бонусы и штрафы">
+   <Alert type="info" showIcon message="Сумма начисляется каждый месяц выбранного периода, не делится на 2,5. Для штрафа укажите отрицательное значение." style={{marginBottom:20}}/>
+   <Form form={manualForm} layout="vertical" initialValues={{months:1}} onFinish={values=>saveManualAdjustment.mutate(values)}>
+    <Row gutter={[16,0]} align="bottom">
+     <Col xs={24} md={6}><Form.Item name="employee_id" label="Сотрудник" rules={[{required:true,message:'Выберите сотрудника'}]}><Select showSearch optionFilterProp="label" loading={employees.isLoading} options={employeeOptions}/></Form.Item></Col>
+     <Col xs={24} md={6}><Form.Item name="title" label="Название" rules={[{required:true,message:'Укажите название'}]}><Input placeholder="Фиксированный KPI на период адаптации"/></Form.Item></Col>
+     <Col xs={24} md={3}><Form.Item name="start_month" label="Первый месяц" rules={[{required:true,message:'Выберите месяц'}]}><Input type="month"/></Form.Item></Col>
+     <Col xs={24} md={2}><Form.Item name="months" label="Месяцев" rules={[{required:true}]}><InputNumber min={1} max={12} precision={0} style={{width:'100%'}}/></Form.Item></Col>
+     <Col xs={24} md={3}><Form.Item name="amount" label="Сумма, ₽" rules={[{required:true,message:'Укажите сумму'}]}><InputNumber precision={2} style={{width:'100%'}}/></Form.Item></Col>
+     <Col xs={24} md={4}><Form.Item name="comment" label="Комментарий"><Input placeholder="Основание"/></Form.Item></Col>
+    </Row>
+    <Space><Button type="primary" htmlType="submit" loading={saveManualAdjustment.isPending}>{editingManualId?'Сохранить изменения':'Добавить бонус или штраф'}</Button>{editingManualId&&<Button onClick={()=>{manualForm.resetFields();setEditingManualId(null)}}>Отмена</Button>}</Space>
+   </Form>
+   <div style={{marginTop:24}}>
+    {manualAdjustments.data?.length?<Table rowKey="id" columns={manualAdjustmentColumns} dataSource={manualAdjustments.data} pagination={false}/>:<Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Ручных бонусов и штрафов пока нет"/>}
    </div>
   </Card>}
 

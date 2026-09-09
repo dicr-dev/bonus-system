@@ -1,9 +1,12 @@
 from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID, uuid4
+
 from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, Numeric, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+
 from cr_portal.db.base import Base
+
 
 class BonusRule(Base):
     __tablename__="bonus_rules"
@@ -67,5 +70,18 @@ class ManualBonusEvent(Base):
     deal_id: Mapped[UUID|None]=mapped_column(ForeignKey("deals.id",ondelete="SET NULL"),nullable=True)
     event_type: Mapped[str]=mapped_column(String(32),index=True)
     quantity: Mapped[Decimal]=mapped_column(Numeric(14,2),default=1)
+    amount: Mapped[Decimal]=mapped_column(Numeric(14,2),default=0)
+    calculation_mode: Mapped[str]=mapped_column(String(32),default="manual_amount")
+    comment: Mapped[str|None]=mapped_column(Text,nullable=True)
+    created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True),server_default=func.now())
+
+class ManualBonusAdjustment(Base):
+    __tablename__="manual_bonus_adjustments"
+    id: Mapped[UUID]=mapped_column(primary_key=True,default=uuid4)
+    employee_id: Mapped[UUID]=mapped_column(ForeignKey("users.id",ondelete="CASCADE"),index=True)
+    title: Mapped[str]=mapped_column(String(500))
+    start_month: Mapped[date]=mapped_column(Date,index=True)
+    months: Mapped[int]=mapped_column(Integer,default=1)
+    amount: Mapped[Decimal]=mapped_column(Numeric(14,2))
     comment: Mapped[str|None]=mapped_column(Text,nullable=True)
     created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True),server_default=func.now())
