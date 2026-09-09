@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from cr_portal.api.v1 import auth,bonus,calculations,deals,diagnostics,distribution,export,health,kpi,reports,settings,sync,users
+from cr_portal.api.v1 import auth,bonus,calculations,deals,diagnostics,distribution,export,health,kpi,onboarding,reports,settings,sync,users
 router=APIRouter()
 router.include_router(health.router,tags=["Health"])
 router.include_router(auth.router,prefix="/auth",tags=["Auth"])
@@ -14,3 +14,4 @@ router.include_router(diagnostics.router,prefix="/diagnostics",tags=["Diagnostic
 router.include_router(export.router,prefix="/reports/export",tags=["Export"])
 router.include_router(sync.router,prefix="/sync",tags=["Sync"])
 router.include_router(distribution.router,prefix="/distribution",tags=["Distribution"])
+router.include_router(onboarding.router,prefix="/onboarding",tags=["Onboarding"])

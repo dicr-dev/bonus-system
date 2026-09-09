@@ -11,6 +11,7 @@ import { useMutation,useQuery,useQueryClient } from '@tanstack/react-query'
 import { useEffect,useState } from 'react'
 import SettingsPage from './SettingsPage'
 import InstructionPage from './InstructionPage'
+import OnboardingPage from './OnboardingPage'
 import {BitrixLink,dealUrl,sourceUrl} from './BitrixLink'
 import {
   createManualBonusAdjustment,deleteDealBonusOverride,deleteManualBonusAdjustment,excelUrl,getCalculation,
@@ -489,18 +490,19 @@ export default function App(){
  if(user.isLoading)return <Card loading/>
  if(user.isError||!user.data)return <Login onSuccess={()=>setAuthVersion(v=>v+1)}/>
  const isAdmin=user.data.is_admin
- const effectivePage=!isAdmin&&!['dashboard','bonus','deals','instruction'].includes(page)?'dashboard':page
- const content=({dashboard:<Dashboard isAdmin={isAdmin} userId={user.data.id}/>,kpi:<KPI/>,bonus:<Bonuses isAdmin={isAdmin} userId={user.data.id}/>,deals:<Deals isAdmin={isAdmin} userId={user.data.id}/>,instruction:<InstructionPage/>,diagnostics:<Diagnostics/>,rules:<Rules/>,settings:<SettingsPage/>,sync:<Sync/>}[effectivePage]??<Dashboard isAdmin={isAdmin} userId={user.data.id}/>)
+ const effectivePage=!isAdmin&&!['dashboard','bonus','deals','instruction','onboarding'].includes(page)?'dashboard':page
+ const content=({dashboard:<Dashboard isAdmin={isAdmin} userId={user.data.id}/>,kpi:<KPI/>,bonus:<Bonuses isAdmin={isAdmin} userId={user.data.id}/>,deals:<Deals isAdmin={isAdmin} userId={user.data.id}/>,instruction:<InstructionPage/>,onboarding:<OnboardingPage isAdmin={isAdmin}/>,diagnostics:<Diagnostics/>,rules:<Rules/>,settings:<SettingsPage/>,sync:<Sync/>}[effectivePage]??<Dashboard isAdmin={isAdmin} userId={user.data.id}/>)
  const employeeMenu=[
   {key:'dashboard',icon:<DashboardOutlined/>,label:'Главная'},
   {key:'bonus',icon:<FundOutlined/>,label:'Моя премия'},
   {key:'deals',icon:<DatabaseOutlined/>,label:'Мои сделки'},
-  {key:'instruction',icon:<BookOutlined/>,label:'Инструкция'}
+  {key:'instruction',icon:<BookOutlined/>,label:'Инструкция'},
+  {key:'onboarding',icon:<CheckCircleOutlined/>,label:'Адаптация'}
  ]
  const adminMenu=[
   {key:'dashboard',icon:<DashboardOutlined/>,label:'Главная'},{key:'kpi',icon:<TrophyOutlined/>,label:'KPI отдела'},
   {key:'bonus',icon:<FundOutlined/>,label:'Расчет премий'},{key:'deals',icon:<DatabaseOutlined/>,label:'Сделки'},
-  {key:'instruction',icon:<BookOutlined/>,label:'Инструкция'},
+  {key:'instruction',icon:<BookOutlined/>,label:'Инструкция'},{key:'onboarding',icon:<CheckCircleOutlined/>,label:'Адаптация'},
   {key:'diagnostics',icon:<ExclamationCircleOutlined/>,label:'Диагностика'},{key:'rules',icon:<SettingOutlined/>,label:'Правила'},
   {key:'settings',icon:<SettingOutlined/>,label:'\u041d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0438'},
   {key:'sync',icon:<CloudSyncOutlined/>,label:'Синхронизация'}

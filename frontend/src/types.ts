@@ -123,6 +123,10 @@ export interface ManualBonusAdjustment {
 }
 
 export interface Issue { id:string; calculation_id:string|null; month:string; severity:string; code:string; message:string; employee_id:string|null; deal_id:string|null; deal_bitrix_id:number|null; details_json:string; created_at:string }
+export interface OnboardingTask { id:string; section:string; section_details:string|null; title:string; details:string|null; position:number; is_completed:boolean; comment:string|null; completed_at:string|null }
+export interface OnboardingAssignment { id:string; employee_id:string; employee_name:string; assigned_by_name:string; created_at:string; tasks:OnboardingTask[] }
+export interface OnboardingPlanTask { id?:string; title:string; details:string|null }
+export interface OnboardingPlanSection { id?:string; title:string; details:string|null; tasks:OnboardingPlanTask[] }
 export interface RuleVersion { id:string; version:number; effective_from:string; effective_to:string|null; config_json:string; comment:string|null; created_at:string }
 
 export interface AppSettings {
