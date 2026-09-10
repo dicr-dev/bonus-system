@@ -119,6 +119,8 @@ Alembic head — `0010_onboarding_template`. Миграции `0001`–`0003` с
 
 Обычный порядок обновления: собрать изменённые образы, выполнить `docker compose exec backend alembic upgrade head`, перезапустить затронутые `backend`, `frontend` и при изменении синхронизации — `worker`; затем проверить `docker compose ps`, `alembic current` и `/api/v1/health`.
 
+Production на 10 сентября 2026 года: приложение развернуто из revision `741326f`; `backend`, `frontend` и `worker` пересобраны и пересозданы, `/api/v1/health` отвечает успешно, схема БД — `0010_onboarding_template`.
+
 ## Известные пробелы / неопределённости
 
 - Точные значения Bitrix category IDs, user-field IDs, CR Start-полей, проекта переработок и отделов переработок не зафиксированы в исходниках: они зависят от `app_settings`/окружения и должны проверяться в работающей установке.
