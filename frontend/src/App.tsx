@@ -245,6 +245,8 @@ function Bonuses({isAdmin,userId}:{isAdmin:boolean;userId:string}){
  }
 
  const taskHourFunnel=(item:Item)=>{
+  const group=detailsValue(item).task_hours_group
+  if(group)return String(group)
   const value=detailsValue(item).client_deal_funnel
   if(value)return String(value)
   return item.bonus_type==='support_hours'?'support':''
@@ -294,7 +296,8 @@ function Bonuses({isAdmin,userId}:{isAdmin:boolean;userId:string}){
    ['tech_integration','Тех интеграция'],
    ['implementation','Внедрение'],
    ['support','Сопровождение'],
-   ['cr_start','CR Start']
+   ['cr_start_before_commercial','CR Start до комм. использования'],
+   ['cr_start_commercial','CR Start при комм. использовании']
   ] as const
 
   return <>

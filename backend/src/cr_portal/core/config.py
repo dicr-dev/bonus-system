@@ -44,6 +44,7 @@ class Settings(BaseSettings):
     BITRIX_FIELD_SOURCE_DEAL_ID: str = ""
     BITRIX_FIELD_SALES_BONUS_USER_ID: str = ""
     BITRIX_CR_START_BOOLEAN_FIELDS: str = ""
+    BITRIX_CR_START_IMPLEMENTATION_MODULES: str = "КР Старт ТМ,КР Старт Эксплуатация"
     BITRIX_FIELD_CLIENT_WORKS: str = ""
     BITRIX_TASK_TRAINING_BONUS_FIELD: str = ""
     BITRIX_FIELD_MODULE: str = "ufCrm_1650618044049"

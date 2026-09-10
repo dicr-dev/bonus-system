@@ -26,13 +26,13 @@ function BitrixSettings(){
  const [form]=Form.useForm<any>()
  const qc=useQueryClient()
  const q=useQuery({queryKey:['app-settings'],queryFn:getAppSettings})
- useEffect(()=>{if(q.data)form.setFieldsValue({...q.data,cr_start_boolean_fields_text:q.data.cr_start_boolean_fields.join(', ')})},[q.data,form])
+ useEffect(()=>{if(q.data)form.setFieldsValue({...q.data,cr_start_boolean_fields_text:q.data.cr_start_boolean_fields.join(', '),cr_start_implementation_modules_text:q.data.cr_start_implementation_modules.join(', ')})},[q.data,form])
  const save=useMutation({
   mutationFn:(v:AppSettings)=>saveAppSettings(v),
   onSuccess:async()=>{message.success('Настройки Bitrix24 сохранены');await qc.invalidateQueries({queryKey:['app-settings']})}
  })
  if(q.isLoading)return <Card loading/>
- return <Form form={form} layout="vertical" onFinish={(v:any)=>{const {cr_start_boolean_fields_text,...rest}=v;save.mutate({...rest,cr_start_boolean_fields:String(cr_start_boolean_fields_text||'').split(',').map(x=>x.trim()).filter(Boolean)} as AppSettings)}}>
+ return <Form form={form} layout="vertical" onFinish={(v:any)=>{const {cr_start_boolean_fields_text,cr_start_implementation_modules_text,...rest}=v;save.mutate({...rest,cr_start_boolean_fields:String(cr_start_boolean_fields_text||'').split(',').map(x=>x.trim()).filter(Boolean),cr_start_implementation_modules:String(cr_start_implementation_modules_text||'').split(',').map(x=>x.trim()).filter(Boolean)} as AppSettings)}}>
   <Card title="Воронки Bitrix24">
    <Row gutter={16}>
     <Col xs={24} md={6}><Form.Item name="tech_integration_category_id" label="Техинтеграция: ID воронки"><InputNumber style={{width:'100%'}}/></Form.Item></Col>
@@ -51,6 +51,7 @@ function BitrixSettings(){
     <Col xs={24} md={12}><Form.Item name="field_sales_bonus_user_id" label="Сотрудник, получающий бонус за продажу"><Input/></Form.Item></Col>
     <Col xs={24} md={12}><Form.Item name="field_source_deal_id" label="ID сделки-источника"><Input/></Form.Item></Col>
     <Col xs={24} md={12}><Form.Item name="field_module" label="Направление (Модуль)"><Input/></Form.Item></Col>
+    <Col xs={24} md={12}><Form.Item name="cr_start_implementation_modules_text" label="Значения модуля CR Start для расчёта как внедрение" extra="Через запятую. Дата коммерческого использования будет датой перехода на подписку."><Input.TextArea rows={2}/></Form.Item></Col>
     <Col xs={24} md={12}><Form.Item name="field_client_works" label="Клиент работает (если используется отдельное поле)"><Input/></Form.Item></Col>
     <Col xs={24} md={12}><Form.Item name="field_planned_subscription_date" label="Расчетная дата перевода на подписку"><Input placeholder="ufCrm_1774423053267"/></Form.Item></Col>
     <Col span={24}><Form.Item name="cr_start_boolean_fields_text" label="Поля CR Start"><Input.TextArea rows={3} placeholder="ufCrm_..., ufCrm_..."/></Form.Item></Col>

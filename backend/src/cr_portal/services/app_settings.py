@@ -20,6 +20,7 @@ class BusinessSettings:
     field_source_deal_id: str
     field_sales_bonus_user_id: str
     cr_start_boolean_fields: list[str]
+    cr_start_implementation_modules: list[str]
     field_client_works: str
     task_training_bonus_field: str
     field_module: str
@@ -52,6 +53,7 @@ KEYS = {
     "field_source_deal_id": "BITRIX_FIELD_SOURCE_DEAL_ID",
     "field_sales_bonus_user_id": "BITRIX_FIELD_SALES_BONUS_USER_ID",
     "cr_start_boolean_fields": "BITRIX_CR_START_BOOLEAN_FIELDS",
+    "cr_start_implementation_modules": "BITRIX_CR_START_IMPLEMENTATION_MODULES",
     "field_client_works": "BITRIX_FIELD_CLIENT_WORKS",
     "task_training_bonus_field": "BITRIX_TASK_TRAINING_BONUS_FIELD",
     "field_module": "BITRIX_FIELD_MODULE",
@@ -64,6 +66,12 @@ KEYS = {
 def _env_default(name: str) -> str:
     if name == "BITRIX_FIELD_MODULE":
         return getattr(settings, name, "ufCrm_1650618044049") or ""
+    if name == "BITRIX_CR_START_IMPLEMENTATION_MODULES":
+        return getattr(
+            settings,
+            name,
+            "КР Старт ТМ,КР Старт Эксплуатация",
+        ) or ""
     return str(getattr(settings, name, "") or "")
 
 
@@ -119,6 +127,11 @@ async def get_business_settings(session: AsyncSession) -> BusinessSettings:
             for item in value("cr_start_boolean_fields").split(",")
             if item.strip()
         ],
+        cr_start_implementation_modules=[
+            item.strip()
+            for item in value("cr_start_implementation_modules").split(",")
+            if item.strip()
+        ],
         field_client_works=value("field_client_works"),
         task_training_bonus_field=value("task_training_bonus_field"),
         field_module=value("field_module") or "ufCrm_1650618044049",
@@ -140,7 +153,7 @@ async def save_app_settings(session: AsyncSession, data: dict) -> BusinessSettin
             continue
 
         raw = data[field]
-        if field == "cr_start_boolean_fields":
+        if field in {"cr_start_boolean_fields", "cr_start_implementation_modules"}:
             raw = ",".join(raw or []) if isinstance(raw, list) else str(raw or "")
         elif raw is None:
             raw = ""

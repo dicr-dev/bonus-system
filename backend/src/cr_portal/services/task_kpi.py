@@ -1,4 +1,5 @@
 """Read task KPI inputs; calculation items preserve the resulting snapshot."""
+import json
 from datetime import UTC, date, datetime
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from zoneinfo import ZoneInfo
@@ -31,6 +32,25 @@ def parse_datetime(value) -> datetime | None:
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=ZoneInfo("Europe/Moscow"))
     return parsed.astimezone(UTC)
+
+
+def deal_date(deal, field_name: str) -> date | None:
+    """Read a Bitrix date field from the raw deal snapshot."""
+    if not field_name or not getattr(deal, "raw_json", None):
+        return None
+    try:
+        value = json.loads(deal.raw_json).get(field_name)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return None
+    if value in (None, ""):
+        return None
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00")).date()
+    except ValueError:
+        try:
+            return date.fromisoformat(str(value)[:10])
+        except ValueError:
+            return None
 
 
 def positive_decimal(value) -> Decimal:
@@ -140,8 +160,9 @@ async def support_hour_contributions(
     implementations_by_support,
     reference_deals=None,
     paid_employee_ids: set | None = None,
+    cr_start_commercial_use_date_field: str = "",
 ):
-    """Aggregate task time; only eligible support tasks produce a bonus."""
+    """Aggregate task time; support and commercial CR Start time produce a bonus."""
     logs = await elapsed_items_in_month(client, month)
     task_ids = list(dict.fromkeys(str(item.get("TASK_ID")) for item in logs if item.get("TASK_ID")))
     tasks = await tasks_by_id(client, task_ids)
@@ -188,14 +209,26 @@ async def support_hour_contributions(
         if deal is None:
             continue
 
-        key = (employee_id, task_id, deal.id)
         paid = paid_employee_ids is None or employee_id in paid_employee_ids
+        cr_start_phase = None
+        calculated = support is not None and paid
+        if support is None and getattr(deal, "funnel", None) == "cr_start":
+            commercial_use_date = deal_date(deal, cr_start_commercial_use_date_field)
+            is_commercial = (
+                commercial_use_date is not None
+                and logged_at.astimezone(ZoneInfo("Europe/Moscow")).date() >= commercial_use_date
+            )
+            cr_start_phase = "commercial" if is_commercial else "before_commercial"
+            calculated = is_commercial and paid
+
+        key = (employee_id, task_id, deal.id, cr_start_phase)
         entry = aggregated.setdefault(key, {
             "employee_id": employee_id,
             "task_id": task_id,
             "task": task,
             "deal": deal,
-            "calculated": support is not None and paid,
+            "calculated": calculated,
+            "cr_start_phase": cr_start_phase,
             "seconds": 0,
             "elapsed_ids": [],
         })
@@ -217,12 +250,20 @@ async def support_hour_contributions(
         )
         bonus_type = "support_hours" if calculated else "task_hours_reference"
         task_title = field_value(entry["task"], "TITLE") or f"Задача {entry['task_id']}"
+        cr_start_phase = entry["cr_start_phase"]
+        description_prefix = (
+            "Часы CR Start при коммерческом использовании"
+            if cr_start_phase == "commercial"
+            else "Часы CR Start до коммерческого использования"
+            if cr_start_phase == "before_commercial"
+            else "Часы сопровождения"
+        )
         result.append((entry["employee_id"], (
             entry["deal"], bonus_type, rate, rate, hours, before, calculated,
             (
-                f"Часы сопровождения: {task_title} — {hours} ч × {rate} ₽"
+                f"{description_prefix}: {task_title} — {hours} ч × {rate} ₽"
                 if calculated
-                else f"Справочные часы: {task_title} — {hours} ч"
+                else f"{description_prefix}: {task_title} — {hours} ч"
             ),
             {
                 "task_id": entry["task_id"],
@@ -231,6 +272,11 @@ async def support_hour_contributions(
                 "elapsed_ids": entry["elapsed_ids"],
                 "seconds": entry["seconds"],
                 "hours_source": "elapsed_items",
+                "task_hours_group": (
+                    f"cr_start_{cr_start_phase}"
+                    if cr_start_phase is not None
+                    else None
+                ),
             },
         )))
     return result
@@ -319,5 +365,6 @@ async def task_contributions(
             implementations_by_support or {},
             reference_deals or [],
             paid_employee_ids,
+            config.field_cr_start_commercial_use_date,
         ))
     return result

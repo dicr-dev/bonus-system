@@ -139,6 +139,20 @@ def raw_date(deal: Deal, field_name: str) -> date | None:
             return None
 
 
+def cr_start_counts_as_implementation(deal: Deal, business) -> bool:
+    """Whether a configured CR Start module follows the implementation formula."""
+    configured = {
+        str(value).strip().casefold()
+        for value in business.cr_start_implementation_modules
+        if str(value).strip()
+    }
+    if not configured:
+        return False
+    value = raw_value(deal, business.field_module)
+    values = value if isinstance(value, list) else [value]
+    return any(str(item).strip().casefold() in configured for item in values)
+
+
 def truthy(value) -> bool:
     if isinstance(value, bool):
         return value
@@ -466,14 +480,14 @@ async def diagnose_month(session: AsyncSession, month: date):
                 deal_id=deal.id,
             )
 
-        fields = business.cr_start_boolean_fields
-        if not fields:
-            continue
-
-        values = [raw_value(deal, field) for field in fields]
-        is_fixed = any(truthy(value) for value in values)
-        if is_fixed:
-            continue
+        counts_as_implementation = cr_start_counts_as_implementation(deal, business)
+        if not counts_as_implementation:
+            fields = business.cr_start_boolean_fields
+            if not fields:
+                continue
+            values = [raw_value(deal, field) for field in fields]
+            if any(truthy(value) for value in values):
+                continue
 
         if Decimal(deal.monthly_amount or 0) <= 0:
             await add_issue(
@@ -842,12 +856,13 @@ async def calculate_month(
             deal,
             business.field_cr_start_commercial_use_date,
         )
+        counts_as_implementation = cr_start_counts_as_implementation(deal, business)
         fields = business.cr_start_boolean_fields
-        if not fields:
+        if not counts_as_implementation and not fields:
             continue
 
         values = [raw_value(deal, field) for field in fields]
-        is_fixed = any(truthy(value) for value in values)
+        is_fixed = not counts_as_implementation and any(truthy(value) for value in values)
 
         if override is not None:
             if not cr_start_override_applies(override, month):
@@ -890,7 +905,7 @@ async def calculate_month(
         eligible[employee_id].append(
             (
                 deal,
-                "cr_start_implementation",
+                "implementation" if counts_as_implementation else "cr_start_implementation",
                 initial_month,
                 period_details,
             )

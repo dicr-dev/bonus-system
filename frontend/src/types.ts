@@ -141,6 +141,7 @@ export interface AppSettings {
   field_source_deal_id:string
   field_sales_bonus_user_id:string
   cr_start_boolean_fields:string[]
+  cr_start_implementation_modules:string[]
   field_client_works:string
   task_training_bonus_field:string
   task_training_yes_value:string

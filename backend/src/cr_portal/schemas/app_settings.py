@@ -21,6 +21,9 @@ class AppSettingsPayload(BaseModel):
     field_source_deal_id: str = ""
     field_sales_bonus_user_id: str = ""
     cr_start_boolean_fields: list[str] = Field(default_factory=list)
+    cr_start_implementation_modules: list[str] = Field(
+        default_factory=lambda: ["КР Старт ТМ", "КР Старт Эксплуатация"]
+    )
     field_client_works: str = ""
     task_training_bonus_field: str = ""
     field_module: str = "ufCrm_1650618044049"

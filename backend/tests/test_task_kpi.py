@@ -1,3 +1,4 @@
+import json
 import unittest
 from datetime import date, datetime, timezone
 from decimal import Decimal
@@ -19,7 +20,8 @@ def config(**changes):
     values = dict(task_training_bonus_field="UF_TASK_BONUS", task_training_yes_value="783",
                   task_training_date_field="DEADLINE", overtime_project_id=192,
                   overtime_department_ids="20,33", task_overtime_hours_field="UF_HOURS",
-                  overtime_time_priority="manual")
+                  overtime_time_priority="manual",
+                  field_cr_start_commercial_use_date="UF_COMMERCIAL_USE_DATE")
     return SimpleNamespace(**(values | changes))
 
 
@@ -202,6 +204,36 @@ class TaskTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(rows[0][1][5], Decimal("0"))
         self.assertFalse(rows[0][1][6])
         self.assertEqual(rows[0][1][8]["client_deal_funnel"], "tech_integration")
+
+    async def test_cr_start_hours_before_and_after_commercial_use(self):
+        client = SimpleNamespace(call=AsyncMock(side_effect=[
+            {"result": [
+                {"ID": "1", "TASK_ID": "100", "USER_ID": "10", "SECONDS": "3600", "CREATED_DATE": "2026-09-09T23:00:00+03:00"},
+                {"ID": "2", "TASK_ID": "100", "USER_ID": "10", "SECONDS": "7200", "CREATED_DATE": "2026-09-10T00:00:00+03:00"},
+            ]},
+            {"result": {"tasks": [{"id": "100", "title": "CR Start", "ufCrmTask": ["D_501"]}]}},
+        ]))
+        cr_start = SimpleNamespace(
+            id="cr-start-501", bitrix_id=501, funnel="cr_start",
+            raw_json=json.dumps({"UF_COMMERCIAL_USE_DATE": "2026-09-10"}),
+        )
+
+        rows = await support_hour_contributions(
+            client, date(2026, 9, 1), [SimpleNamespace(bitrix_id=10, id="employee")],
+            {"support_hour_rate": "200"}, [], {}, [cr_start],
+            cr_start_commercial_use_date_field="UF_COMMERCIAL_USE_DATE",
+        )
+
+        self.assertEqual(len(rows), 2)
+        before = next(row[1] for row in rows if row[1][8]["task_hours_group"] == "cr_start_before_commercial")
+        commercial = next(row[1] for row in rows if row[1][8]["task_hours_group"] == "cr_start_commercial")
+        self.assertEqual(before[1], "task_hours_reference")
+        self.assertEqual(before[4], Decimal("1.00"))
+        self.assertFalse(before[6])
+        self.assertEqual(commercial[1], "support_hours")
+        self.assertEqual(commercial[4], Decimal("2.00"))
+        self.assertEqual(commercial[5], Decimal("400.00"))
+        self.assertTrue(commercial[6])
 
     async def test_development_employee_support_hours_are_reference_only(self):
         client = SimpleNamespace(call=AsyncMock(side_effect=[
