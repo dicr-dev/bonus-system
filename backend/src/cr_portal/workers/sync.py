@@ -1,7 +1,7 @@
 import asyncio
 import json
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
@@ -13,6 +13,7 @@ from cr_portal.db.session import async_session_factory
 from cr_portal.integrations.bitrix.client import BitrixClient
 from cr_portal.models.oauth import BitrixInstallation
 from cr_portal.services.bitrix_sync import sync_deals, sync_users
+from cr_portal.services.bonus import calculate_month
 from cr_portal.services.task_sync import sync_tasks
 
 logger = logging.getLogger(__name__)
@@ -25,6 +26,11 @@ NIGHTLY_LAST_SUCCESS_KEY = "cr_portal:sync:nightly:last_success"
 NIGHTLY_LAST_ERROR_KEY = "cr_portal:sync:nightly:last_error"
 NIGHTLY_LAST_RESULT_KEY = "cr_portal:sync:nightly:last_result"
 NIGHTLY_LOCK_KEY = "cr_portal:sync:nightly:lock"
+DAILY_CALCULATION_LAST_ATTEMPT_KEY = "cr_portal:calculations:daily:last_attempt"
+DAILY_CALCULATION_LAST_SUCCESS_KEY = "cr_portal:calculations:daily:last_success"
+DAILY_CALCULATION_LAST_ERROR_KEY = "cr_portal:calculations:daily:last_error"
+DAILY_CALCULATION_LAST_RESULT_KEY = "cr_portal:calculations:daily:last_result"
+DAILY_CALCULATION_LOCK_KEY = "cr_portal:calculations:daily:lock"
 
 
 def utc_now() -> str:
@@ -136,6 +142,90 @@ async def run_nightly_if_due(redis: Redis) -> None:
         timezone_name=settings.NIGHTLY_SYNC_TIMEZONE,
     ):
         await process_nightly_sync(redis)
+
+
+def daily_calculation_due(
+    now: datetime,
+    *,
+    last_success: str | None,
+    last_attempt: str | None,
+    hour: int,
+    timezone_name: str,
+) -> bool:
+    return nightly_sync_due(
+        now,
+        last_success=last_success,
+        last_attempt=last_attempt,
+        hour=hour,
+        timezone_name=timezone_name,
+    )
+
+
+async def process_daily_calculation(redis: Redis) -> bool:
+    """Calculate the current Moscow month once per day after the nightly sync."""
+    lock_token = str(uuid4())
+    acquired = await redis.set(DAILY_CALCULATION_LOCK_KEY, lock_token, nx=True, ex=4 * 3600)
+    if not acquired:
+        return False
+
+    attempt_at = utc_now()
+    await redis.set(DAILY_CALCULATION_LAST_ATTEMPT_KEY, attempt_at)
+    await redis.delete(DAILY_CALCULATION_LAST_ERROR_KEY)
+
+    try:
+        async with async_session_factory() as session:
+            result = await session.execute(
+                select(BitrixInstallation)
+                .order_by(BitrixInstallation.created_at.desc())
+                .limit(1)
+            )
+            installation = result.scalar_one_or_none()
+            if installation is None:
+                raise RuntimeError("Bitrix24 installation not found")
+
+            client = BitrixClient(
+                access_token=installation.access_token,
+                client_endpoint=installation.client_endpoint,
+                session=session,
+                installation=installation,
+            )
+            local_now = datetime.now(ZoneInfo(settings.NIGHTLY_SYNC_TIMEZONE))
+            month = date(local_now.year, local_now.month, 1)
+            calculations = await calculate_month(session, month, client=client)
+
+        finished_at = utc_now()
+        daily_result = {
+            "month": month.isoformat(),
+            "calculations": len(calculations),
+            "finished_at": finished_at,
+        }
+        await redis.set(
+            DAILY_CALCULATION_LAST_RESULT_KEY,
+            json.dumps(daily_result, ensure_ascii=False),
+        )
+        await redis.set(DAILY_CALCULATION_LAST_SUCCESS_KEY, finished_at)
+        await redis.delete(DAILY_CALCULATION_LAST_ERROR_KEY)
+        logger.info("Daily calculation completed: %s", daily_result)
+        return True
+    except Exception as exc:
+        logger.exception("Daily calculation failed")
+        await redis.set(DAILY_CALCULATION_LAST_ERROR_KEY, str(exc))
+        return False
+    finally:
+        if await redis.get(DAILY_CALCULATION_LOCK_KEY) == lock_token:
+            await redis.delete(DAILY_CALCULATION_LOCK_KEY)
+
+
+async def run_daily_calculation_if_due(redis: Redis) -> None:
+    now = datetime.now(UTC)
+    if daily_calculation_due(
+        now,
+        last_success=await redis.get(DAILY_CALCULATION_LAST_SUCCESS_KEY),
+        last_attempt=await redis.get(DAILY_CALCULATION_LAST_ATTEMPT_KEY),
+        hour=settings.DAILY_CALCULATION_HOUR,
+        timezone_name=settings.NIGHTLY_SYNC_TIMEZONE,
+    ):
+        await process_daily_calculation(redis)
 
 
 async def update_job(
@@ -290,14 +380,16 @@ async def worker() -> None:
     )
 
     logger.info(
-        "Synchronization worker started; nightly run at %02d:00 %s",
+        "Synchronization worker started; nightly sync at %02d:00 and daily calculation at %02d:00 %s",
         settings.NIGHTLY_SYNC_HOUR,
+        settings.DAILY_CALCULATION_HOUR,
         settings.NIGHTLY_SYNC_TIMEZONE,
     )
 
     try:
         while True:
             await run_nightly_if_due(redis)
+            await run_daily_calculation_if_due(redis)
 
             result = await redis.brpop(
                 QUEUE_KEY,

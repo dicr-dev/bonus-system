@@ -44,6 +44,7 @@ class KPIDepartmentTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result["plan"], Decimal("200000"))
         self.assertEqual(result["fact"], Decimal("150000"))
+        self.assertEqual(result["plan_completion_percent"], Decimal("75"))
         self.assertEqual(result["implementation_total"], Decimal("120000"))
         self.assertEqual(result["cr_start_total"], Decimal("30000"))
         self.assertEqual(result["implementation_deals"][0]["bitrix_id"], 101)

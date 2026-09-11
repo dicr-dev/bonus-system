@@ -120,10 +120,15 @@ async def kpi_summary(
         (Decimal(deal.opportunity or 0) for deal in deals.cr_start),
         Decimal(0),
     )
+    fact = implementation_total + cr_start_total
+    plan_completion_percent = (
+        Decimal(0) if plan <= 0 else fact / plan * Decimal(100)
+    )
     return {
         "month": selected_month,
         "plan": plan,
-        "fact": implementation_total + cr_start_total,
+        "fact": fact,
+        "plan_completion_percent": plan_completion_percent,
         "implementation_total": implementation_total,
         "cr_start_total": cr_start_total,
         "implementation_deals": [deal_item(deal) for deal in deals.implementation],

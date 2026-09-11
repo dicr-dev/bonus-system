@@ -2,7 +2,7 @@ import unittest
 from datetime import UTC, date, datetime
 
 from cr_portal.services.task_sync import task_sync_window
-from cr_portal.workers.sync import nightly_sync_due
+from cr_portal.workers.sync import daily_calculation_due, nightly_sync_due
 
 
 class NightlySyncTests(unittest.TestCase):
@@ -66,6 +66,37 @@ class NightlySyncTests(unittest.TestCase):
                 last_success=None,
                 last_attempt="2026-09-08T06:59:59+00:00",
                 hour=2,
+                timezone_name="Europe/Moscow",
+            )
+        )
+
+    def test_daily_calculation_runs_once_after_three_moscow(self):
+        before_three = datetime(2026, 9, 7, 23, 59, tzinfo=UTC)
+        at_three = datetime(2026, 9, 8, 0, 0, tzinfo=UTC)
+        self.assertFalse(
+            daily_calculation_due(
+                before_three,
+                last_success=None,
+                last_attempt=None,
+                hour=3,
+                timezone_name="Europe/Moscow",
+            )
+        )
+        self.assertTrue(
+            daily_calculation_due(
+                at_three,
+                last_success=None,
+                last_attempt=None,
+                hour=3,
+                timezone_name="Europe/Moscow",
+            )
+        )
+        self.assertFalse(
+            daily_calculation_due(
+                datetime(2026, 9, 8, 6, 0, tzinfo=UTC),
+                last_success="2026-09-08T00:30:00+00:00",
+                last_attempt="2026-09-08T00:00:00+00:00",
+                hour=3,
                 timezone_name="Europe/Moscow",
             )
         )

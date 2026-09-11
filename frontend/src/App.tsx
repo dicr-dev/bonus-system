@@ -92,8 +92,9 @@ function KPI(){
  return <Space direction="vertical" size={24} style={{width:'100%'}}>
   <Row justify="space-between"><Title level={2}>KPI отдела</Title><Month value={month} onChange={setMonth}/></Row>
   <Row gutter={[16,16]}>
-   <Col xs={24} md={12}><Card><Statistic title="План" value={Number(d.plan)} formatter={v=>rub(Number(v))}/></Card></Col>
-   <Col xs={24} md={12}><Card><Statistic title="Факт" value={Number(d.fact)} formatter={v=>rub(Number(v))}/></Card></Col>
+   <Col xs={24} md={8}><Card><Statistic title="План" value={Number(d.plan)} formatter={v=>rub(Number(v))}/></Card></Col>
+   <Col xs={24} md={8}><Card><Statistic title="Факт" value={Number(d.fact)} formatter={v=>rub(Number(v))}/></Card></Col>
+   <Col xs={24} md={8}><Card><Statistic title="Процент выполнения плана" value={Number(d.plan_completion_percent)} precision={1} suffix="%"/></Card></Col>
   </Row>
   <Card title="План месяца"><Space><InputNumber min={0} value={plan} onChange={v=>setPlan(v)} addonAfter="₽"/><Button type="primary" loading={save.isPending} onClick={()=>save.mutate()}>Сохранить</Button></Space></Card>
   <Card title="Переданные на подписку сделки"><Collapse defaultActiveKey={[]} items={[

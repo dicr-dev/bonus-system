@@ -20,7 +20,7 @@ class KPIPlannedDealItem(BaseModel):
     deal_id:UUID;bitrix_id:int;title:str;planned_date:date;amount:Decimal;machines_count:int
 
 class KPISummary(BaseModel):
-    month:date;plan:Decimal;fact:Decimal
+    month:date;plan:Decimal;fact:Decimal;plan_completion_percent:Decimal
     implementation_total:Decimal;cr_start_total:Decimal
     implementation_deals:list[KPIDealItem];cr_start_deals:list[KPIDealItem]
     planned_deals:list[KPIPlannedDealItem]
