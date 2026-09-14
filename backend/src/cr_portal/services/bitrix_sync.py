@@ -392,6 +392,7 @@ async def sync_deals(
         business.field_integration_amount,
         business.field_cr_start_commercial_use_date,
         business.field_planned_subscription_date,
+        business.field_billing_start_date,
         *business.cr_start_boolean_fields,
     ]
 

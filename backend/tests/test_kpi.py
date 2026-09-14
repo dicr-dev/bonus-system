@@ -13,7 +13,11 @@ from cr_portal.services.employee_scope import (
     kpi_department_name_from_user_data,
 )
 from cr_portal.services.kpi import ensure_kpi_event, kpi_summary
-from cr_portal.services.subscriptions import SubscriptionDeals
+from cr_portal.services.subscriptions import (
+    PartialSubscriptionDeal,
+    SubscriptionDeals,
+    partial_subscription_deals,
+)
 
 
 class KPIDepartmentTests(unittest.IsolatedAsyncioTestCase):
@@ -39,6 +43,14 @@ class KPIDepartmentTests(unittest.IsolatedAsyncioTestCase):
                 "cr_portal.services.kpi.planned_subscription_deals_for_month",
                 AsyncMock(return_value=[]),
             ),
+            patch(
+                "cr_portal.services.kpi.partial_subscription_deals",
+                AsyncMock(return_value=[PartialSubscriptionDeal(
+                    deal=implementation,
+                    billing_start_date=datetime(2026, 8, 15).date(),
+                    support_deal_created=True,
+                )]),
+            ),
         ):
             result = await kpi_summary(session, datetime(2026, 8, 1).date())
 
@@ -47,9 +59,36 @@ class KPIDepartmentTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["plan_completion_percent"], Decimal("75"))
         self.assertEqual(result["implementation_total"], Decimal("120000"))
         self.assertEqual(result["cr_start_total"], Decimal("30000"))
+        self.assertEqual(result["partial_subscription_total"], Decimal("120000"))
+        self.assertTrue(result["partial_subscription_deals"][0]["support_deal_created"])
         self.assertEqual(result["implementation_deals"][0]["bitrix_id"], 101)
         self.assertEqual(result["cr_start_deals"][0]["bitrix_id"], 102)
         self.assertEqual(KPISummary.model_validate(result).fact, Decimal("150000"))
+
+    async def test_partial_subscription_marks_linked_support_deal_without_filtering(self):
+        first = SimpleNamespace(
+            bitrix_id=101,
+            raw_json='{"billing_date":"2026-08-15"}',
+        )
+        second = SimpleNamespace(
+            bitrix_id=102,
+            raw_json='{"billing_date":"2026-08-20"}',
+        )
+        support = SimpleNamespace(raw_json='{"source":"D_101"}')
+        session = SimpleNamespace(execute=AsyncMock(side_effect=[
+            SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: [first, second])),
+            SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: [support])),
+        ]))
+        business = SimpleNamespace(
+            field_billing_start_date="billing_date",
+            field_source_deal_id="source",
+        )
+
+        result = await partial_subscription_deals(session, business)
+
+        self.assertEqual([item.deal.bitrix_id for item in result], [101, 102])
+        self.assertTrue(result[0].support_deal_created)
+        self.assertFalse(result[1].support_deal_created)
 
     def test_bitrix_department_ids_are_mapped_to_kpi_departments(self):
         self.assertEqual(

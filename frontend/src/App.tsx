@@ -15,13 +15,13 @@ import OnboardingPage from './OnboardingPage'
 import {BitrixLink,dealUrl,sourceUrl} from './BitrixLink'
 import {
   createManualBonusAdjustment,deleteDealBonusOverride,deleteManualBonusAdjustment,excelUrl,getCalculation,
-  getCalculations,getCurrentUser,getDashboard,getDealBonusOverrides,getDepartmentDeals,getDiagnostics,
+  getBitrixDealFields,getCalculations,getCurrentUser,getDashboard,getDealBonusOverrides,getDepartmentDeals,getDiagnostics,
   getEmployees,getKPI,getManualBonusAdjustments,getRules,getSyncJob,getSyncStatus,login,logout,runCalculation,
   runDiagnostics,saveDealBonusOverride,savePlan,startDealsSync,updateManualBonusAdjustment
 } from './api'
 import type {
-  Calculation,CalculationDetail,Deal,DealBonusOverride,DealBonusOverrideInput,FunnelSummary,Issue,KPIDeal,
-  KPIPlannedDeal,ManualBonusAdjustment,ManualBonusAdjustmentInput,ResponsibleSummary,RuleVersion,SyncJob
+  BitrixDealField,Calculation,CalculationDetail,Deal,DealBonusOverride,DealBonusOverrideInput,FunnelSummary,Issue,KPIDeal,
+  KPIPlannedDeal,KPIPartialSubscriptionDeal,ManualBonusAdjustment,ManualBonusAdjustmentInput,ResponsibleSummary,RuleVersion,SyncJob
 } from './types'
 
 const {Header,Content,Sider}=Layout
@@ -87,22 +87,32 @@ function KPI(){
   {title:'Сумма сделки',dataIndex:'amount',render:rub,align:'right'},
   {title:'Кол-во машин',dataIndex:'machines_count',render:num,align:'right'}
  ]
+ const partialSubscriptionColumns:ColumnsType<KPIPartialSubscriptionDeal>=[
+  {title:'Сделка',dataIndex:'title',render:(title,deal)=><BitrixLink href={dealUrl(deal.bitrix_id)}>№{deal.bitrix_id} — {title}</BitrixLink>},
+  {title:'Дата начала списаний',dataIndex:'billing_start_date',render:shortDate},
+  {title:'Сумма сделки',dataIndex:'amount',render:rub,align:'right'},
+  {title:'Создана сделка в воронке «Сопровождение»',dataIndex:'support_deal_created',render:value=>value?'Да':'Нет'}
+ ]
  if(!q.data)return <Card loading/>
  const d=q.data
  return <Space direction="vertical" size={24} style={{width:'100%'}}>
   <Row justify="space-between"><Title level={2}>KPI отдела</Title><Month value={month} onChange={setMonth}/></Row>
   <Row gutter={[16,16]}>
-   <Col xs={24} md={8}><Card><Statistic title="План" value={Number(d.plan)} formatter={v=>rub(Number(v))}/></Card></Col>
-   <Col xs={24} md={8}><Card><Statistic title="Факт" value={Number(d.fact)} formatter={v=>rub(Number(v))}/></Card></Col>
-   <Col xs={24} md={8}><Card><Statistic title="Процент выполнения плана" value={Number(d.plan_completion_percent)} precision={1} suffix="%"/></Card></Col>
+   <Col xs={24} md={6}><Card><Statistic title="План" value={Number(d.plan)} formatter={v=>rub(Number(v))}/></Card></Col>
+   <Col xs={24} md={6}><Card><Statistic title="Факт" value={Number(d.fact)} formatter={v=>rub(Number(v))}/></Card></Col>
+   <Col xs={24} md={6}><Card><Statistic title="Процент выполнения плана" value={Number(d.plan_completion_percent)} precision={1} suffix="%"/></Card></Col>
+   <Col xs={24} md={6}><Card><Statistic title="На частичной подписке" value={Number(d.partial_subscription_total)} formatter={v=>rub(Number(v))}/></Card></Col>
   </Row>
   <Card title="План месяца"><Space><InputNumber min={0} value={plan} onChange={v=>setPlan(v)} addonAfter="₽"/><Button type="primary" loading={save.isPending} onClick={()=>save.mutate()}>Сохранить</Button></Space></Card>
   <Card title="Переданные на подписку сделки"><Collapse defaultActiveKey={[]} items={[
     {key:'implementation',label:<Space><Text strong>Внедрение</Text><Text type="secondary">{d.implementation_deals.length} сделок · {rub(d.implementation_total)}</Text></Space>,children:<Table rowKey="deal_id" columns={dc} dataSource={d.implementation_deals} pagination={false}/>},
     {key:'cr_start',label:<Space><Text strong>CR Start</Text><Text type="secondary">{d.cr_start_deals.length} сделок · {rub(d.cr_start_total)}</Text></Space>,children:<Table rowKey="deal_id" columns={dc} dataSource={d.cr_start_deals} pagination={false}/>}
   ]}/></Card>
+  <Card title="Сделки на частичной подписке"><Collapse defaultActiveKey={[]} items={[
+   {key:'partial-subscription',label:<Space><Text strong>Список сделок</Text><Text type="secondary">{d.partial_subscription_deals.length} сделок · {rub(d.partial_subscription_total)}</Text></Space>,children:<Table rowKey="deal_id" columns={partialSubscriptionColumns} dataSource={d.partial_subscription_deals} pagination={false} scroll={{x:950}}/>}
+  ]}/></Card>
   <Card title="Сделки, которые планируется передать в этом месяце"><Collapse defaultActiveKey={[]} items={[
-   {key:'planned',label:<Space><Text strong>Список сделок</Text><Text type="secondary">{d.planned_deals.length}</Text></Space>,children:<Table rowKey="deal_id" columns={plannedColumns} dataSource={d.planned_deals} pagination={false} scroll={{x:850}}/>}
+   {key:'planned',label:<Space><Text strong>Список сделок</Text><Text type="secondary">{d.planned_deals.length} сделок · {rub(d.planned_deals.reduce((total,deal)=>total+Number(deal.amount||0),0))}</Text></Space>,children:<Table rowKey="deal_id" columns={plannedColumns} dataSource={d.planned_deals} pagination={false} scroll={{x:850}}/>}
   ]}/></Card>
  </Space>
 }
@@ -457,6 +467,21 @@ function Diagnostics(){
  return <Space direction="vertical" size={24} style={{width:'100%'}}><Row justify="space-between"><Title level={2}>Диагностика</Title><Space><Month value={month} onChange={setMonth}/><Button icon={<ReloadOutlined/>} onClick={()=>run.mutate()}>Проверить</Button></Space></Row><Card><Table rowKey="id" columns={cols} dataSource={q.data??[]} pagination={{pageSize:30}}/></Card></Space>
 }
 
+function BitrixFields(){
+ const [search,setSearch]=useState('')
+ const q=useQuery({queryKey:['bitrix-deal-fields'],queryFn:getBitrixDealFields})
+ const fields=(q.data??[]).filter(field=>`${field.title} ${field.code}`.toLowerCase().includes(search.toLowerCase()))
+ const columns:ColumnsType<BitrixDealField>=[
+  {title:'Название поля',dataIndex:'title'},
+  {title:'Код Bitrix',dataIndex:'code',render:code=><Text copyable={{text:code}} code>{code}</Text>},
+  {title:'Тип',dataIndex:'field_type',render:value=>value||'—'}
+ ]
+ return <Space direction="vertical" size={24} style={{width:'100%'}}>
+  <Row justify="space-between" align="middle"><Title level={2}>Поля Bitrix</Title><Button icon={<ReloadOutlined/>} onClick={()=>void q.refetch()}>Обновить</Button></Row>
+  <Card><Space direction="vertical" size={16} style={{width:'100%'}}><Text type="secondary">Пользовательские поля сделок Bitrix с кодом <Text code>ufCrm_</Text>. Код можно скопировать из таблицы и вставить в настройки.</Text><Input placeholder="Поиск по названию или коду" value={search} onChange={event=>setSearch(event.target.value)}/><Table rowKey="code" columns={columns} dataSource={fields} loading={q.isLoading} pagination={{pageSize:25}}/></Space></Card>
+ </Space>
+}
+
 function Rules(){
  const q=useQuery({queryKey:['rules'],queryFn:getRules})
  const cols:ColumnsType<RuleVersion>=[{title:'Версия',dataIndex:'version'},{title:'С',dataIndex:'effective_from'},{title:'До',dataIndex:'effective_to',render:v=>v??'текущая'},{title:'Комментарий',dataIndex:'comment'},{title:'JSON правил',dataIndex:'config_json',ellipsis:true}]
@@ -495,7 +520,7 @@ export default function App(){
  if(user.isError||!user.data)return <Login onSuccess={()=>setAuthVersion(v=>v+1)}/>
  const isAdmin=user.data.is_admin
  const effectivePage=!isAdmin&&!['dashboard','bonus','deals','instruction','onboarding'].includes(page)?'dashboard':page
- const content=({dashboard:<Dashboard isAdmin={isAdmin} userId={user.data.id}/>,kpi:<KPI/>,bonus:<Bonuses isAdmin={isAdmin} userId={user.data.id}/>,deals:<Deals isAdmin={isAdmin} userId={user.data.id}/>,instruction:<InstructionPage/>,onboarding:<OnboardingPage isAdmin={isAdmin}/>,diagnostics:<Diagnostics/>,rules:<Rules/>,settings:<SettingsPage/>,sync:<Sync/>}[effectivePage]??<Dashboard isAdmin={isAdmin} userId={user.data.id}/>)
+ const content=({dashboard:<Dashboard isAdmin={isAdmin} userId={user.data.id}/>,kpi:<KPI/>,bonus:<Bonuses isAdmin={isAdmin} userId={user.data.id}/>,deals:<Deals isAdmin={isAdmin} userId={user.data.id}/>,instruction:<InstructionPage/>,onboarding:<OnboardingPage isAdmin={isAdmin}/>,diagnostics:<Diagnostics/>,bitrix_fields:<BitrixFields/>,rules:<Rules/>,settings:<SettingsPage/>,sync:<Sync/>}[effectivePage]??<Dashboard isAdmin={isAdmin} userId={user.data.id}/>)
  const employeeMenu=[
   {key:'dashboard',icon:<DashboardOutlined/>,label:'Главная'},
   {key:'bonus',icon:<FundOutlined/>,label:'Моя премия'},
@@ -507,7 +532,7 @@ export default function App(){
   {key:'dashboard',icon:<DashboardOutlined/>,label:'Главная'},{key:'kpi',icon:<TrophyOutlined/>,label:'KPI отдела'},
   {key:'bonus',icon:<FundOutlined/>,label:'Расчет премий'},{key:'deals',icon:<DatabaseOutlined/>,label:'Сделки'},
   {key:'instruction',icon:<BookOutlined/>,label:'Инструкция'},{key:'onboarding',icon:<CheckCircleOutlined/>,label:'Адаптация'},
-  {key:'diagnostics',icon:<ExclamationCircleOutlined/>,label:'Диагностика'},{key:'rules',icon:<SettingOutlined/>,label:'Правила'},
+  {key:'diagnostics',icon:<ExclamationCircleOutlined/>,label:'Диагностика'},{key:'bitrix_fields',icon:<DatabaseOutlined/>,label:'Поля Bitrix'},{key:'rules',icon:<SettingOutlined/>,label:'Правила'},
   {key:'settings',icon:<SettingOutlined/>,label:'\u041d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0438'},
   {key:'sync',icon:<CloudSyncOutlined/>,label:'Синхронизация'}
  ]

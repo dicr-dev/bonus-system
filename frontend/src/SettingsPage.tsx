@@ -54,6 +54,7 @@ function BitrixSettings(){
     <Col xs={24} md={12}><Form.Item name="cr_start_implementation_modules_text" label="Значения модуля CR Start для расчёта как внедрение" extra="Через запятую. Дата коммерческого использования будет датой перехода на подписку."><Input.TextArea rows={2}/></Form.Item></Col>
     <Col xs={24} md={12}><Form.Item name="field_client_works" label="Клиент работает (если используется отдельное поле)"><Input/></Form.Item></Col>
     <Col xs={24} md={12}><Form.Item name="field_planned_subscription_date" label="Расчетная дата перевода на подписку"><Input placeholder="ufCrm_1774423053267"/></Form.Item></Col>
+    <Col xs={24} md={12}><Form.Item name="field_billing_start_date" label="Дата начала списаний"><Input placeholder="ufCrm_..."/></Form.Item></Col>
     <Col span={24}><Form.Item name="cr_start_boolean_fields_text" label="Поля CR Start"><Input.TextArea rows={3} placeholder="ufCrm_..., ufCrm_..."/></Form.Item></Col>
    </Row>
   </Card>

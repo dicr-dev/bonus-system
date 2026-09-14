@@ -29,3 +29,10 @@ class AppSettingsPayload(BaseModel):
     field_module: str = "ufCrm_1650618044049"
     field_integration_amount: str = ""
     field_planned_subscription_date: str = "ufCrm_1774423053267"
+    field_billing_start_date: str = ""
+
+
+class BitrixDealField(BaseModel):
+    code: str
+    title: str
+    field_type: str = ""

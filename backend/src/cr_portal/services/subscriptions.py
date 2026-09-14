@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from cr_portal.models.deal import Deal
 from cr_portal.services.app_settings import BusinessSettings
-from cr_portal.services.bonus import raw_date
+from cr_portal.services.bonus import linked_deal_ids, raw_date
 
 
 @dataclass(slots=True)
@@ -20,6 +20,13 @@ class SubscriptionDeals:
 class PlannedSubscriptionDeal:
     deal: Deal
     planned_date: date
+
+
+@dataclass(slots=True)
+class PartialSubscriptionDeal:
+    deal: Deal
+    billing_start_date: date
+    support_deal_created: bool
 
 
 def _next_month(value: date) -> date:
@@ -107,3 +114,52 @@ async def planned_subscription_deals_for_month(
         if planned_date and month <= planned_date < following_month:
             planned.append(PlannedSubscriptionDeal(deal=deal, planned_date=planned_date))
     return sorted(planned, key=lambda item: (item.planned_date, item.deal.bitrix_id))
+
+
+async def partial_subscription_deals(
+    session: AsyncSession,
+    business: BusinessSettings,
+    *,
+    employee_id: UUID | None = None,
+) -> list[PartialSubscriptionDeal]:
+    """Active implementation deals that already have a billing start date.
+
+    A linked support deal is displayed as a status only, never as a filter.
+    """
+    user_scope = (
+        [] if employee_id is None else [Deal.implementation_responsible_user_id == employee_id]
+    )
+    implementation_result = await session.execute(
+        select(Deal).where(
+            Deal.funnel == "implementation",
+            Deal.status == "in_progress",
+            *user_scope,
+        )
+    )
+    candidates = [
+        (deal, billing_start_date)
+        for deal in implementation_result.scalars().all()
+        if (billing_start_date := raw_date(deal, business.field_billing_start_date))
+    ]
+    if not candidates:
+        return []
+
+    support_result = await session.execute(
+        select(Deal).where(Deal.funnel == "support")
+    )
+    implementation_ids_with_support = {
+        source_id
+        for support_deal in support_result.scalars().all()
+        for source_id in linked_deal_ids(
+            support_deal,
+            business.field_source_deal_id,
+        )
+    }
+    return [
+        PartialSubscriptionDeal(
+            deal=deal,
+            billing_start_date=billing_start_date,
+            support_deal_created=deal.bitrix_id in implementation_ids_with_support,
+        )
+        for deal, billing_start_date in sorted(candidates, key=lambda item: (item[1], item[0].bitrix_id))
+    ]

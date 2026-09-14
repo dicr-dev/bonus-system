@@ -10,6 +10,7 @@ from cr_portal.models.deal import Deal
 from cr_portal.models.kpi import KPIEvent, MonthlyPlan
 from cr_portal.services.app_settings import get_business_settings
 from cr_portal.services.subscriptions import (
+    partial_subscription_deals,
     planned_subscription_deals_for_month,
     subscription_deals_for_month,
 )
@@ -103,6 +104,11 @@ async def kpi_summary(
         selected_month,
         employee_id=employee_id,
     )
+    partial_deals = await partial_subscription_deals(
+        session,
+        business,
+        employee_id=employee_id,
+    )
 
     def deal_item(deal: Deal) -> dict:
         return {
@@ -120,6 +126,10 @@ async def kpi_summary(
         (Decimal(deal.opportunity or 0) for deal in deals.cr_start),
         Decimal(0),
     )
+    partial_subscription_total = sum(
+        (Decimal(item.deal.opportunity or 0) for item in partial_deals),
+        Decimal(0),
+    )
     fact = implementation_total + cr_start_total
     plan_completion_percent = (
         Decimal(0) if plan <= 0 else fact / plan * Decimal(100)
@@ -133,6 +143,18 @@ async def kpi_summary(
         "cr_start_total": cr_start_total,
         "implementation_deals": [deal_item(deal) for deal in deals.implementation],
         "cr_start_deals": [deal_item(deal) for deal in deals.cr_start],
+        "partial_subscription_total": partial_subscription_total,
+        "partial_subscription_deals": [
+            {
+                "deal_id": item.deal.id,
+                "bitrix_id": item.deal.bitrix_id,
+                "title": item.deal.title,
+                "billing_start_date": item.billing_start_date,
+                "amount": Decimal(item.deal.opportunity or 0),
+                "support_deal_created": item.support_deal_created,
+            }
+            for item in partial_deals
+        ],
         "planned_deals": [
             {
                 "deal_id": item.deal.id,

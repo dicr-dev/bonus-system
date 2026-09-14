@@ -27,6 +27,7 @@ class BusinessSettings:
     field_integration_amount: str
     field_cr_start_commercial_use_date: str
     field_planned_subscription_date: str
+    field_billing_start_date: str
     task_training_yes_value: str = ""
     task_training_date_field: str = "DEADLINE"
     overtime_project_id: int | None = None
@@ -60,6 +61,7 @@ KEYS = {
     "field_integration_amount": "BITRIX_FIELD_INTEGRATION_AMOUNT",
     "field_cr_start_commercial_use_date": "BITRIX_FIELD_CR_START_COMMERCIAL_USE_DATE",
     "field_planned_subscription_date": "BITRIX_FIELD_PLANNED_SUBSCRIPTION_DATE",
+    "field_billing_start_date": "BITRIX_FIELD_BILLING_START_DATE",
 }
 
 
@@ -138,6 +140,7 @@ async def get_business_settings(session: AsyncSession) -> BusinessSettings:
         field_integration_amount=value("field_integration_amount"),
         field_cr_start_commercial_use_date=(value("field_cr_start_commercial_use_date") or "ufCrm_1766747976363"),
         field_planned_subscription_date=(value("field_planned_subscription_date") or "ufCrm_1774423053267"),
+        field_billing_start_date=value("field_billing_start_date"),
     )
 
 

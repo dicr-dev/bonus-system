@@ -6,13 +6,43 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from cr_portal.api.deps import admin_user, db_session
+from cr_portal.api.deps import admin_user, bitrix_client, db_session
+from cr_portal.integrations.bitrix.client import BitrixClient
 from cr_portal.models.bonus import BonusRule
-from cr_portal.schemas.app_settings import AppSettingsPayload
+from cr_portal.schemas.app_settings import AppSettingsPayload, BitrixDealField
 from cr_portal.schemas.bonus import RuleCreate, RuleVersionResponse
 from cr_portal.services.app_settings import get_app_settings_dict, save_app_settings
 
 router = APIRouter()
+
+
+@router.get("/bitrix-deal-fields", response_model=list[BitrixDealField])
+async def list_bitrix_deal_fields(
+    client: BitrixClient = Depends(bitrix_client),
+    _admin=Depends(admin_user),
+):
+    """Return Bitrix deal custom fields so administrators can copy their codes."""
+    payload = await client.call("crm.item.fields", {"entityTypeId": 2})
+    fields = payload.get("result", {}).get("fields", {})
+    if not isinstance(fields, dict):
+        return []
+
+    result = []
+    for code, metadata in fields.items():
+        if not str(code).casefold().startswith("ufcrm_"):
+            continue
+        metadata = metadata if isinstance(metadata, dict) else {}
+        result.append({
+            "code": str(code),
+            "title": str(
+                metadata.get("title")
+                or metadata.get("listLabel")
+                or metadata.get("formLabel")
+                or code
+            ),
+            "field_type": str(metadata.get("type") or ""),
+        })
+    return sorted(result, key=lambda item: (item["title"].casefold(), item["code"]))
 
 
 @router.get("/app", response_model=AppSettingsPayload)

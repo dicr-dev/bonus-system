@@ -8,7 +8,9 @@ export interface NightlySyncResult { users:number; deals:number; tasks:number; e
 export interface SyncStatus { last_success:string|null; nightly_last_attempt:string|null; nightly_last_success:string|null; nightly_last_error:string|null; nightly_last_result:NightlySyncResult|null; nightly_hour:number; nightly_timezone:string; nightly_task_months:number }
 export interface KPIDeal { deal_id:string; bitrix_id:number; title:string; amount:string }
 export interface KPIPlannedDeal { deal_id:string; bitrix_id:number; title:string; planned_date:string; amount:string; machines_count:number }
-export interface KPISummary { month:string; plan:string; fact:string; plan_completion_percent:string; implementation_total:string; cr_start_total:string; implementation_deals:KPIDeal[]; cr_start_deals:KPIDeal[]; planned_deals:KPIPlannedDeal[] }
+export interface KPIPartialSubscriptionDeal { deal_id:string; bitrix_id:number; title:string; billing_start_date:string; amount:string; support_deal_created:boolean }
+export interface KPISummary { month:string; plan:string; fact:string; plan_completion_percent:string; implementation_total:string; cr_start_total:string; implementation_deals:KPIDeal[]; cr_start_deals:KPIDeal[]; partial_subscription_total:string; partial_subscription_deals:KPIPartialSubscriptionDeal[]; planned_deals:KPIPlannedDeal[] }
+export interface BitrixDealField { code:string; title:string; field_type:string }
 
 export interface Calculation {
   id:string
@@ -153,6 +155,7 @@ export interface AppSettings {
   field_module:string
   field_integration_amount:string
   field_planned_subscription_date:string
+  field_billing_start_date:string
 }
 
 export interface RuleConfig {

@@ -1,5 +1,5 @@
 import axios from 'axios'
-import type { AppSettings,Calculation,CalculationDetail,CurrentUser,DashboardSummary,Deal,DealBonusOverride,DealBonusOverrideInput,Employee,Issue,KPISummary,ManualBonusAdjustment,ManualBonusAdjustmentInput,OnboardingAssignment,OnboardingPlanSection,RuleConfig,RuleVersion,SyncJob,SyncStatus } from './types'
+import type { AppSettings,BitrixDealField,Calculation,CalculationDetail,CurrentUser,DashboardSummary,Deal,DealBonusOverride,DealBonusOverrideInput,Employee,Issue,KPISummary,ManualBonusAdjustment,ManualBonusAdjustmentInput,OnboardingAssignment,OnboardingPlanSection,RuleConfig,RuleVersion,SyncJob,SyncStatus } from './types'
 
 export const api=axios.create({baseURL:'/api/v1',withCredentials:true,timeout:30000})
 export async function login(login:string,password:string){return (await api.post('/auth/login',{login,password})).data}
@@ -29,6 +29,7 @@ export async function getRules():Promise<RuleVersion[]>{return (await api.get('/
 export async function createRule(effective_from:string,config:RuleConfig,comment=''){return (await api.post('/settings/rules',{effective_from,config,comment})).data}
 export async function getAppSettings():Promise<AppSettings>{return (await api.get('/settings/app')).data}
 export async function saveAppSettings(data:AppSettings):Promise<AppSettings>{return (await api.put('/settings/app',data)).data}
+export async function getBitrixDealFields():Promise<BitrixDealField[]>{return (await api.get('/settings/bitrix-deal-fields')).data}
 export async function getMyOnboarding():Promise<OnboardingAssignment|null>{return (await api.get('/onboarding/my')).data}
 export async function getOnboardings():Promise<OnboardingAssignment[]>{return (await api.get('/onboarding/')).data}
 export async function assignOnboarding(employeeId:string):Promise<OnboardingAssignment>{return (await api.post(`/onboarding/assign/${employeeId}`)).data}

@@ -19,10 +19,14 @@ class KPIDealItem(BaseModel):
 class KPIPlannedDealItem(BaseModel):
     deal_id:UUID;bitrix_id:int;title:str;planned_date:date;amount:Decimal;machines_count:int
 
+class KPIPartialSubscriptionDealItem(BaseModel):
+    deal_id:UUID;bitrix_id:int;title:str;billing_start_date:date;amount:Decimal;support_deal_created:bool
+
 class KPISummary(BaseModel):
     month:date;plan:Decimal;fact:Decimal;plan_completion_percent:Decimal
     implementation_total:Decimal;cr_start_total:Decimal
     implementation_deals:list[KPIDealItem];cr_start_deals:list[KPIDealItem]
+    partial_subscription_total:Decimal;partial_subscription_deals:list[KPIPartialSubscriptionDealItem]
     planned_deals:list[KPIPlannedDealItem]
 
 class IssueResponse(BaseModel):
