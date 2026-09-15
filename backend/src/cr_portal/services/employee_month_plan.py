@@ -23,6 +23,8 @@ def current_month() -> date:
 
 
 def _module_value(deal: Deal, field_name: str) -> str | None:
+    if deal.module_name:
+        return deal.module_name
     value = raw_value(deal, field_name)
     if isinstance(value, list):
         value = ", ".join(str(item) for item in value if str(item).strip())

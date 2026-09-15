@@ -27,6 +27,7 @@ class Deal(Base):
     stage_title: Mapped[str|None]=mapped_column(String(255),nullable=True)
     status: Mapped[str]=mapped_column(String(32),index=True)
     title: Mapped[str]=mapped_column(String(500))
+    module_name: Mapped[str|None]=mapped_column(String(255),nullable=True)
     opportunity: Mapped[Decimal]=mapped_column(Numeric(14,2),default=0)
     monthly_amount: Mapped[Decimal]=mapped_column(Numeric(14,2),default=0)
     machines_count: Mapped[int]=mapped_column(Integer,default=0)

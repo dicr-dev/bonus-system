@@ -455,9 +455,11 @@ function Bonuses({isAdmin,userId}:{isAdmin:boolean;userId:string}){
 }
 
 function Deals({isAdmin,userId}:{isAdmin:boolean;userId:string}){
+ const [search,setSearch]=useState('')
  const q=useQuery({queryKey:['deals',userId],queryFn:getDepartmentDeals})
  const cols:ColumnsType<Deal>=[{title:'ID',dataIndex:'bitrix_id',render:id=><BitrixLink href={dealUrl(id)}>{id}</BitrixLink>},{title:'Сделка',dataIndex:'title',render:(title,deal)=><BitrixLink href={dealUrl(deal.bitrix_id)}>{title}</BitrixLink>},{title:'Воронка',dataIndex:'funnel',render:funnel},{title:'Оплата/мес.',dataIndex:'monthly_amount',render:rub},{title:'Машин',dataIndex:'machines_count'},{title:'1С',dataIndex:'integration_1c',render:v=>v?<Tag color="green">Да</Tag>:<Tag>Нет</Tag>}]
- return <Space direction="vertical" size={24} style={{width:'100%'}}><Title level={2}>{isAdmin?'Сделки':'Мои сделки'}</Title><Card><Table rowKey="id" columns={cols} dataSource={q.data??[]} loading={q.isLoading} pagination={{pageSize:25}}/></Card></Space>
+ const deals=(q.data??[]).filter(deal=>`${deal.bitrix_id} ${deal.title} ${funnel(deal.funnel)}`.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()))
+ return <Space direction="vertical" size={24} style={{width:'100%'}}><Title level={2}>{isAdmin?'Сделки':'Мои сделки'}</Title><Card><Input allowClear placeholder="Поиск по названию, ID или воронке" value={search} onChange={event=>setSearch(event.target.value)} style={{maxWidth:480,marginBottom:16}}/><Table rowKey="id" columns={cols} dataSource={deals} loading={q.isLoading} pagination={{pageSize:25}}/></Card></Space>
 }
 
 function Diagnostics(){

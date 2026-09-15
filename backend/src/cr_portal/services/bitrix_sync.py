@@ -231,6 +231,25 @@ async def _bitrix_user_name(
     return cache[user_id]
 
 
+async def _deal_enum_labels(client: BitrixClient, field_name: str) -> dict[str, str]:
+    if not field_name:
+        return {}
+    payload = await client.call("crm.item.fields", {"entityTypeId": 2})
+    field = payload.get("result", {}).get("fields", {}).get(field_name, {})
+    items = field.get("items", []) if isinstance(field, dict) else []
+    return {
+        str(item.get("ID")): str(item.get("VALUE"))
+        for item in items
+        if isinstance(item, dict) and item.get("ID") not in (None, "") and item.get("VALUE") not in (None, "")
+    }
+
+
+def _enum_label(value: Any, labels: dict[str, str]) -> str | None:
+    values = value if isinstance(value, list) else [value]
+    result = [labels.get(str(item), str(item)) for item in values if item not in (None, "")]
+    return ", ".join(result) or None
+
+
 async def sync_users(
     session: AsyncSession,
     client: BitrixClient,
@@ -379,6 +398,7 @@ async def sync_deals(
     )
 
     business = await get_business_settings(session)
+    module_labels = await _deal_enum_labels(client, business.field_module)
     total = 0
     funnel_map = funnels(business)
 
@@ -555,6 +575,7 @@ async def sync_deals(
                 )
                 or ""
             )
+            deal.module_name = _enum_label(item.get(business.field_module), module_labels)
 
             deal.opportunity = (
                 _dec(
