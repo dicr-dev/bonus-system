@@ -28,6 +28,15 @@ class BusinessSettings:
     field_cr_start_commercial_use_date: str
     field_planned_subscription_date: str
     field_billing_start_date: str
+    field_deal_current_status: str
+    field_timely_request_percent: str
+    field_implementation_planned_billing_start: str
+    field_implementation_planned_subscription: str
+    field_salesperson: str
+    field_first_training_date: str
+    field_second_training_date: str
+    field_reports_training_date: str
+    field_cr_company_id: str
     task_training_yes_value: str = ""
     task_training_date_field: str = "DEADLINE"
     overtime_project_id: int | None = None
@@ -62,6 +71,15 @@ KEYS = {
     "field_cr_start_commercial_use_date": "BITRIX_FIELD_CR_START_COMMERCIAL_USE_DATE",
     "field_planned_subscription_date": "BITRIX_FIELD_PLANNED_SUBSCRIPTION_DATE",
     "field_billing_start_date": "BITRIX_FIELD_BILLING_START_DATE",
+    "field_deal_current_status": "BITRIX_FIELD_DEAL_CURRENT_STATUS",
+    "field_timely_request_percent": "BITRIX_FIELD_TIMELY_REQUEST_PERCENT",
+    "field_implementation_planned_billing_start": "BITRIX_FIELD_IMPLEMENTATION_PLANNED_BILLING_START",
+    "field_implementation_planned_subscription": "BITRIX_FIELD_IMPLEMENTATION_PLANNED_SUBSCRIPTION",
+    "field_salesperson": "BITRIX_FIELD_SALESPERSON",
+    "field_first_training_date": "BITRIX_FIELD_FIRST_TRAINING_DATE",
+    "field_second_training_date": "BITRIX_FIELD_SECOND_TRAINING_DATE",
+    "field_reports_training_date": "BITRIX_FIELD_REPORTS_TRAINING_DATE",
+    "field_cr_company_id": "BITRIX_FIELD_CR_COMPANY_ID",
 }
 
 
@@ -74,6 +92,10 @@ def _env_default(name: str) -> str:
             name,
             "КР Старт ТМ,КР Старт Эксплуатация",
         ) or ""
+    if name == "BITRIX_FIELD_INTEGRATION_AMOUNT":
+        return getattr(settings, name, "ufCrm_1728563980697") or ""
+    if name == "BITRIX_FIELD_BILLING_START_DATE":
+        return getattr(settings, name, "ufCrm_1642083742838") or ""
     return str(getattr(settings, name, "") or "")
 
 
@@ -137,10 +159,19 @@ async def get_business_settings(session: AsyncSession) -> BusinessSettings:
         field_client_works=value("field_client_works"),
         task_training_bonus_field=value("task_training_bonus_field"),
         field_module=value("field_module") or "ufCrm_1650618044049",
-        field_integration_amount=value("field_integration_amount"),
+        field_integration_amount=(value("field_integration_amount") or "ufCrm_1728563980697"),
         field_cr_start_commercial_use_date=(value("field_cr_start_commercial_use_date") or "ufCrm_1766747976363"),
         field_planned_subscription_date=(value("field_planned_subscription_date") or "ufCrm_1774423053267"),
-        field_billing_start_date=value("field_billing_start_date"),
+        field_billing_start_date=(value("field_billing_start_date") or "ufCrm_1642083742838"),
+        field_deal_current_status=value("field_deal_current_status"),
+        field_timely_request_percent=value("field_timely_request_percent"),
+        field_implementation_planned_billing_start=value("field_implementation_planned_billing_start"),
+        field_implementation_planned_subscription=value("field_implementation_planned_subscription"),
+        field_salesperson=value("field_salesperson"),
+        field_first_training_date=value("field_first_training_date"),
+        field_second_training_date=value("field_second_training_date"),
+        field_reports_training_date=value("field_reports_training_date"),
+        field_cr_company_id=value("field_cr_company_id"),
     )
 
 

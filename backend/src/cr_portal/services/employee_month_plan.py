@@ -9,7 +9,7 @@ from cr_portal.models.deal import Deal
 from cr_portal.models.employee_month_plan import EmployeeMonthlyDealPlan
 from cr_portal.models.user import User
 from cr_portal.services.app_settings import get_business_settings
-from cr_portal.services.bonus import raw_value
+from cr_portal.services.bonus import raw_date, raw_decimal, raw_value
 from cr_portal.services.employee_scope import employee_is_in_department
 
 MOSCOW = ZoneInfo("Europe/Moscow")
@@ -41,6 +41,20 @@ def _item(deal: Deal, module_field: str) -> dict:
         "opportunity": deal.opportunity,
         "monthly_amount": deal.monthly_amount,
     }
+
+
+def _text_value(deal: Deal, field_name: str, *, limit: int | None = None) -> str | None:
+    value = raw_value(deal, field_name)
+    if isinstance(value, list):
+        value = ", ".join(str(item) for item in value if str(item).strip())
+    text = str(value or "").strip()
+    if not text:
+        return None
+    return text[:limit] if limit else text
+
+
+def _decimal_value(deal: Deal, field_name: str):
+    return raw_decimal(deal, field_name) if raw_value(deal, field_name) not in (None, "") else None
 
 
 def _ensure_access(user: User) -> None:
@@ -101,10 +115,33 @@ async def admin_employee_month_plan(session: AsyncSession) -> dict:
             .order_by(User.full_name, Deal.title, Deal.bitrix_id)
         )
     ).all()
+    responsible_ids = {deal.implementation_responsible_user_id for _, deal in rows if deal.implementation_responsible_user_id}
+    responsible_names = {}
+    if responsible_ids:
+        responsible_names = dict((await session.execute(select(User.id, User.full_name).where(User.id.in_(responsible_ids)))).all())
+
     planned_deals = []
     for employee, deal in rows:
         item = _item(deal, business.field_module)
-        item.update({"employee_id": employee.id, "employee_name": employee.full_name})
+        item.update({
+            "employee_id": employee.id,
+            "employee_name": employee.full_name,
+            "funnel": deal.funnel,
+            "deal_current_status": _text_value(deal, business.field_deal_current_status, limit=300),
+            "stage_title": deal.stage_title or deal.stage_id or None,
+            "timely_request_percent": _decimal_value(deal, business.field_timely_request_percent),
+            "planned_subscription_date": raw_date(deal, business.field_planned_subscription_date),
+            "implementation_planned_billing_start": raw_date(deal, business.field_implementation_planned_billing_start),
+            "implementation_planned_subscription": raw_date(deal, business.field_implementation_planned_subscription),
+            "billing_start_date": raw_date(deal, business.field_billing_start_date),
+            "salesperson_name": deal.salesperson_name,
+            "implementation_responsible_name": responsible_names.get(deal.implementation_responsible_user_id),
+            "integration_amount": _decimal_value(deal, business.field_integration_amount),
+            "first_training_date": raw_date(deal, business.field_first_training_date),
+            "second_training_date": raw_date(deal, business.field_second_training_date),
+            "reports_training_date": raw_date(deal, business.field_reports_training_date),
+            "cr_company_id": _text_value(deal, business.field_cr_company_id),
+        })
         planned_deals.append(item)
     return {"month": month, "planned_deals": planned_deals}
 

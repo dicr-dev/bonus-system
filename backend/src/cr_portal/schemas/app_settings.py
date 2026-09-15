@@ -30,6 +30,15 @@ class AppSettingsPayload(BaseModel):
     field_integration_amount: str = ""
     field_planned_subscription_date: str = "ufCrm_1774423053267"
     field_billing_start_date: str = ""
+    field_deal_current_status: str = "ufCrm_1775543806700"
+    field_timely_request_percent: str = "ufCrm_1672064093071"
+    field_implementation_planned_billing_start: str = "ufCrm_1741339373"
+    field_implementation_planned_subscription: str = "ufCrm_1741339385"
+    field_salesperson: str = "ufCrm_1636967212"
+    field_first_training_date: str = "ufCrm_1636966670"
+    field_second_training_date: str = "ufCrm_1636966749"
+    field_reports_training_date: str = "ufCrm_1636966700"
+    field_cr_company_id: str = "ufCrm_1737441008"
 
 
 class BitrixDealField(BaseModel):

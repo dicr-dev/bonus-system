@@ -155,10 +155,10 @@ def _bool(value: Any) -> bool:
     )
 
 
-async def get_stage_semantics(
+async def get_stage_metadata(
     client: BitrixClient,
     category_id: int,
-) -> dict[str, str]:
+) -> dict[str, dict[str, str]]:
     entity_id = (
         "DEAL_STAGE"
         if category_id == 0
@@ -177,7 +177,7 @@ async def get_stage_semantics(
         },
     )
 
-    result: dict[str, str] = {}
+    result: dict[str, dict[str, str]] = {}
 
     for stage in response.get(
         "result",
@@ -203,11 +203,32 @@ async def get_stage_semantics(
         ).lower()
 
         if stage_id:
-            result[
-                stage_id
-            ] = semantics
+            result[stage_id] = {
+                "semantics": semantics,
+                "title": str(stage.get("NAME") or stage_id),
+            }
 
     return result
+
+
+async def _bitrix_user_name(
+    client: BitrixClient, user_id: int, cache: dict[int, str | None]
+) -> str | None:
+    if user_id in cache:
+        return cache[user_id]
+    try:
+        response = await client.call("user.get", {"ID": user_id})
+        result = response.get("result") or []
+        data = result[0] if isinstance(result, list) and result else {}
+        name = " ".join(
+            str(data.get(field) or "").strip()
+            for field in ("NAME", "LAST_NAME")
+            if str(data.get(field) or "").strip()
+        )
+        cache[user_id] = name or None
+    except Exception:
+        cache[user_id] = None
+    return cache[user_id]
 
 
 async def sync_users(
@@ -393,6 +414,15 @@ async def sync_deals(
         business.field_cr_start_commercial_use_date,
         business.field_planned_subscription_date,
         business.field_billing_start_date,
+        business.field_deal_current_status,
+        business.field_timely_request_percent,
+        business.field_implementation_planned_billing_start,
+        business.field_implementation_planned_subscription,
+        business.field_salesperson,
+        business.field_first_training_date,
+        business.field_second_training_date,
+        business.field_reports_training_date,
+        business.field_cr_company_id,
         *business.cr_start_boolean_fields,
     ]
 
@@ -411,6 +441,7 @@ async def sync_deals(
     funnel_items = list(
         funnel_map.items()
     )
+    salesperson_names: dict[int, str | None] = {}
 
     for index, (
         category_id,
@@ -418,8 +449,8 @@ async def sync_deals(
     ) in enumerate(
         funnel_items
     ):
-        semantics = (
-            await get_stage_semantics(
+        stage_metadata = (
+            await get_stage_metadata(
                 client,
                 category_id,
             )
@@ -497,10 +528,10 @@ async def sync_deals(
 
             deal.status = (
                 STATUS_MAP.get(
-                    semantics.get(
+                    stage_metadata.get(
                         stage_id,
-                        "",
-                    ),
+                        {},
+                    ).get("semantics", ""),
                     "in_progress",
                 )
             )
@@ -516,6 +547,7 @@ async def sync_deals(
             deal.stage_id = (
                 stage_id
             )
+            deal.stage_title = stage_metadata.get(stage_id, {}).get("title") or stage_id
 
             deal.title = str(
                 item.get(
@@ -632,6 +664,7 @@ async def sync_deals(
             deal.sales_bonus_user_id = (
                 None
             )
+            sales_user = None
 
             if (
                 business.field_sales_bonus_user_id
@@ -653,11 +686,29 @@ async def sync_deals(
                     else None
                 )
 
-                deal.sales_bonus_user_id = (
-                    sales_user.id
-                    if sales_user
-                    else None
-                )
+            deal.sales_bonus_user_id = (
+                sales_user.id
+                if sales_user
+                else None
+            )
+
+            salesperson_bitrix_id = (
+                _int(item.get(business.field_salesperson))
+                if business.field_salesperson
+                else 0
+            )
+            salesperson = (
+                await user_repository.by_bitrix_id(salesperson_bitrix_id)
+                if salesperson_bitrix_id
+                else None
+            )
+            deal.salesperson_name = (
+                salesperson.full_name
+                if salesperson
+                else await _bitrix_user_name(client, salesperson_bitrix_id, salesperson_names)
+                if salesperson_bitrix_id
+                else None
+            )
 
             #
             # Для обратной совместимости сохраняем

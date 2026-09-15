@@ -17,7 +17,13 @@ export interface TimeReportEmployee { employee_id:string; full_name:string; depa
 export interface TimeReport { date_from:string; date_to:string; days:string[]; employees:TimeReportEmployee[] }
 export interface EmployeeMonthPlanDeal { id:string; bitrix_id:number; title:string; module:string|null; machines_count:number; integration_1c:boolean; opportunity:string; monthly_amount:string }
 export interface EmployeeMonthPlan { month:string; available_deals:EmployeeMonthPlanDeal[]; planned_deals:EmployeeMonthPlanDeal[] }
-export interface AdminEmployeeMonthPlanDeal extends EmployeeMonthPlanDeal { employee_id:string; employee_name:string }
+export interface AdminEmployeeMonthPlanDeal extends EmployeeMonthPlanDeal {
+  employee_id:string; employee_name:string; funnel:string; deal_current_status:string|null; stage_title:string|null
+  timely_request_percent:string|null; planned_subscription_date:string|null; implementation_planned_billing_start:string|null
+  implementation_planned_subscription:string|null; billing_start_date:string|null; salesperson_name:string|null
+  implementation_responsible_name:string|null; integration_amount:string|null; first_training_date:string|null
+  second_training_date:string|null; reports_training_date:string|null; cr_company_id:string|null
+}
 export interface AdminEmployeeMonthPlan { month:string; planned_deals:AdminEmployeeMonthPlanDeal[] }
 
 export interface Calculation {
@@ -164,6 +170,15 @@ export interface AppSettings {
   field_integration_amount:string
   field_planned_subscription_date:string
   field_billing_start_date:string
+  field_deal_current_status:string
+  field_timely_request_percent:string
+  field_implementation_planned_billing_start:string
+  field_implementation_planned_subscription:string
+  field_salesperson:string
+  field_first_training_date:string
+  field_second_training_date:string
+  field_reports_training_date:string
+  field_cr_company_id:string
 }
 
 export interface RuleConfig {

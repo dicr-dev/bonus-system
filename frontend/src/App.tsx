@@ -79,17 +79,17 @@ function KPI(){
  useEffect(()=>{if(q.data)setPlan(Number(q.data.plan))},[q.data])
  const save=useMutation({mutationFn:()=>savePlan(month,plan??0),onSuccess:()=>{message.success('План сохранен');void qc.invalidateQueries({queryKey:['kpi',month]})}})
  const dc:ColumnsType<KPIDeal>=[
-  {title:'Сделка',dataIndex:'title',render:(title,deal)=><BitrixLink href={dealUrl(deal.bitrix_id)}>№{deal.bitrix_id} — {title}</BitrixLink>},
+  {title:'Сделка',dataIndex:'title',render:(title,deal)=><BitrixLink href={dealUrl(deal.bitrix_id)}>{title}</BitrixLink>},
   {title:'Сумма',dataIndex:'amount',render:rub,align:'right'}
  ]
  const plannedColumns:ColumnsType<KPIPlannedDeal>=[
-  {title:'Сделка',dataIndex:'title',render:(title,deal)=><BitrixLink href={dealUrl(deal.bitrix_id)}>№{deal.bitrix_id} — {title}</BitrixLink>},
+  {title:'Сделка',dataIndex:'title',render:(title,deal)=><BitrixLink href={dealUrl(deal.bitrix_id)}>{title}</BitrixLink>},
   {title:'Расчетная дата перевода на подписку',dataIndex:'planned_date',render:shortDate},
   {title:'Сумма сделки',dataIndex:'amount',render:rub,align:'right'},
   {title:'Кол-во машин',dataIndex:'machines_count',render:num,align:'right'}
  ]
  const partialSubscriptionColumns:ColumnsType<KPIPartialSubscriptionDeal>=[
-  {title:'Сделка',dataIndex:'title',render:(title,deal)=><BitrixLink href={dealUrl(deal.bitrix_id)}>№{deal.bitrix_id} — {title}</BitrixLink>},
+  {title:'Сделка',dataIndex:'title',render:(title,deal)=><BitrixLink href={dealUrl(deal.bitrix_id)}>{title}</BitrixLink>},
   {title:'Дата начала списаний',dataIndex:'billing_start_date',render:shortDate},
   {title:'Сумма сделки',dataIndex:'amount',render:rub,align:'right'},
   {title:'Создана сделка в воронке «Сопровождение»',dataIndex:'support_deal_created',render:value=>value?'Да':'Нет'}
@@ -576,17 +576,30 @@ function AdminEmployeeMonthPlanPage(){
  const data=plan.data?.planned_deals??[]
  const filters=(field:keyof AdminEmployeeMonthPlanDeal)=>({filters:[...new Set(data.map(row=>String(row[field]??'—')))].sort((a,b)=>a.localeCompare(b,'ru')).map(value=>({text:value,value})),onFilter:(value:unknown,row:AdminEmployeeMonthPlanDeal)=>String(row[field]??'—')===String(value)})
  const columns:ColumnsType<AdminEmployeeMonthPlanDeal>=[
-  {title:'Сотрудник',dataIndex:'employee_name',sorter:(a,b)=>a.employee_name.localeCompare(b.employee_name,'ru'),...filters('employee_name')},
-  {title:'Название сделки',dataIndex:'title',sorter:(a,b)=>a.title.localeCompare(b.title,'ru'),...filters('title'),render:(title,deal)=><BitrixLink href={dealUrl(deal.bitrix_id)}>{title}</BitrixLink>},
-  {title:'Модуль',dataIndex:'module',sorter:(a,b)=>(a.module||'').localeCompare(b.module||'','ru'),...filters('module'),render:value=>value||'—'},
+  {title:'Сотрудник',dataIndex:'employee_name',fixed:'left',sorter:(a,b)=>a.employee_name.localeCompare(b.employee_name,'ru'),...filters('employee_name')},
+  {title:'Воронка',dataIndex:'funnel',sorter:(a,b)=>funnel(a.funnel).localeCompare(funnel(b.funnel),'ru'),...filters('funnel'),render:funnel},
+  {title:'Направление (модуль)',dataIndex:'module',sorter:(a,b)=>(a.module||'').localeCompare(b.module||'','ru'),...filters('module'),render:value=>value||'—'},
+  {title:'Название',dataIndex:'title',sorter:(a,b)=>a.title.localeCompare(b.title,'ru'),...filters('title'),render:(title,deal)=><BitrixLink href={dealUrl(deal.bitrix_id)}>{title}</BitrixLink>},
+  {title:'Текущий статус по сделке',dataIndex:'deal_current_status',width:300,ellipsis:true,sorter:(a,b)=>(a.deal_current_status||'').localeCompare(b.deal_current_status||'','ru'),...filters('deal_current_status'),render:value=>value||'—'},
+  {title:'Стадия сделки',dataIndex:'stage_title',sorter:(a,b)=>(a.stage_title||'').localeCompare(b.stage_title||'','ru'),...filters('stage_title'),render:value=>value||'—'},
+  {title:'Сумма',dataIndex:'opportunity',align:'right',sorter:(a,b)=>Number(a.opportunity)-Number(b.opportunity),...filters('opportunity'),render:rub},
+  {title:'Процент своевременности создания заявок',dataIndex:'timely_request_percent',align:'right',sorter:(a,b)=>Number(a.timely_request_percent||0)-Number(b.timely_request_percent||0),...filters('timely_request_percent'),render:value=>value===null?'—':`${num(value)}%`},
+  {title:'Расчетная дата перевода на подписку',dataIndex:'planned_subscription_date',sorter:(a,b)=>(a.planned_subscription_date||'').localeCompare(b.planned_subscription_date||''),...filters('planned_subscription_date'),render:value=>value?shortDate(value):'—'},
+  {title:'Внедрение: Плановая дата начала списаний',dataIndex:'implementation_planned_billing_start',sorter:(a,b)=>(a.implementation_planned_billing_start||'').localeCompare(b.implementation_planned_billing_start||''),...filters('implementation_planned_billing_start'),render:value=>value?shortDate(value):'—'},
+  {title:'Внедрение: Плановая дата перевода на подписку',dataIndex:'implementation_planned_subscription',sorter:(a,b)=>(a.implementation_planned_subscription||'').localeCompare(b.implementation_planned_subscription||''),...filters('implementation_planned_subscription'),render:value=>value?shortDate(value):'—'},
+  {title:'Дата начала списаний',dataIndex:'billing_start_date',sorter:(a,b)=>(a.billing_start_date||'').localeCompare(b.billing_start_date||''),...filters('billing_start_date'),render:value=>value?shortDate(value):'—'},
   {title:'Кол-во машин',dataIndex:'machines_count',align:'right',sorter:(a,b)=>a.machines_count-b.machines_count,...filters('machines_count'),render:num},
-  {title:'Интеграция с 1С',dataIndex:'integration_1c',sorter:(a,b)=>Number(a.integration_1c)-Number(b.integration_1c),filters:[{text:'Да',value:'true'},{text:'Нет',value:'false'}],onFilter:(value,row)=>String(row.integration_1c)===String(value),render:value=>value?'Да':'Нет'},
-  {title:'Сумма сделки',dataIndex:'opportunity',align:'right',sorter:(a,b)=>Number(a.opportunity)-Number(b.opportunity),...filters('opportunity'),render:rub},
-  {title:'Сумма оплаты в месяц',dataIndex:'monthly_amount',align:'right',sorter:(a,b)=>Number(a.monthly_amount)-Number(b.monthly_amount),...filters('monthly_amount'),render:rub}
+  {title:'Ответственный продавец',dataIndex:'salesperson_name',sorter:(a,b)=>(a.salesperson_name||'').localeCompare(b.salesperson_name||'','ru'),...filters('salesperson_name'),render:value=>value||'—'},
+  {title:'Ответственный за внедрение',dataIndex:'implementation_responsible_name',sorter:(a,b)=>(a.implementation_responsible_name||'').localeCompare(b.implementation_responsible_name||'','ru'),...filters('implementation_responsible_name'),render:value=>value||'—'},
+  {title:'Сумма за интеграцию',dataIndex:'integration_amount',align:'right',sorter:(a,b)=>Number(a.integration_amount||0)-Number(b.integration_amount||0),...filters('integration_amount'),render:value=>value===null?'—':rub(value)},
+  {title:'Дата первого обучения',dataIndex:'first_training_date',sorter:(a,b)=>(a.first_training_date||'').localeCompare(b.first_training_date||''),...filters('first_training_date'),render:value=>value?shortDate(value):'—'},
+  {title:'Дата второго обучения',dataIndex:'second_training_date',sorter:(a,b)=>(a.second_training_date||'').localeCompare(b.second_training_date||''),...filters('second_training_date'),render:value=>value?shortDate(value):'—'},
+  {title:'Дата обучения руководства по работе с отчетами',dataIndex:'reports_training_date',sorter:(a,b)=>(a.reports_training_date||'').localeCompare(b.reports_training_date||''),...filters('reports_training_date'),render:value=>value?shortDate(value):'—'},
+  {title:'Идентификатор компании в КР',dataIndex:'cr_company_id',sorter:(a,b)=>(a.cr_company_id||'').localeCompare(b.cr_company_id||''),...filters('cr_company_id'),render:value=>value||'—'}
  ]
  return <Space direction="vertical" size={24} style={{width:'100%'}}>
   <Title level={2}>Планы сотрудников</Title>
-  <Card title={`План на ${plan.data?monthName(plan.data.month):'текущий месяц'}`}><Text type="secondary">Сортировка и фильтры доступны в заголовках каждого столбца.</Text><Table style={{marginTop:16}} rowKey={row=>`${row.employee_id}-${row.id}`} columns={columns} dataSource={data} loading={plan.isLoading} pagination={{pageSize:25}} scroll={{x:1250}}/></Card>
+  <Card title={`План на ${plan.data?monthName(plan.data.month):'текущий месяц'}`}><Text type="secondary">Сортировка и фильтры доступны в заголовках каждого столбца.</Text><Table style={{marginTop:16}} rowKey={row=>`${row.employee_id}-${row.id}`} columns={columns} dataSource={data} loading={plan.isLoading} pagination={{pageSize:25}} scroll={{x:4400}}/></Card>
  </Space>
 }
 
