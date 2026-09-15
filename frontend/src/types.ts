@@ -1,5 +1,5 @@
 export interface FunnelSummary { funnel:string; active_deals:number; monthly_amount:string; machines_count:number; integration_1c_deals:number }
-export interface CurrentUser { id:string; bitrix_id:number; full_name:string; is_admin:boolean; is_active:boolean }
+export interface CurrentUser { id:string; bitrix_id:number; full_name:string; department_name:string|null; is_admin:boolean; is_active:boolean }
 export interface ResponsibleSummary { user_id:string; full_name:string; active_deals:number; monthly_amount:string; machines_count:number }
 export interface DashboardSummary { active_deals:number; monthly_amount:string; machines_count:number; integration_1c_deals:number; subscription_implementation_amount:string; subscription_cr_start_amount:string; subscription_total_amount:string; funnels:FunnelSummary[]; responsibles:ResponsibleSummary[] }
 export interface Deal { id:string; bitrix_id:number; category_id:number; funnel:string; stage_id:string; status:string; title:string; opportunity:string; monthly_amount:string; machines_count:number; integration_1c:boolean; bitrix_assigned_by_id:number|null; responsible_user_id:string|null; created_time:string|null; closed_time:string|null }
@@ -11,6 +11,10 @@ export interface KPIPlannedDeal { deal_id:string; bitrix_id:number; title:string
 export interface KPIPartialSubscriptionDeal { deal_id:string; bitrix_id:number; title:string; billing_start_date:string; amount:string; support_deal_created:boolean }
 export interface KPISummary { month:string; plan:string; fact:string; plan_completion_percent:string; implementation_total:string; cr_start_total:string; implementation_deals:KPIDeal[]; cr_start_deals:KPIDeal[]; partial_subscription_total:string; partial_subscription_deals:KPIPartialSubscriptionDeal[]; planned_deals:KPIPlannedDeal[] }
 export interface BitrixDealField { code:string; title:string; field_type:string }
+export interface TimeReportTask { task_bitrix_id:number; title:string; seconds:number; group_id:number|null; responsible_bitrix_id:number|null }
+export interface TimeReportDay { date:string; seconds:number; tasks:TimeReportTask[] }
+export interface TimeReportEmployee { employee_id:string; full_name:string; department_name:string|null; total_seconds:number; days:TimeReportDay[] }
+export interface TimeReport { date_from:string; date_to:string; days:string[]; employees:TimeReportEmployee[] }
 
 export interface Calculation {
   id:string

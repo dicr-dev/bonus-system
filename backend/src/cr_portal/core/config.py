@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     FRONTEND_URL: str = "http://localhost:3000"
     NIGHTLY_SYNC_HOUR: int = Field(default=2, ge=0, le=23)
     DAILY_CALCULATION_HOUR: int = Field(default=3, ge=0, le=23)
-    NIGHTLY_TASK_MONTHS: int = Field(default=2, ge=1, le=12)
+    NIGHTLY_TASK_MONTHS: int = Field(default=3, ge=1, le=12)
     NIGHTLY_SYNC_TIMEZONE: str = "Europe/Moscow"
     SESSION_SECRET: str = "dev-only-change-me"
     ADMIN_LOGIN: str = "admin"

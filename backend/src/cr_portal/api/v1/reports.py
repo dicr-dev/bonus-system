@@ -1,8 +1,9 @@
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -12,10 +13,58 @@ from cr_portal.models.user import User
 from cr_portal.repositories.deals import DealRepository
 from cr_portal.schemas.dashboard import DashboardSummary, FunnelSummary, ResponsibleSummary
 from cr_portal.schemas.deals import DealResponse
+from cr_portal.schemas.time_report import TimeReport
 from cr_portal.services.app_settings import get_business_settings
+from cr_portal.services.employee_scope import employee_is_in_kpi_department
 from cr_portal.services.subscriptions import subscription_deals_for_month
+from cr_portal.services.time_report import time_spent_report
 
 router = APIRouter()
+
+
+@router.get("/time-spent", response_model=TimeReport)
+async def time_spent(
+    date_from: date = Query(...),
+    date_to: date = Query(...),
+    departments: list[str] = Query(default=[]),
+    employee_ids: list[UUID] = Query(default=[]),
+    funnels: list[str] = Query(default=[]),
+    user=Depends(current_user),
+    session: AsyncSession = Depends(db_session),
+):
+    try:
+        return await time_spent_report(
+            session,
+            date_from=date_from,
+            date_to=date_to,
+            departments=departments,
+            employee_ids=employee_ids,
+            funnels=funnels,
+            current_user=user,
+        )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@router.get("/workplace-time", response_model=TimeReport)
+async def workplace_time(
+    user=Depends(current_user),
+    session: AsyncSession = Depends(db_session),
+):
+    if not employee_is_in_kpi_department(user):
+        raise HTTPException(403, "Workplace is available only to KPI department employees")
+
+    date_to = datetime.now(ZoneInfo("Europe/Moscow")).date()
+    return await time_spent_report(
+        session,
+        date_from=date_to - timedelta(days=9),
+        date_to=date_to,
+        departments=[],
+        employee_ids=[],
+        funnels=[],
+        current_user=user,
+        current_user_only=True,
+    )
 
 
 @router.get("/my-deals-in-work", response_model=list[DealResponse])

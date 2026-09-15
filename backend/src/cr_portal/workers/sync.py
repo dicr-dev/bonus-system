@@ -1,7 +1,7 @@
 import asyncio
 import json
 import logging
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
@@ -273,6 +273,7 @@ async def process_job(
     job = json.loads(raw)
 
     full = bool(job.get("full", False))
+    job_type = job.get("type", "deals")
 
     await update_job(
         redis,
@@ -328,19 +329,37 @@ async def process_job(
                     progress=progress,
                 )
 
-            count = await sync_deals(
-                session,
-                client,
-                updated_after=last_success,
-                progress_callback=progress_callback,
-            )
+            if job_type in {"tasks_full", "tasks_recent"}:
+                local_today = datetime.now(ZoneInfo(settings.NIGHTLY_SYNC_TIMEZONE)).date()
+                task_kwargs = {
+                    "timezone_name": settings.NIGHTLY_SYNC_TIMEZONE,
+                    "include_auxiliary_tasks": False,
+                }
+                if job_type == "tasks_full":
+                    task_kwargs.update({
+                        "start_date": date(2000, 1, 1),
+                        "end_date": local_today + timedelta(days=1),
+                    })
+                else:
+                    task_kwargs["months"] = 3
+                task_result = await sync_tasks(
+                    session,
+                    client,
+                    **task_kwargs,
+                )
+                count = int(task_result["elapsed_items"])
+            else:
+                count = await sync_deals(
+                    session,
+                    client,
+                    updated_after=last_success,
+                    progress_callback=progress_callback,
+                )
 
         finished_at = utc_now()
 
-        await redis.set(
-            LAST_SUCCESS_KEY,
-            finished_at,
-        )
+        if job_type == "deals":
+            await redis.set(LAST_SUCCESS_KEY, finished_at)
 
         await update_job(
             redis,
@@ -353,14 +372,16 @@ async def process_job(
         )
 
         logger.info(
-            "Deal sync %s completed: %s deals",
+            "%s sync %s completed: %s records",
+            job_type,
             job_id,
             count,
         )
 
     except Exception as exc:
         logger.exception(
-            "Deal sync %s failed",
+            "%s sync %s failed",
+            job_type,
             job_id,
         )
 

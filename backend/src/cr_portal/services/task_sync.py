@@ -60,6 +60,8 @@ async def _relevant_task_ids(
     start_date: date,
     end_date: date,
     elapsed_items: list[dict],
+    *,
+    include_auxiliary_tasks: bool = True,
 ) -> tuple[list[str], list[str]]:
     business = await get_business_settings(session)
     start = start_date.isoformat() + "T00:00:00+03:00"
@@ -77,7 +79,7 @@ async def _relevant_task_ids(
         "TIME_SPENT_IN_LOGS",
     ]
 
-    if business.task_training_bonus_field and business.task_training_yes_value:
+    if include_auxiliary_tasks and business.task_training_bonus_field and business.task_training_yes_value:
         date_field = business.task_training_date_field or "DEADLINE"
         training_tasks = await client.call_all(
             "tasks.task.list",
@@ -98,7 +100,7 @@ async def _relevant_task_ids(
         )
         extra_select.append(business.task_training_bonus_field)
 
-    if business.overtime_project_id:
+    if include_auxiliary_tasks and business.overtime_project_id:
         overtime_tasks = await client.call_all(
             "tasks.task.list",
             {
@@ -129,14 +131,14 @@ async def sync_tasks(
     months: int = 2,
     timezone_name: str = "Europe/Moscow",
     now: datetime | None = None,
+    start_date: date | None = None,
+    end_date: date | None = None,
+    include_auxiliary_tasks: bool = True,
 ) -> dict[str, int | str]:
     """Cache KPI-relevant tasks and time entries for recent calculation months."""
     started_at = datetime.now(UTC)
-    start_date, end_date = task_sync_window(
-        now,
-        months=months,
-        timezone_name=timezone_name,
-    )
+    if start_date is None or end_date is None:
+        start_date, end_date = task_sync_window(now, months=months, timezone_name=timezone_name)
     elapsed_items = await elapsed_items_between(client, start_date, end_date)
     task_ids, extra_select = await _relevant_task_ids(
         client,
@@ -144,12 +146,13 @@ async def sync_tasks(
         start_date,
         end_date,
         elapsed_items,
+        include_auxiliary_tasks=include_auxiliary_tasks,
     )
     tasks = await tasks_by_id(client, task_ids, extra_select=extra_select)
 
     # Keep elapsed entries even if Bitrix no longer returns the task details.
     for task_id in task_ids:
-        tasks.setdefault(task_id, {"ID": task_id, "TITLE": f"Задача #{task_id}"})
+        tasks.setdefault(task_id, {"ID": task_id, "TITLE": "Название задачи недоступно в Bitrix"})
 
     numeric_task_ids = [int(task_id) for task_id in task_ids]
     existing_tasks = {

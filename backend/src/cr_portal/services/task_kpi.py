@@ -116,6 +116,22 @@ async def tasks_by_id(
         })
         for task in response.get("result", {}).get("tasks", []):
             result[str(field_value(task, "ID"))] = task
+
+    # Some old or individually restricted tasks are absent from a bulk list.
+    # Retry those IDs one by one so time reports show their actual titles.
+    for task_id in task_ids:
+        if str(task_id) in result:
+            continue
+        try:
+            response = await client.call("tasks.task.get", {
+                "taskId": int(task_id),
+                "select": select,
+            })
+        except Exception:
+            continue
+        task = response.get("result", {}).get("task")
+        if task:
+            result[str(field_value(task, "ID"))] = task
     return result
 
 

@@ -1,5 +1,5 @@
 import axios from 'axios'
-import type { AppSettings,BitrixDealField,Calculation,CalculationDetail,CurrentUser,DashboardSummary,Deal,DealBonusOverride,DealBonusOverrideInput,Employee,Issue,KPISummary,ManualBonusAdjustment,ManualBonusAdjustmentInput,OnboardingAssignment,OnboardingPlanSection,RuleConfig,RuleVersion,SyncJob,SyncStatus } from './types'
+import type { AppSettings,BitrixDealField,Calculation,CalculationDetail,CurrentUser,DashboardSummary,Deal,DealBonusOverride,DealBonusOverrideInput,Employee,Issue,KPISummary,ManualBonusAdjustment,ManualBonusAdjustmentInput,OnboardingAssignment,OnboardingPlanSection,RuleConfig,RuleVersion,SyncJob,SyncStatus,TimeReport } from './types'
 
 export const api=axios.create({baseURL:'/api/v1',withCredentials:true,timeout:30000})
 export async function login(login:string,password:string){return (await api.post('/auth/login',{login,password})).data}
@@ -9,6 +9,8 @@ export async function getDashboard(month?:string):Promise<DashboardSummary>{retu
 export async function getDepartmentDeals():Promise<Deal[]>{return (await api.get('/reports/department-deals')).data}
 export async function getSyncStatus():Promise<SyncStatus>{return (await api.get('/sync/deals/status')).data}
 export async function startDealsSync(full=false):Promise<SyncJob>{return (await api.post('/sync/deals',null,{params:{full}})).data}
+export async function startFullTasksSync():Promise<SyncJob>{return (await api.post('/sync/tasks/full')).data}
+export async function startRecentTasksSync():Promise<SyncJob>{return (await api.post('/sync/tasks/recent')).data}
 export async function getSyncJob(id:string):Promise<SyncJob>{return (await api.get(`/sync/jobs/${id}`)).data}
 export async function getKPI(month:string):Promise<KPISummary>{return (await api.get('/kpi/summary',{params:{month}})).data}
 export async function savePlan(month:string,plan_value:number){return (await api.put('/kpi/plan',{plan_value,comment:''},{params:{month}})).data}
@@ -30,6 +32,8 @@ export async function createRule(effective_from:string,config:RuleConfig,comment
 export async function getAppSettings():Promise<AppSettings>{return (await api.get('/settings/app')).data}
 export async function saveAppSettings(data:AppSettings):Promise<AppSettings>{return (await api.put('/settings/app',data)).data}
 export async function getBitrixDealFields():Promise<BitrixDealField[]>{return (await api.get('/settings/bitrix-deal-fields')).data}
+export async function getTimeReport(params:{date_from:string;date_to:string;departments:string[];employee_ids:string[];funnels:string[]}):Promise<TimeReport>{return (await api.get('/reports/time-spent',{params,paramsSerializer:{indexes:null}})).data}
+export async function getWorkplaceTime():Promise<TimeReport>{return (await api.get('/reports/workplace-time')).data}
 export async function getMyOnboarding():Promise<OnboardingAssignment|null>{return (await api.get('/onboarding/my')).data}
 export async function getOnboardings():Promise<OnboardingAssignment[]>{return (await api.get('/onboarding/')).data}
 export async function assignOnboarding(employeeId:string):Promise<OnboardingAssignment>{return (await api.post(`/onboarding/assign/${employeeId}`)).data}

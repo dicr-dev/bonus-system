@@ -1,9 +1,9 @@
 ﻿import {
   BookOutlined,CheckCircleOutlined,CloudSyncOutlined,DashboardOutlined,DatabaseOutlined,DownloadOutlined,
-  ExclamationCircleOutlined,FundOutlined,ReloadOutlined,SettingOutlined,TrophyOutlined
+  DesktopOutlined,ExclamationCircleOutlined,FundOutlined,ReloadOutlined,SettingOutlined,TrophyOutlined
 } from '@ant-design/icons'
 import {
-  Alert,Button,Card,Col,Collapse,Descriptions,Drawer,Empty,Form,Input,InputNumber,Layout,Menu,Popconfirm,
+  Alert,Button,Card,Col,Collapse,Descriptions,Drawer,Empty,Form,Input,InputNumber,Layout,Menu,Modal,Popconfirm,
   Progress,Row,Select,Space,Statistic,Table,Tag,Typography,message
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
@@ -12,16 +12,16 @@ import { useEffect,useState } from 'react'
 import SettingsPage from './SettingsPage'
 import InstructionPage from './InstructionPage'
 import OnboardingPage from './OnboardingPage'
-import {BitrixLink,dealUrl,sourceUrl} from './BitrixLink'
+import {BitrixLink,dealUrl,sourceUrl,taskUrl} from './BitrixLink'
 import {
   createManualBonusAdjustment,deleteDealBonusOverride,deleteManualBonusAdjustment,excelUrl,getCalculation,
   getBitrixDealFields,getCalculations,getCurrentUser,getDashboard,getDealBonusOverrides,getDepartmentDeals,getDiagnostics,
-  getEmployees,getKPI,getManualBonusAdjustments,getRules,getSyncJob,getSyncStatus,login,logout,runCalculation,
-  runDiagnostics,saveDealBonusOverride,savePlan,startDealsSync,updateManualBonusAdjustment
+  getEmployees,getKPI,getManualBonusAdjustments,getRules,getSyncJob,getSyncStatus,getTimeReport,getWorkplaceTime,login,logout,runCalculation,
+  runDiagnostics,saveDealBonusOverride,savePlan,startDealsSync,startFullTasksSync,startRecentTasksSync,updateManualBonusAdjustment
 } from './api'
 import type {
   BitrixDealField,Calculation,CalculationDetail,Deal,DealBonusOverride,DealBonusOverrideInput,FunnelSummary,Issue,KPIDeal,
-  KPIPlannedDeal,KPIPartialSubscriptionDeal,ManualBonusAdjustment,ManualBonusAdjustmentInput,ResponsibleSummary,RuleVersion,SyncJob
+  KPIPlannedDeal,KPIPartialSubscriptionDeal,ManualBonusAdjustment,ManualBonusAdjustmentInput,ResponsibleSummary,RuleVersion,SyncJob,TimeReportDay,TimeReportEmployee,TimeReportTask
 } from './types'
 
 const {Header,Content,Sider}=Layout
@@ -31,6 +31,7 @@ const BONUS:Record<string,string>={tech_integration:'Тех интеграция
 const funnel=(v:string)=>FUNNELS[v]??v
 const rub=(v:string|number)=>new Intl.NumberFormat('ru-RU',{style:'currency',currency:'RUB',maximumFractionDigits:0}).format(Number(v||0))
 const num=(v:string|number)=>new Intl.NumberFormat('ru-RU').format(Number(v||0))
+const duration=(seconds:number)=>`${Math.floor(seconds/3600)} ч ${Math.floor(seconds%3600/60)} м`
 const dateTime=(v:string|null|undefined)=>v?new Date(v).toLocaleString('ru-RU'):'—'
 const shortDate=(v:string)=>{const [y,m,d]=v.split('-').map(Number);return new Date(y,m-1,d).toLocaleDateString('ru-RU')}
 const monthName=(v:string)=>new Date(`${v.slice(0,7)}-01T00:00:00Z`).toLocaleDateString('ru-RU',{month:'long',year:'numeric',timeZone:'UTC'})
@@ -488,14 +489,72 @@ function Rules(){
  return <Space direction="vertical" size={24} style={{width:'100%'}}><Title level={2}>Правила расчета</Title><Alert type="info" showIcon message="Правила версионируются по датам действия."/><Card><Table rowKey="id" columns={cols} dataSource={q.data??[]} pagination={false}/></Card></Space>
 }
 
+function TimeSpentReport({isAdmin}:{isAdmin:boolean}){
+ const today=new Date().toISOString().slice(0,10)
+ const firstDay=`${today.slice(0,7)}-01`
+ const [dateFrom,setDateFrom]=useState(firstDay);const [dateTo,setDateTo]=useState(today)
+ const [departments,setDepartments]=useState<string[]>([]);const [employeeIds,setEmployeeIds]=useState<string[]>([]);const [funnels,setFunnels]=useState<string[]>([])
+ const [selected,setSelected]=useState<{employee:TimeReportEmployee;day:TimeReportDay}|null>(null)
+ const employees=useQuery({queryKey:['employees'],queryFn:getEmployees,enabled:isAdmin})
+ const report=useQuery({queryKey:['time-report',dateFrom,dateTo,departments,employeeIds,funnels],queryFn:()=>getTimeReport({date_from:dateFrom,date_to:dateTo,departments,employee_ids:employeeIds,funnels}),enabled:Boolean(dateFrom&&dateTo)})
+ const data=report.data
+ const columns:ColumnsType<TimeReportEmployee>=[
+  {title:'Сотрудник',dataIndex:'full_name',fixed:'left',width:210,render:(name,row)=><>{name}<br/><Text type="secondary">{row.department_name||'—'}</Text></>},
+  {title:'Общее время',dataIndex:'total_seconds',fixed:'left',width:125,render:duration},
+  ...(data?.days??[]).map(day=>({title:new Date(`${day}T00:00:00`).toLocaleDateString('ru-RU',{day:'2-digit',month:'2-digit'}),width:105,align:'center' as const,render:(_:unknown,row:TimeReportEmployee)=>{const item=row.days.find(value=>value.date===day);return item?<Button type="link" onClick={()=>setSelected({employee:row,day:item})}>{duration(item.seconds)}</Button>:'—'}}))
+ ]
+ const taskColumns:ColumnsType<TimeReportTask>=[
+  {title:'Задача',dataIndex:'title',render:(title,task)=><BitrixLink href={taskUrl(task.task_bitrix_id,task.group_id,task.responsible_bitrix_id)}>{title}</BitrixLink>},
+  {title:'Время',dataIndex:'seconds',render:duration,align:'right'}
+ ]
+ return <Space direction="vertical" size={24} style={{width:'100%'}}>
+  <Title level={2}>Отчёт по затраченному времени</Title>
+  <Card><Row gutter={[16,0]}>
+   {isAdmin&&<><Col xs={24} md={8}><Text>Отдел</Text><Select mode="multiple" allowClear value={departments} onChange={setDepartments} style={{width:'100%'}} options={[{value:'Отдел внедрения',label:'Отдел внедрения'},{value:'Разработка 1С',label:'Разработка 1С'}]}/></Col>
+   <Col xs={24} md={8}><Text>Сотрудники</Text><Select mode="multiple" allowClear value={employeeIds} onChange={setEmployeeIds} style={{width:'100%'}} options={(employees.data??[]).filter(employee=>employee.is_active&&['Отдел внедрения','Разработка 1С'].some(department=>employee.department_name?.includes(department))).map(employee=>({value:employee.id,label:employee.full_name}))}/></Col></>}
+   <Col xs={24} md={8}><Text>Воронки</Text><Select mode="multiple" allowClear value={funnels} onChange={setFunnels} style={{width:'100%'}} options={Object.entries(FUNNELS).map(([value,label])=>({value,label}))}/></Col>
+   <Col xs={24} md={8}><Text>Дата начала</Text><Input type="date" value={dateFrom} onChange={event=>setDateFrom(event.target.value)}/></Col>
+   <Col xs={24} md={8}><Text>Дата окончания</Text><Input type="date" value={dateTo} onChange={event=>setDateTo(event.target.value)}/></Col>
+  </Row></Card>
+  <Card><Table rowKey="employee_id" columns={columns} dataSource={data?.employees??[]} loading={report.isLoading} pagination={false} sticky={{offsetHeader:0}} scroll={{x:600+(data?.days.length??0)*105,y:560}}/></Card>
+  <Modal open={Boolean(selected)} title={selected?`${selected.employee.full_name} — ${new Date(`${selected.day.date}T00:00:00`).toLocaleDateString('ru-RU')}`:''} footer={null} onCancel={()=>setSelected(null)} width={800}><Table rowKey="task_bitrix_id" columns={taskColumns} dataSource={selected?.day.tasks??[]} pagination={false}/></Modal>
+ </Space>
+}
+
+function Workplace(){
+ const [selected,setSelected]=useState<{employee:TimeReportEmployee;day:TimeReportDay}|null>(null)
+ const report=useQuery({queryKey:['workplace-time'],queryFn:getWorkplaceTime})
+ const data=report.data
+ const employee=data?.employees[0]
+ const columns:ColumnsType<TimeReportEmployee>=[
+  {title:'Сотрудник',dataIndex:'full_name',fixed:'left',width:210,render:(name,row)=><>{name}<br/><Text type="secondary">{row.department_name||'—'}</Text></>},
+  {title:'Общее время',dataIndex:'total_seconds',fixed:'left',width:125,render:duration},
+  ...(data?.days??[]).map(day=>({title:new Date(`${day}T00:00:00`).toLocaleDateString('ru-RU',{day:'2-digit',month:'2-digit'}),width:105,align:'center' as const,render:(_:unknown,row:TimeReportEmployee)=>{const item=row.days.find(value=>value.date===day)??{date:day,seconds:0,tasks:[]};return <Button type="link" danger={item.seconds<6*3600} onClick={()=>setSelected({employee:row,day:item})}>{duration(item.seconds)}</Button>}}))
+ ]
+ const taskColumns:ColumnsType<TimeReportTask>=[
+  {title:'Задача',dataIndex:'title',render:(title,task)=><BitrixLink href={taskUrl(task.task_bitrix_id,task.group_id,task.responsible_bitrix_id)}>{title}</BitrixLink>},
+  {title:'Время',dataIndex:'seconds',render:duration,align:'right'}
+ ]
+ return <Space direction="vertical" size={24} style={{width:'100%'}}>
+  <Title level={2}>АРМ</Title>
+  <Card title="Учёт времени" extra={<Text type="secondary">Последние 10 дней</Text>}>
+   <Text type="secondary">Дни с учётом менее 6 часов выделены красным. Нажмите на время, чтобы открыть список задач.</Text>
+   <Table style={{marginTop:16}} rowKey="employee_id" columns={columns} dataSource={employee?[employee]:[]} loading={report.isLoading} pagination={false} scroll={{x:600+(data?.days.length??0)*105}}/>
+  </Card>
+  <Modal open={Boolean(selected)} title={selected?`${selected.employee.full_name} — ${shortDate(selected.day.date)}`:''} footer={null} onCancel={()=>setSelected(null)} width={800}><Table rowKey="task_bitrix_id" columns={taskColumns} dataSource={selected?.day.tasks??[]} pagination={false}/></Modal>
+ </Space>
+}
+
 function Sync(){
  const [jobId,setJobId]=useState<string|null>(null);const qc=useQueryClient()
  const status=useQuery({queryKey:['sync-status'],queryFn:getSyncStatus,refetchInterval:30000})
  const job=useQuery({queryKey:['sync-job',jobId],queryFn:()=>getSyncJob(jobId!),enabled:Boolean(jobId),refetchInterval:q=>{const d=q.state.data as SyncJob|undefined;return d?.status==='completed'||d?.status==='failed'?false:1500}})
  const start=useMutation({mutationFn:(full:boolean)=>startDealsSync(full),onSuccess:j=>setJobId(j.job_id)})
+ const startTasks=useMutation({mutationFn:startFullTasksSync,onSuccess:j=>setJobId(j.job_id)})
+ const startRecentTasks=useMutation({mutationFn:startRecentTasksSync,onSuccess:j=>setJobId(j.job_id)})
  useEffect(()=>{if(job.data?.status==='completed')void qc.invalidateQueries()},[job.data?.status,qc])
  const nightly=status.data?.nightly_last_result
- return <Space direction="vertical" size={24} style={{width:'100%'}}><Title level={2}>Синхронизация</Title><Card title="Автоматическая ночная синхронизация"><Space direction="vertical"><Text>Запуск ежедневно в {String(status.data?.nightly_hour??2).padStart(2,'0')}:00 ({status.data?.nightly_timezone??'Europe/Moscow'})</Text><Text>Последняя успешная: {dateTime(status.data?.nightly_last_success)}</Text><Text type="secondary">Последняя попытка: {dateTime(status.data?.nightly_last_attempt)}</Text>{nightly&&<Text>Сотрудников: {nightly.users}; сделок: {nightly.deals}; задач: {nightly.tasks}; записей времени: {nightly.elapsed_items}. Период задач: {nightly.period_from} — {nightly.period_to}</Text>}{status.data?.nightly_last_error&&<Alert type="error" showIcon message="Ошибка ночной синхронизации" description={status.data.nightly_last_error}/>}</Space></Card><Card title="Ручная синхронизация сделок"><Space direction="vertical"><Text>Последняя успешная: {dateTime(status.data?.last_success)}</Text><Space><Button type="primary" icon={<CloudSyncOutlined/>} onClick={()=>start.mutate(false)}>Инкрементальная</Button><Button icon={<ReloadOutlined/>} onClick={()=>start.mutate(true)}>Полная</Button></Space></Space></Card>{job.data&&<Card title={`Job ${job.data.job_id}`}><Progress percent={job.data.progress}/><Text>{job.data.status}; обработано {job.data.processed}</Text>{job.data.error&&<Alert type="error" message={job.data.error}/>}</Card>}</Space>
+ return <Space direction="vertical" size={24} style={{width:'100%'}}><Title level={2}>Синхронизация</Title><Card title="Автоматическая ночная синхронизация"><Space direction="vertical"><Text>Запуск ежедневно в {String(status.data?.nightly_hour??2).padStart(2,'0')}:00 ({status.data?.nightly_timezone??'Europe/Moscow'})</Text><Text>Последняя успешная: {dateTime(status.data?.nightly_last_success)}</Text><Text type="secondary">Последняя попытка: {dateTime(status.data?.nightly_last_attempt)}</Text>{nightly&&<Text>Сотрудников: {nightly.users}; сделок: {nightly.deals}; задач: {nightly.tasks}; записей времени: {nightly.elapsed_items}. Период задач: {nightly.period_from} — {nightly.period_to}</Text>}{status.data?.nightly_last_error&&<Alert type="error" showIcon message="Ошибка ночной синхронизации" description={status.data.nightly_last_error}/>}</Space></Card><Card title="Ручная синхронизация сделок"><Space direction="vertical"><Text>Последняя успешная: {dateTime(status.data?.last_success)}</Text><Space><Button type="primary" icon={<CloudSyncOutlined/>} onClick={()=>start.mutate(false)}>Инкрементальная</Button><Button icon={<ReloadOutlined/>} onClick={()=>start.mutate(true)}>Полная</Button></Space></Space></Card><Card title="Задачи и учёт времени"><Text type="secondary">Задачи загружаются вместе с записями времени и выполняются в фоне.</Text><br/><Space style={{marginTop:12}}><Button icon={<ReloadOutlined/>} loading={startRecentTasks.isPending} onClick={()=>startRecentTasks.mutate()}>Загрузить за 3 месяца</Button><Button icon={<ReloadOutlined/>} loading={startTasks.isPending} onClick={()=>startTasks.mutate()}>Загрузить за весь период</Button></Space></Card>{job.data&&<Card title={`Job ${job.data.job_id}`}><Progress percent={job.data.progress}/><Text>{job.data.status}; обработано {job.data.processed}</Text>{job.data.error&&<Alert type="error" message={job.data.error}/>}</Card>}</Space>
 }
 
 function Login({onSuccess}:{onSuccess:()=>void}){
@@ -519,19 +578,24 @@ export default function App(){
  if(user.isLoading)return <Card loading/>
  if(user.isError||!user.data)return <Login onSuccess={()=>setAuthVersion(v=>v+1)}/>
  const isAdmin=user.data.is_admin
- const effectivePage=!isAdmin&&!['dashboard','bonus','deals','instruction','onboarding'].includes(page)?'dashboard':page
- const content=({dashboard:<Dashboard isAdmin={isAdmin} userId={user.data.id}/>,kpi:<KPI/>,bonus:<Bonuses isAdmin={isAdmin} userId={user.data.id}/>,deals:<Deals isAdmin={isAdmin} userId={user.data.id}/>,instruction:<InstructionPage/>,onboarding:<OnboardingPage isAdmin={isAdmin}/>,diagnostics:<Diagnostics/>,bitrix_fields:<BitrixFields/>,rules:<Rules/>,settings:<SettingsPage/>,sync:<Sync/>}[effectivePage]??<Dashboard isAdmin={isAdmin} userId={user.data.id}/>)
+ const canUseWorkplace=['Отдел внедрения','Разработка 1С'].some(department=>user.data.department_name?.split(';').map(value=>value.trim()).includes(department))
+ const employeePages=['dashboard','bonus','deals','instruction','onboarding','time_report',...(canUseWorkplace?['workplace']:[])]
+ const effectivePage=(!isAdmin&&!employeePages.includes(page))||(!canUseWorkplace&&page==='workplace')?'dashboard':page
+ const content=({dashboard:<Dashboard isAdmin={isAdmin} userId={user.data.id}/>,kpi:<KPI/>,bonus:<Bonuses isAdmin={isAdmin} userId={user.data.id}/>,deals:<Deals isAdmin={isAdmin} userId={user.data.id}/>,instruction:<InstructionPage/>,onboarding:<OnboardingPage isAdmin={isAdmin}/>,time_report:<TimeSpentReport isAdmin={isAdmin}/>,workplace:<Workplace/>,diagnostics:<Diagnostics/>,bitrix_fields:<BitrixFields/>,rules:<Rules/>,settings:<SettingsPage/>,sync:<Sync/>}[effectivePage]??<Dashboard isAdmin={isAdmin} userId={user.data.id}/>)
  const employeeMenu=[
   {key:'dashboard',icon:<DashboardOutlined/>,label:'Главная'},
+  ...(canUseWorkplace?[{key:'workplace',icon:<DesktopOutlined/>,label:'АРМ'}]:[]),
   {key:'bonus',icon:<FundOutlined/>,label:'Моя премия'},
+  {key:'time_report',icon:<TrophyOutlined/>,label:'Отчёт по затраченному времени'},
   {key:'deals',icon:<DatabaseOutlined/>,label:'Мои сделки'},
   {key:'instruction',icon:<BookOutlined/>,label:'Инструкция'},
   {key:'onboarding',icon:<CheckCircleOutlined/>,label:'Адаптация'}
  ]
  const adminMenu=[
   {key:'dashboard',icon:<DashboardOutlined/>,label:'Главная'},{key:'kpi',icon:<TrophyOutlined/>,label:'KPI отдела'},
+  ...(canUseWorkplace?[{key:'workplace',icon:<DesktopOutlined/>,label:'АРМ'}]:[]),
   {key:'bonus',icon:<FundOutlined/>,label:'Расчет премий'},{key:'deals',icon:<DatabaseOutlined/>,label:'Сделки'},
-  {key:'instruction',icon:<BookOutlined/>,label:'Инструкция'},{key:'onboarding',icon:<CheckCircleOutlined/>,label:'Адаптация'},
+  {key:'instruction',icon:<BookOutlined/>,label:'Инструкция'},{key:'onboarding',icon:<CheckCircleOutlined/>,label:'Адаптация'},{key:'time_report',icon:<TrophyOutlined/>,label:'Отчёт по затраченному времени'},
   {key:'diagnostics',icon:<ExclamationCircleOutlined/>,label:'Диагностика'},{key:'bitrix_fields',icon:<DatabaseOutlined/>,label:'Поля Bitrix'},{key:'rules',icon:<SettingOutlined/>,label:'Правила'},
   {key:'settings',icon:<SettingOutlined/>,label:'\u041d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0438'},
   {key:'sync',icon:<CloudSyncOutlined/>,label:'Синхронизация'}

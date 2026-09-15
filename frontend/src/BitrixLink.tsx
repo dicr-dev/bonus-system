@@ -9,6 +9,12 @@ export function dealUrl(id:unknown):string|undefined {
  return validId(id)?`${portal}/crm/deal/details/${id}/`:undefined
 }
 
+export function taskUrl(id:unknown,groupId?:unknown,responsibleId?:unknown):string|undefined {
+ if(!validId(id))return undefined
+ if(validId(groupId))return `${portal}/workgroups/group/${groupId}/tasks/task/view/${id}/`
+ return `${portal}/company/personal/user/${validId(responsibleId)?responsibleId:0}/tasks/task/view/${id}/`
+}
+
 export function sourceUrl(item:CalculationItem):string|undefined {
  if(item.source_type==='task'){
   let task:Record<string,unknown>={}
