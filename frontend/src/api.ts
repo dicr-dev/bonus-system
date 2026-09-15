@@ -1,5 +1,5 @@
 import axios from 'axios'
-import type { AppSettings,BitrixDealField,Calculation,CalculationDetail,CurrentUser,DashboardSummary,Deal,DealBonusOverride,DealBonusOverrideInput,Employee,Issue,KPISummary,ManualBonusAdjustment,ManualBonusAdjustmentInput,OnboardingAssignment,OnboardingPlanSection,RuleConfig,RuleVersion,SyncJob,SyncStatus,TimeReport } from './types'
+import type { AdminEmployeeMonthPlan,AppSettings,BitrixDealField,Calculation,CalculationDetail,CurrentUser,DashboardSummary,Deal,DealBonusOverride,DealBonusOverrideInput,Employee,EmployeeMonthPlan,Issue,KPISummary,ManualBonusAdjustment,ManualBonusAdjustmentInput,OnboardingAssignment,OnboardingPlanSection,RuleConfig,RuleVersion,SyncJob,SyncStatus,TimeReport } from './types'
 
 export const api=axios.create({baseURL:'/api/v1',withCredentials:true,timeout:30000})
 export async function login(login:string,password:string){return (await api.post('/auth/login',{login,password})).data}
@@ -34,6 +34,10 @@ export async function saveAppSettings(data:AppSettings):Promise<AppSettings>{ret
 export async function getBitrixDealFields():Promise<BitrixDealField[]>{return (await api.get('/settings/bitrix-deal-fields')).data}
 export async function getTimeReport(params:{date_from:string;date_to:string;departments:string[];employee_ids:string[];funnels:string[]}):Promise<TimeReport>{return (await api.get('/reports/time-spent',{params,paramsSerializer:{indexes:null}})).data}
 export async function getWorkplaceTime():Promise<TimeReport>{return (await api.get('/reports/workplace-time')).data}
+export async function getEmployeeMonthPlan():Promise<EmployeeMonthPlan>{return (await api.get('/employee-month-plan/')).data}
+export async function getAdminEmployeeMonthPlan():Promise<AdminEmployeeMonthPlan>{return (await api.get('/employee-month-plan/admin')).data}
+export async function addEmployeeMonthPlanDeal(deal_id:string):Promise<void>{await api.post('/employee-month-plan/',{deal_id})}
+export async function removeEmployeeMonthPlanDeal(dealId:string):Promise<void>{await api.delete(`/employee-month-plan/${dealId}`)}
 export async function getMyOnboarding():Promise<OnboardingAssignment|null>{return (await api.get('/onboarding/my')).data}
 export async function getOnboardings():Promise<OnboardingAssignment[]>{return (await api.get('/onboarding/')).data}
 export async function assignOnboarding(employeeId:string):Promise<OnboardingAssignment>{return (await api.post(`/onboarding/assign/${employeeId}`)).data}

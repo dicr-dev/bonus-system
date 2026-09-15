@@ -1,6 +1,7 @@
 from cr_portal.models.app_settings import AppSetting
 from cr_portal.models.bonus import BonusCalculation, BonusCalculationItem, BonusRule, ManualBonusAdjustment, ManualBonusEvent
 from cr_portal.models.deal import Deal
+from cr_portal.models.employee_month_plan import EmployeeMonthlyDealPlan
 from cr_portal.models.distribution import DistributionDecision
 from cr_portal.models.kpi import CalculationIssue, KPIEvent, MonthlyPlan
 from cr_portal.models.oauth import BitrixInstallation
@@ -11,6 +12,7 @@ from cr_portal.models.user import User
 __all__ = [
     "User",
     "Deal",
+    "EmployeeMonthlyDealPlan",
     "BonusRule",
     "BonusCalculation",
     "BonusCalculationItem",

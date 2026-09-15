@@ -1,6 +1,6 @@
 ﻿import {
   BookOutlined,CheckCircleOutlined,CloudSyncOutlined,DashboardOutlined,DatabaseOutlined,DownloadOutlined,
-  DesktopOutlined,ExclamationCircleOutlined,FundOutlined,ReloadOutlined,SettingOutlined,TrophyOutlined
+  CalendarOutlined,DesktopOutlined,ExclamationCircleOutlined,FundOutlined,ReloadOutlined,SettingOutlined,TrophyOutlined
 } from '@ant-design/icons'
 import {
   Alert,Button,Card,Col,Collapse,Descriptions,Drawer,Empty,Form,Input,InputNumber,Layout,Menu,Modal,Popconfirm,
@@ -16,12 +16,12 @@ import {BitrixLink,dealUrl,sourceUrl,taskUrl} from './BitrixLink'
 import {
   createManualBonusAdjustment,deleteDealBonusOverride,deleteManualBonusAdjustment,excelUrl,getCalculation,
   getBitrixDealFields,getCalculations,getCurrentUser,getDashboard,getDealBonusOverrides,getDepartmentDeals,getDiagnostics,
-  getEmployees,getKPI,getManualBonusAdjustments,getRules,getSyncJob,getSyncStatus,getTimeReport,getWorkplaceTime,login,logout,runCalculation,
+  addEmployeeMonthPlanDeal,getAdminEmployeeMonthPlan,getEmployeeMonthPlan,getEmployees,getKPI,getManualBonusAdjustments,getRules,getSyncJob,getSyncStatus,getTimeReport,getWorkplaceTime,login,logout,removeEmployeeMonthPlanDeal,runCalculation,
   runDiagnostics,saveDealBonusOverride,savePlan,startDealsSync,startFullTasksSync,startRecentTasksSync,updateManualBonusAdjustment
 } from './api'
 import type {
   BitrixDealField,Calculation,CalculationDetail,Deal,DealBonusOverride,DealBonusOverrideInput,FunnelSummary,Issue,KPIDeal,
-  KPIPlannedDeal,KPIPartialSubscriptionDeal,ManualBonusAdjustment,ManualBonusAdjustmentInput,ResponsibleSummary,RuleVersion,SyncJob,TimeReportDay,TimeReportEmployee,TimeReportTask
+  AdminEmployeeMonthPlanDeal,EmployeeMonthPlanDeal,KPIPlannedDeal,KPIPartialSubscriptionDeal,ManualBonusAdjustment,ManualBonusAdjustmentInput,ResponsibleSummary,RuleVersion,SyncJob,TimeReportDay,TimeReportEmployee,TimeReportTask
 } from './types'
 
 const {Header,Content,Sider}=Layout
@@ -545,6 +545,51 @@ function Workplace(){
  </Space>
 }
 
+function EmployeeMonthPlanPage(){
+ const [dealId,setDealId]=useState<string|undefined>()
+ const qc=useQueryClient()
+ const plan=useQuery({queryKey:['employee-month-plan'],queryFn:getEmployeeMonthPlan})
+ const refresh=()=>void qc.invalidateQueries({queryKey:['employee-month-plan']})
+ const add=useMutation({mutationFn:(id:string)=>addEmployeeMonthPlanDeal(id),onSuccess:()=>{message.success('Сделка добавлена в план');setDealId(undefined);refresh()},onError:(error:any)=>message.error(error.response?.data?.detail||'Не удалось добавить сделку')})
+ const remove=useMutation({mutationFn:removeEmployeeMonthPlanDeal,onSuccess:()=>{message.success('Сделка убрана из плана');refresh()},onError:(error:any)=>message.error(error.response?.data?.detail||'Не удалось убрать сделку')})
+ const columns:ColumnsType<EmployeeMonthPlanDeal>=[
+  {title:'Название сделки',dataIndex:'title',sorter:(a,b)=>a.title.localeCompare(b.title,'ru'),render:(title,deal)=><BitrixLink href={dealUrl(deal.bitrix_id)}>{title}</BitrixLink>},
+  {title:'Модуль',dataIndex:'module',sorter:(a,b)=>(a.module||'').localeCompare(b.module||'','ru'),render:value=>value||'—'},
+  {title:'Кол-во машин',dataIndex:'machines_count',align:'right',sorter:(a,b)=>a.machines_count-b.machines_count,render:num},
+  {title:'Интеграция с 1С',dataIndex:'integration_1c',sorter:(a,b)=>Number(a.integration_1c)-Number(b.integration_1c),render:value=>value?'Да':'Нет'},
+  {title:'Сумма сделки',dataIndex:'opportunity',align:'right',sorter:(a,b)=>Number(a.opportunity)-Number(b.opportunity),render:rub},
+  {title:'Сумма оплаты в месяц',dataIndex:'monthly_amount',align:'right',sorter:(a,b)=>Number(a.monthly_amount)-Number(b.monthly_amount),render:rub},
+  {title:'',key:'actions',width:105,render:(_:unknown,deal)=><Popconfirm title="Убрать сделку из плана?" onConfirm={()=>remove.mutate(deal.id)} okText="Убрать" cancelText="Отмена"><Button danger size="small" loading={remove.isPending}>Убрать</Button></Popconfirm>}
+ ]
+ if(plan.isLoading)return <Card loading/>
+ if(!plan.data)return <Alert type="error" message="Не удалось загрузить план на месяц"/>
+ const data=plan.data
+ return <Space direction="vertical" size={24} style={{width:'100%'}}>
+  <Title level={2}>План на месяц</Title>
+  <Card><Space direction="vertical" style={{width:'100%'}}><Text>Выберите активные сделки из «Техинтеграции» и «Внедрения», которые планируете перевести на подписку в этом месяце.</Text><Space.Compact style={{width:'100%'}}><Select value={dealId} onChange={setDealId} placeholder="Выберите сделку" style={{width:'100%'}} options={data.available_deals.map(deal=>({value:deal.id,label:`№${deal.bitrix_id} — ${deal.title}`}))}/><Button type="primary" disabled={!dealId} loading={add.isPending} onClick={()=>dealId&&add.mutate(dealId)}>Добавить</Button></Space.Compact>{!data.available_deals.length&&<Text type="secondary">Нет доступных активных сделок для добавления.</Text>}</Space></Card>
+  <Card title={`Мой план на ${monthName(data.month)}`}><Collapse defaultActiveKey={[]} items={[{key:'deals',label:<Space><Text strong>Сделки</Text><Text type="secondary">{data.planned_deals.length} шт. · {rub(data.planned_deals.reduce((total,deal)=>total+Number(deal.opportunity||0),0))}</Text></Space>,children:<Table rowKey="id" columns={columns} dataSource={data.planned_deals} pagination={false} scroll={{x:1150}}/>}]}/></Card>
+ </Space>
+}
+
+function AdminEmployeeMonthPlanPage(){
+ const plan=useQuery({queryKey:['admin-employee-month-plan'],queryFn:getAdminEmployeeMonthPlan})
+ const data=plan.data?.planned_deals??[]
+ const filters=(field:keyof AdminEmployeeMonthPlanDeal)=>({filters:[...new Set(data.map(row=>String(row[field]??'—')))].sort((a,b)=>a.localeCompare(b,'ru')).map(value=>({text:value,value})),onFilter:(value:unknown,row:AdminEmployeeMonthPlanDeal)=>String(row[field]??'—')===String(value)})
+ const columns:ColumnsType<AdminEmployeeMonthPlanDeal>=[
+  {title:'Сотрудник',dataIndex:'employee_name',sorter:(a,b)=>a.employee_name.localeCompare(b.employee_name,'ru'),...filters('employee_name')},
+  {title:'Название сделки',dataIndex:'title',sorter:(a,b)=>a.title.localeCompare(b.title,'ru'),...filters('title'),render:(title,deal)=><BitrixLink href={dealUrl(deal.bitrix_id)}>{title}</BitrixLink>},
+  {title:'Модуль',dataIndex:'module',sorter:(a,b)=>(a.module||'').localeCompare(b.module||'','ru'),...filters('module'),render:value=>value||'—'},
+  {title:'Кол-во машин',dataIndex:'machines_count',align:'right',sorter:(a,b)=>a.machines_count-b.machines_count,...filters('machines_count'),render:num},
+  {title:'Интеграция с 1С',dataIndex:'integration_1c',sorter:(a,b)=>Number(a.integration_1c)-Number(b.integration_1c),filters:[{text:'Да',value:'true'},{text:'Нет',value:'false'}],onFilter:(value,row)=>String(row.integration_1c)===String(value),render:value=>value?'Да':'Нет'},
+  {title:'Сумма сделки',dataIndex:'opportunity',align:'right',sorter:(a,b)=>Number(a.opportunity)-Number(b.opportunity),...filters('opportunity'),render:rub},
+  {title:'Сумма оплаты в месяц',dataIndex:'monthly_amount',align:'right',sorter:(a,b)=>Number(a.monthly_amount)-Number(b.monthly_amount),...filters('monthly_amount'),render:rub}
+ ]
+ return <Space direction="vertical" size={24} style={{width:'100%'}}>
+  <Title level={2}>Планы сотрудников</Title>
+  <Card title={`План на ${plan.data?monthName(plan.data.month):'текущий месяц'}`}><Text type="secondary">Сортировка и фильтры доступны в заголовках каждого столбца.</Text><Table style={{marginTop:16}} rowKey={row=>`${row.employee_id}-${row.id}`} columns={columns} dataSource={data} loading={plan.isLoading} pagination={{pageSize:25}} scroll={{x:1250}}/></Card>
+ </Space>
+}
+
 function Sync(){
  const [jobId,setJobId]=useState<string|null>(null);const qc=useQueryClient()
  const status=useQuery({queryKey:['sync-status'],queryFn:getSyncStatus,refetchInterval:30000})
@@ -579,12 +624,14 @@ export default function App(){
  if(user.isError||!user.data)return <Login onSuccess={()=>setAuthVersion(v=>v+1)}/>
  const isAdmin=user.data.is_admin
  const canUseWorkplace=['Отдел внедрения','Разработка 1С'].some(department=>user.data.department_name?.split(';').map(value=>value.trim()).includes(department))
- const employeePages=['dashboard','bonus','deals','instruction','onboarding','time_report',...(canUseWorkplace?['workplace']:[])]
- const effectivePage=(!isAdmin&&!employeePages.includes(page))||(!canUseWorkplace&&page==='workplace')?'dashboard':page
- const content=({dashboard:<Dashboard isAdmin={isAdmin} userId={user.data.id}/>,kpi:<KPI/>,bonus:<Bonuses isAdmin={isAdmin} userId={user.data.id}/>,deals:<Deals isAdmin={isAdmin} userId={user.data.id}/>,instruction:<InstructionPage/>,onboarding:<OnboardingPage isAdmin={isAdmin}/>,time_report:<TimeSpentReport isAdmin={isAdmin}/>,workplace:<Workplace/>,diagnostics:<Diagnostics/>,bitrix_fields:<BitrixFields/>,rules:<Rules/>,settings:<SettingsPage/>,sync:<Sync/>}[effectivePage]??<Dashboard isAdmin={isAdmin} userId={user.data.id}/>)
+ const canUseEmployeeMonthPlan=user.data.department_name?.split(';').map(value=>value.trim()).includes('Отдел внедрения')??false
+ const employeePages=['dashboard','bonus','deals','instruction','onboarding','time_report',...(canUseWorkplace?['workplace']:[]),...(canUseEmployeeMonthPlan?['employee_month_plan']:[])]
+ const effectivePage=(!isAdmin&&!employeePages.includes(page))||(!canUseWorkplace&&page==='workplace')||(!canUseEmployeeMonthPlan&&page==='employee_month_plan')?'dashboard':page
+ const content=({dashboard:<Dashboard isAdmin={isAdmin} userId={user.data.id}/>,kpi:<KPI/>,bonus:<Bonuses isAdmin={isAdmin} userId={user.data.id}/>,deals:<Deals isAdmin={isAdmin} userId={user.data.id}/>,instruction:<InstructionPage/>,onboarding:<OnboardingPage isAdmin={isAdmin}/>,time_report:<TimeSpentReport isAdmin={isAdmin}/>,workplace:<Workplace/>,employee_month_plan:<EmployeeMonthPlanPage/>,admin_employee_month_plan:<AdminEmployeeMonthPlanPage/>,diagnostics:<Diagnostics/>,bitrix_fields:<BitrixFields/>,rules:<Rules/>,settings:<SettingsPage/>,sync:<Sync/>}[effectivePage]??<Dashboard isAdmin={isAdmin} userId={user.data.id}/>)
  const employeeMenu=[
   {key:'dashboard',icon:<DashboardOutlined/>,label:'Главная'},
   ...(canUseWorkplace?[{key:'workplace',icon:<DesktopOutlined/>,label:'АРМ'}]:[]),
+  ...(canUseEmployeeMonthPlan?[{key:'employee_month_plan',icon:<CalendarOutlined/>,label:'План на месяц'}]:[]),
   {key:'bonus',icon:<FundOutlined/>,label:'Моя премия'},
   {key:'time_report',icon:<TrophyOutlined/>,label:'Отчёт по затраченному времени'},
   {key:'deals',icon:<DatabaseOutlined/>,label:'Мои сделки'},
@@ -593,7 +640,9 @@ export default function App(){
  ]
  const adminMenu=[
   {key:'dashboard',icon:<DashboardOutlined/>,label:'Главная'},{key:'kpi',icon:<TrophyOutlined/>,label:'KPI отдела'},
+  {key:'admin_employee_month_plan',icon:<CalendarOutlined/>,label:'Планы сотрудников'},
   ...(canUseWorkplace?[{key:'workplace',icon:<DesktopOutlined/>,label:'АРМ'}]:[]),
+  ...(canUseEmployeeMonthPlan?[{key:'employee_month_plan',icon:<CalendarOutlined/>,label:'План на месяц'}]:[]),
   {key:'bonus',icon:<FundOutlined/>,label:'Расчет премий'},{key:'deals',icon:<DatabaseOutlined/>,label:'Сделки'},
   {key:'instruction',icon:<BookOutlined/>,label:'Инструкция'},{key:'onboarding',icon:<CheckCircleOutlined/>,label:'Адаптация'},{key:'time_report',icon:<TrophyOutlined/>,label:'Отчёт по затраченному времени'},
   {key:'diagnostics',icon:<ExclamationCircleOutlined/>,label:'Диагностика'},{key:'bitrix_fields',icon:<DatabaseOutlined/>,label:'Поля Bitrix'},{key:'rules',icon:<SettingOutlined/>,label:'Правила'},

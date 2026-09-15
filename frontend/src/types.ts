@@ -15,6 +15,10 @@ export interface TimeReportTask { task_bitrix_id:number; title:string; seconds:n
 export interface TimeReportDay { date:string; seconds:number; tasks:TimeReportTask[] }
 export interface TimeReportEmployee { employee_id:string; full_name:string; department_name:string|null; total_seconds:number; days:TimeReportDay[] }
 export interface TimeReport { date_from:string; date_to:string; days:string[]; employees:TimeReportEmployee[] }
+export interface EmployeeMonthPlanDeal { id:string; bitrix_id:number; title:string; module:string|null; machines_count:number; integration_1c:boolean; opportunity:string; monthly_amount:string }
+export interface EmployeeMonthPlan { month:string; available_deals:EmployeeMonthPlanDeal[]; planned_deals:EmployeeMonthPlanDeal[] }
+export interface AdminEmployeeMonthPlanDeal extends EmployeeMonthPlanDeal { employee_id:string; employee_name:string }
+export interface AdminEmployeeMonthPlan { month:string; planned_deals:AdminEmployeeMonthPlanDeal[] }
 
 export interface Calculation {
   id:string
