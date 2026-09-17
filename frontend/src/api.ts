@@ -1,5 +1,5 @@
 import axios from 'axios'
-import type { AdminEmployeeMonthPlan,AppSettings,BitrixDealField,Calculation,CalculationDetail,CurrentUser,DashboardSummary,Deal,DealBonusOverride,DealBonusOverrideInput,DealGroupsReport,Employee,EmployeeMonthPlan,Issue,KPISummary,ManualBonusAdjustment,ManualBonusAdjustmentInput,OnboardingAssignment,OnboardingPlanSection,RuleConfig,RuleVersion,SyncJob,SyncStatus,Task1CErrorReport,TimeReport } from './types'
+import type { AdminEmployeeMonthPlan,AppSettings,BitrixDealField,Calculation,CalculationDetail,CurrentUser,DashboardSummary,Deal,DealBonusOverride,DealBonusOverrideInput,DealGroupsReport,Employee,EmployeeMonthPlan,Issue,KPISummary,ManualBonusAdjustment,ManualBonusAdjustmentInput,OnboardingAssignment,OnboardingPlanSection,RuleConfig,RuleVersion,SupportAutoMatchPreview,SyncJob,SyncStatus,Task1CErrorReport,TimeReport } from './types'
 
 export const api=axios.create({baseURL:'/api/v1',withCredentials:true,timeout:30000})
 export async function login(login:string,password:string){return (await api.post('/auth/login',{login,password})).data}
@@ -37,7 +37,8 @@ export async function getWorkplaceTime():Promise<TimeReport>{return (await api.g
 export async function getWorkplaceTask1cErrors(employeeId?:string):Promise<Task1CErrorReport>{return (await api.get('/reports/workplace-task-1c-errors',{params:employeeId?{employee_id:employeeId}:{}})).data}
 export async function getDealGroups():Promise<DealGroupsReport>{return (await api.get('/analytics/deal-groups')).data}
 export async function saveDealLink(childId:string,parentBitrixId:number|undefined){return (await api.put(`/analytics/deal-links/${childId}`,null,{params:{parent_bitrix_id:parentBitrixId}})).data}
-export async function autoMatchSupportLinks(){return (await api.post('/analytics/support-links/auto-match')).data}
+export async function getSupportAutoMatchPreview():Promise<{items:SupportAutoMatchPreview[]}>{return (await api.get('/analytics/support-links/auto-match-preview')).data}
+export async function autoMatchSupportLinks(supportIds:string[]){return (await api.post('/analytics/support-links/auto-match',{support_ids:supportIds})).data}
 export async function getEmployeeMonthPlan():Promise<EmployeeMonthPlan>{return (await api.get('/employee-month-plan/')).data}
 export async function getAdminEmployeeMonthPlan():Promise<AdminEmployeeMonthPlan>{return (await api.get('/employee-month-plan/admin')).data}
 export async function addEmployeeMonthPlanDeal(deal_id:string):Promise<void>{await api.post('/employee-month-plan/',{deal_id})}

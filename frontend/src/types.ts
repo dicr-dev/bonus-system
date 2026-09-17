@@ -21,6 +21,7 @@ export interface AnalyticsDeal { id:string; bitrix_id:number; title:string; stat
 export interface DealGroup { key:string; company_id:number|null; company_name:string; module_name:string|null; client_status:string; tech:AnalyticsDeal|null; implementation:AnalyticsDeal|null; support:AnalyticsDeal|null; tech_months:number|null; implementation_months:number|null; subscription_months:number|null }
 export interface DealGroupIssue { type:string; title:string; child_deals:AnalyticsDeal[]; parent:AnalyticsDeal|null; candidates:AnalyticsDeal[] }
 export interface DealGroupsReport { groups:DealGroup[]; issues:DealGroupIssue[] }
+export interface SupportAutoMatchPreview { support:AnalyticsDeal; implementation:AnalyticsDeal }
 export interface EmployeeMonthPlanDeal { id:string; bitrix_id:number; title:string; module:string|null; machines_count:number; integration_1c:boolean; opportunity:string; monthly_amount:string }
 export interface EmployeeMonthPlan { month:string; available_deals:EmployeeMonthPlanDeal[]; planned_deals:EmployeeMonthPlanDeal[] }
 export interface AdminEmployeeMonthPlanDeal extends EmployeeMonthPlanDeal {
