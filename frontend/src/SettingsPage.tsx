@@ -70,6 +70,8 @@ function BitrixSettings(){
   <Card title="Задачи: обучение и переработки" style={{marginTop:16}}>
    <Row gutter={16}>
     <Col xs={24} md={12}><Form.Item name="task_training_bonus_field" label="Поле задачи «Бонус за обучение»"><Input placeholder="UF_TASK_BONUS"/></Form.Item></Col>
+    <Col xs={24} md={12}><Form.Item name="task_1c_type_field" label="Поле задачи «Тип задачи 1С»"><Input placeholder="UF_TYPE_TASK_1C"/></Form.Item></Col>
+    <Col xs={24} md={12}><Form.Item name="task_1c_errors_project_id" label="ID проекта «Задачи по 1С»"><InputNumber min={1} style={{width:'100%'}}/></Form.Item></Col>
     <Col xs={24} md={12}><Form.Item name="task_training_yes_value" label="Значение «Да» (ID элемента списка)"><Input placeholder="783"/></Form.Item></Col>
     <Col xs={24} md={12}><Form.Item name="task_training_date_field" label="Месяц обучения определяется по"><Select options={[{value:'CLOSED_DATE',label:'Дате завершения'},{value:'DEADLINE',label:'Крайнему сроку'}]}/></Form.Item></Col>
     <Col xs={24} md={12}><Form.Item name="overtime_project_id" label="ID проекта «Отдел внедрения - переработки»"><InputNumber min={1} placeholder="192" style={{width:'100%'}}/></Form.Item></Col>

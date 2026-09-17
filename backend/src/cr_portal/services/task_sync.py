@@ -9,7 +9,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from cr_portal.integrations.bitrix.client import BitrixClient
 from cr_portal.models.task import BitrixTask, BitrixTaskElapsedItem
+from cr_portal.models.user import User
 from cr_portal.services.app_settings import get_business_settings
+from cr_portal.services.employee_scope import employee_is_in_department
 from cr_portal.services.kpi import next_month
 from cr_portal.services.task_kpi import (
     crm_deal_ids,
@@ -54,6 +56,30 @@ def _json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, default=str)
 
 
+def _is_empty_task_field(value: Any) -> bool:
+    if value is None:
+        return True
+    if isinstance(value, (list, tuple, set)):
+        return not any(str(item).strip() for item in value if item is not None)
+    return not str(value).strip()
+
+
+def _apply_task_snapshot(task: BitrixTask, payload: dict[str, Any], started_at: datetime) -> None:
+    task.title = str(field_value(payload, "TITLE") or f"Задача #{task.bitrix_id}")
+    task.responsible_bitrix_id = _integer(field_value(payload, "RESPONSIBLE_ID"))
+    task.creator_bitrix_id = _integer(field_value(payload, "CREATED_BY"))
+    task.group_id = _integer(field_value(payload, "GROUP_ID"))
+    task.status = _integer(field_value(payload, "STATUS"))
+    task.crm_deal_ids_json = _json(crm_deal_ids(payload))
+    task.raw_json = _json(payload)
+    task.created_time = parse_datetime(field_value(payload, "CREATED_DATE"))
+    task.start_time = parse_datetime(field_value(payload, "DATE_START"))
+    task.updated_time = parse_datetime(field_value(payload, "CHANGED_DATE"))
+    task.deadline = parse_datetime(field_value(payload, "DEADLINE"))
+    task.closed_time = parse_datetime(field_value(payload, "CLOSED_DATE"))
+    task.synced_at = started_at
+
+
 async def _relevant_task_ids(
     client: BitrixClient,
     session: AsyncSession,
@@ -72,10 +98,13 @@ async def _relevant_task_ids(
         if (task_id := _integer(field_value(item, "TASK_ID"))) is not None
     }
     extra_select = [
+        "CREATED_BY",
         "CREATED_DATE",
+        "DATE_START",
         "CHANGED_DATE",
         "DEADLINE",
         "CLOSED_DATE",
+        "STATUS",
         "TIME_SPENT_IN_LOGS",
     ]
 
@@ -170,16 +199,7 @@ async def sync_tasks(
         if task is None:
             task = BitrixTask(bitrix_id=numeric_id, title="")
             session.add(task)
-        task.title = str(field_value(payload, "TITLE") or f"Задача #{task_id}")
-        task.responsible_bitrix_id = _integer(field_value(payload, "RESPONSIBLE_ID"))
-        task.group_id = _integer(field_value(payload, "GROUP_ID"))
-        task.crm_deal_ids_json = _json(crm_deal_ids(payload))
-        task.raw_json = _json(payload)
-        task.created_time = parse_datetime(field_value(payload, "CREATED_DATE"))
-        task.updated_time = parse_datetime(field_value(payload, "CHANGED_DATE"))
-        task.deadline = parse_datetime(field_value(payload, "DEADLINE"))
-        task.closed_time = parse_datetime(field_value(payload, "CLOSED_DATE"))
-        task.synced_at = started_at
+        _apply_task_snapshot(task, payload, started_at)
 
     await session.flush()
 
@@ -242,3 +262,62 @@ async def sync_tasks(
         "period_from": start_date.isoformat(),
         "period_to": end_date.isoformat(),
     }
+
+
+async def sync_task_1c_errors(
+    session: AsyncSession,
+    client: BitrixClient,
+) -> dict[str, int]:
+    """Cache tasks started after 01.11.2025 for validation of the 1C type field."""
+    business = await get_business_settings(session)
+    type_field = business.task_1c_type_field
+    project_id = business.task_1c_errors_project_id
+    if not type_field or project_id is None:
+        return {"task_1c_errors_tasks": 0, "task_1c_errors": 0}
+
+    creators = [
+        user.bitrix_id
+        for user in (await session.execute(select(User).where(User.is_active.is_(True)))).scalars()
+        if employee_is_in_department(user, "Отдел внедрения")
+    ]
+    if not creators:
+        return {"task_1c_errors_tasks": 0, "task_1c_errors": 0}
+
+    payloads: list[dict] = []
+    select_fields = [
+        "ID", "TITLE", "RESPONSIBLE_ID", "CREATED_BY", "GROUP_ID", "STATUS",
+        "CREATED_DATE", "DATE_START", "CHANGED_DATE", "DEADLINE", "CLOSED_DATE",
+        "UF_CRM_TASK", type_field,
+    ]
+    start = "2025-11-01T00:00:00+03:00"
+    for creator_id in creators:
+        payloads.extend(await client.call_all("tasks.task.list", {
+            "filter": {"CREATED_BY": creator_id, "GROUP_ID": project_id, ">DATE_START": start},
+            "select": select_fields,
+            "order": {"ID": "ASC"},
+        }))
+
+    task_ids = [
+        task_id for payload in payloads
+        if (task_id := _integer(field_value(payload, "ID"))) is not None
+    ]
+    existing = {
+        task.bitrix_id: task
+        for task in (await session.execute(select(BitrixTask).where(BitrixTask.bitrix_id.in_(task_ids)))).scalars()
+    } if task_ids else {}
+    started_at = datetime.now(UTC)
+    errors = 0
+    for payload in payloads:
+        task_id = _integer(field_value(payload, "ID"))
+        if task_id is None:
+            continue
+        task = existing.get(task_id)
+        if task is None:
+            task = BitrixTask(bitrix_id=task_id, title="")
+            session.add(task)
+        _apply_task_snapshot(task, payload, started_at)
+        task.task_1c_type_missing = _is_empty_task_field(field_value(payload, type_field))
+        errors += int(task.task_1c_type_missing)
+
+    await session.commit()
+    return {"task_1c_errors_tasks": len(payloads), "task_1c_errors": errors}

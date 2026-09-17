@@ -23,6 +23,8 @@ class BusinessSettings:
     cr_start_implementation_modules: list[str]
     field_client_works: str
     task_training_bonus_field: str
+    task_1c_type_field: str
+    task_1c_errors_project_id: int | None
     field_module: str
     field_integration_amount: str
     field_cr_start_commercial_use_date: str
@@ -66,6 +68,8 @@ KEYS = {
     "cr_start_implementation_modules": "BITRIX_CR_START_IMPLEMENTATION_MODULES",
     "field_client_works": "BITRIX_FIELD_CLIENT_WORKS",
     "task_training_bonus_field": "BITRIX_TASK_TRAINING_BONUS_FIELD",
+    "task_1c_type_field": "BITRIX_TASK_1C_TYPE_FIELD",
+    "task_1c_errors_project_id": "BITRIX_TASK_1C_ERRORS_PROJECT_ID",
     "field_module": "BITRIX_FIELD_MODULE",
     "field_integration_amount": "BITRIX_FIELD_INTEGRATION_AMOUNT",
     "field_cr_start_commercial_use_date": "BITRIX_FIELD_CR_START_COMMERCIAL_USE_DATE",
@@ -96,6 +100,8 @@ def _env_default(name: str) -> str:
         return getattr(settings, name, "ufCrm_1728563980697") or ""
     if name == "BITRIX_FIELD_BILLING_START_DATE":
         return getattr(settings, name, "ufCrm_1642083742838") or ""
+    if name == "BITRIX_TASK_1C_TYPE_FIELD":
+        return getattr(settings, name, "UF_TYPE_TASK_1C") or ""
     return str(getattr(settings, name, "") or "")
 
 
@@ -158,6 +164,8 @@ async def get_business_settings(session: AsyncSession) -> BusinessSettings:
         ],
         field_client_works=value("field_client_works"),
         task_training_bonus_field=value("task_training_bonus_field"),
+        task_1c_type_field=value("task_1c_type_field") or "UF_TYPE_TASK_1C",
+        task_1c_errors_project_id=_to_int(value("task_1c_errors_project_id")),
         field_module=value("field_module") or "ufCrm_1650618044049",
         field_integration_amount=(value("field_integration_amount") or "ufCrm_1728563980697"),
         field_cr_start_commercial_use_date=(value("field_cr_start_commercial_use_date") or "ufCrm_1766747976363"),

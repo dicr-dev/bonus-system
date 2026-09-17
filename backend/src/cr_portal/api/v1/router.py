@@ -1,11 +1,12 @@
 from fastapi import APIRouter
-from cr_portal.api.v1 import auth,bonus,calculations,deals,diagnostics,distribution,employee_month_plan,export,health,kpi,onboarding,reports,settings,sync,users
+from cr_portal.api.v1 import analytics,auth,bonus,calculations,deals,diagnostics,distribution,employee_month_plan,export,health,kpi,onboarding,reports,settings,sync,users
 router=APIRouter()
 router.include_router(health.router,tags=["Health"])
 router.include_router(auth.router,prefix="/auth",tags=["Auth"])
 router.include_router(users.router,prefix="/users",tags=["Users"])
 router.include_router(deals.router,prefix="/deals",tags=["Deals"])
 router.include_router(reports.router,prefix="/reports",tags=["Reports"])
+router.include_router(analytics.router,prefix="/analytics",tags=["Analytics"])
 router.include_router(bonus.router,prefix="/bonus",tags=["Bonus legacy"])
 router.include_router(calculations.router,prefix="/calculations",tags=["Calculations"])
 router.include_router(kpi.router,prefix="/kpi",tags=["KPI"])

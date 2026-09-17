@@ -15,6 +15,12 @@ export interface TimeReportTask { task_bitrix_id:number; title:string; seconds:n
 export interface TimeReportDay { date:string; seconds:number; tasks:TimeReportTask[] }
 export interface TimeReportEmployee { employee_id:string; full_name:string; department_name:string|null; total_seconds:number; days:TimeReportDay[] }
 export interface TimeReport { date_from:string; date_to:string; days:string[]; employees:TimeReportEmployee[] }
+export interface Task1CError { task_bitrix_id:number; title:string; group_id:number|null; responsible_bitrix_id:number|null; creator_id:string; creator_name:string; start_time:string; status:number|null }
+export interface Task1CErrorReport { tasks:Task1CError[] }
+export interface AnalyticsDeal { id:string; bitrix_id:number; title:string; status:string; stage_title:string|null; created_time:string|null; closed_time:string|null; manager_name:string|null }
+export interface DealGroup { key:string; company_id:number|null; company_name:string; module_name:string|null; client_status:string; tech:AnalyticsDeal|null; implementation:AnalyticsDeal|null; support:AnalyticsDeal|null; tech_months:number|null; implementation_months:number|null; subscription_months:number|null }
+export interface DealGroupIssue { type:string; title:string; child_deals:AnalyticsDeal[]; parent:AnalyticsDeal|null; candidates:AnalyticsDeal[] }
+export interface DealGroupsReport { groups:DealGroup[]; issues:DealGroupIssue[] }
 export interface EmployeeMonthPlanDeal { id:string; bitrix_id:number; title:string; module:string|null; machines_count:number; integration_1c:boolean; opportunity:string; monthly_amount:string }
 export interface EmployeeMonthPlan { month:string; available_deals:EmployeeMonthPlanDeal[]; planned_deals:EmployeeMonthPlanDeal[] }
 export interface AdminEmployeeMonthPlanDeal extends EmployeeMonthPlanDeal {
@@ -160,6 +166,8 @@ export interface AppSettings {
   cr_start_implementation_modules:string[]
   field_client_works:string
   task_training_bonus_field:string
+  task_1c_type_field:string
+  task_1c_errors_project_id:number|null
   task_training_yes_value:string
   task_training_date_field:'CLOSED_DATE'|'DEADLINE'
   overtime_project_id:number|null

@@ -14,7 +14,7 @@ from cr_portal.integrations.bitrix.client import BitrixClient
 from cr_portal.models.oauth import BitrixInstallation
 from cr_portal.services.bitrix_sync import sync_deals, sync_users
 from cr_portal.services.bonus import calculate_month
-from cr_portal.services.task_sync import sync_tasks
+from cr_portal.services.task_sync import sync_task_1c_errors, sync_tasks
 
 logger = logging.getLogger(__name__)
 
@@ -110,12 +110,14 @@ async def process_nightly_sync(redis: Redis) -> bool:
                 months=settings.NIGHTLY_TASK_MONTHS,
                 timezone_name=settings.NIGHTLY_SYNC_TIMEZONE,
             )
+            task_1c_error_result = await sync_task_1c_errors(session, client)
 
         finished_at = utc_now()
         nightly_result = {
             "users": users_count,
             "deals": deals_count,
             **task_result,
+            **task_1c_error_result,
             "finished_at": finished_at,
         }
         await redis.set(NIGHTLY_LAST_RESULT_KEY, json.dumps(nightly_result, ensure_ascii=False))
@@ -347,6 +349,7 @@ async def process_job(
                     client,
                     **task_kwargs,
                 )
+                await sync_task_1c_errors(session, client)
                 count = int(task_result["elapsed_items"])
             else:
                 count = await sync_deals(

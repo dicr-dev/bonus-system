@@ -462,6 +462,18 @@ async def sync_deals(
         funnel_map.items()
     )
     salesperson_names: dict[int, str | None] = {}
+    company_names: dict[int, str | None] = {}
+
+    async def company_name(company_id: int | None) -> str | None:
+        if not company_id:
+            return None
+        if company_id not in company_names:
+            try:
+                payload = await client.call("crm.item.get", {"entityTypeId": 4, "id": company_id})
+                company_names[company_id] = str(payload.get("result", {}).get("item", {}).get("title") or "") or None
+            except Exception:
+                company_names[company_id] = None
+        return company_names[company_id]
 
     for index, (
         category_id,
@@ -575,6 +587,8 @@ async def sync_deals(
                 )
                 or ""
             )
+            deal.company_bitrix_id = _int(item.get("companyId")) or None
+            deal.company_name = await company_name(deal.company_bitrix_id)
             deal.module_name = _enum_label(item.get(business.field_module), module_labels)
 
             deal.opportunity = (

@@ -16,12 +16,12 @@ import {BitrixLink,dealUrl,sourceUrl,taskUrl} from './BitrixLink'
 import {
   createManualBonusAdjustment,deleteDealBonusOverride,deleteManualBonusAdjustment,excelUrl,getCalculation,
   getBitrixDealFields,getCalculations,getCurrentUser,getDashboard,getDealBonusOverrides,getDepartmentDeals,getDiagnostics,
-  addEmployeeMonthPlanDeal,getAdminEmployeeMonthPlan,getEmployeeMonthPlan,getEmployees,getKPI,getManualBonusAdjustments,getRules,getSyncJob,getSyncStatus,getTimeReport,getWorkplaceTime,login,logout,removeEmployeeMonthPlanDeal,runCalculation,
+  addEmployeeMonthPlanDeal,autoMatchSupportLinks,getAdminEmployeeMonthPlan,getEmployeeMonthPlan,getEmployees,getKPI,getManualBonusAdjustments,getRules,getSyncJob,getSyncStatus,getTimeReport,getWorkplaceTask1cErrors,getWorkplaceTime,getDealGroups,login,logout,removeEmployeeMonthPlanDeal,runCalculation,saveDealLink,
   runDiagnostics,saveDealBonusOverride,savePlan,startDealsSync,startFullTasksSync,startRecentTasksSync,updateManualBonusAdjustment
 } from './api'
 import type {
   BitrixDealField,Calculation,CalculationDetail,Deal,DealBonusOverride,DealBonusOverrideInput,FunnelSummary,Issue,KPIDeal,
-  AdminEmployeeMonthPlanDeal,EmployeeMonthPlanDeal,KPIPlannedDeal,KPIPartialSubscriptionDeal,ManualBonusAdjustment,ManualBonusAdjustmentInput,ResponsibleSummary,RuleVersion,SyncJob,TimeReportDay,TimeReportEmployee,TimeReportTask
+  AdminEmployeeMonthPlanDeal,AnalyticsDeal,DealGroup,DealGroupIssue,EmployeeMonthPlanDeal,KPIPlannedDeal,KPIPartialSubscriptionDeal,ManualBonusAdjustment,ManualBonusAdjustmentInput,ResponsibleSummary,RuleVersion,SyncJob,Task1CError,TimeReportDay,TimeReportEmployee,TimeReportTask
 } from './types'
 
 const {Header,Content,Sider}=Layout
@@ -523,9 +523,12 @@ function TimeSpentReport({isAdmin}:{isAdmin:boolean}){
  </Space>
 }
 
-function Workplace(){
+function Workplace({isAdmin,canUseTask1cErrors}:{isAdmin:boolean;canUseTask1cErrors:boolean}){
  const [selected,setSelected]=useState<{employee:TimeReportEmployee;day:TimeReportDay}|null>(null)
+ const [creatorId,setCreatorId]=useState<string|undefined>()
  const report=useQuery({queryKey:['workplace-time'],queryFn:getWorkplaceTime})
+ const employees=useQuery({queryKey:['employees'],queryFn:getEmployees,enabled:isAdmin})
+ const taskErrors=useQuery({queryKey:['workplace-task-1c-errors',creatorId],queryFn:()=>getWorkplaceTask1cErrors(creatorId),enabled:canUseTask1cErrors})
  const data=report.data
  const employee=data?.employees[0]
  const columns:ColumnsType<TimeReportEmployee>=[
@@ -537,14 +540,47 @@ function Workplace(){
   {title:'Задача',dataIndex:'title',render:(title,task)=><BitrixLink href={taskUrl(task.task_bitrix_id,task.group_id,task.responsible_bitrix_id)}>{title}</BitrixLink>},
   {title:'Время',dataIndex:'seconds',render:duration,align:'right'}
  ]
+ const taskErrorColumns:ColumnsType<Task1CError>=[
+  {title:'Задача',dataIndex:'title',render:(title,task)=><BitrixLink href={taskUrl(task.task_bitrix_id,task.group_id,task.responsible_bitrix_id)}>{title}</BitrixLink>},
+  ...(isAdmin?[{title:'Постановщик',dataIndex:'creator_name',width:210}]:[]),
+  {title:'Дата начала',dataIndex:'start_time',width:135,render:dateTime},
+  {title:'Статус',dataIndex:'status',width:150,render:(value:number|null)=>({2:'Ждёт выполнения',3:'Выполняется',4:'Ожидает контроля',5:'Завершена',6:'Отложена'}[value??0]||'—')}
+ ]
+ const implementationEmployees=(employees.data??[]).filter(employee=>employee.department_name?.split(';').map(value=>value.trim()).includes('Отдел внедрения'))
  return <Space direction="vertical" size={24} style={{width:'100%'}}>
   <Title level={2}>АРМ</Title>
   <Card title="Учёт времени" extra={<Text type="secondary">Последние 10 дней</Text>}>
    <Text type="secondary">Дни с учётом менее 6 часов выделены красным. Нажмите на время, чтобы открыть список задач.</Text>
    <Table style={{marginTop:16}} rowKey="employee_id" columns={columns} dataSource={employee?[employee]:[]} loading={report.isLoading} pagination={false} scroll={{x:600+(data?.days.length??0)*105}}/>
   </Card>
+  {canUseTask1cErrors&&<Card title="Задачи по 1С — ошибки" extra={isAdmin?<Select allowClear value={creatorId} onChange={setCreatorId} placeholder="Все постановщики" loading={employees.isLoading} options={implementationEmployees.map(employee=>({value:employee.id,label:employee.full_name}))} style={{width:260}}/>:undefined}>
+   <Collapse defaultActiveKey={[]} items={[{key:'tasks',label:<Space><Text strong>Задачи без типа 1С</Text><Text type="secondary">{taskErrors.data?.tasks.length??0} шт.</Text></Space>,children:<Table rowKey="task_bitrix_id" columns={taskErrorColumns} dataSource={taskErrors.data?.tasks??[]} loading={taskErrors.isLoading} pagination={{pageSize:20}} scroll={{x:isAdmin?820:540}}/>}]}/>
+  </Card>}
   <Modal open={Boolean(selected)} title={selected?`${selected.employee.full_name} — ${shortDate(selected.day.date)}`:''} footer={null} onCancel={()=>setSelected(null)} width={800}><Table rowKey="task_bitrix_id" columns={taskColumns} dataSource={selected?.day.tasks??[]} pagination={false}/></Modal>
  </Space>
+}
+
+function DealAnalytics(){
+ const qc=useQueryClient();const report=useQuery({queryKey:['deal-groups'],queryFn:getDealGroups})
+ const [company,setCompany]=useState('');const [module,setModule]=useState<string|undefined>();const [status,setStatus]=useState<string|undefined>();const [manager,setManager]=useState<string|undefined>();const [dateFrom,setDateFrom]=useState('');const [dateTo,setDateTo]=useState('');const [parents,setParents]=useState<Record<string,number|undefined>>({})
+ const reload=()=>void qc.invalidateQueries({queryKey:['deal-groups']})
+ const auto=useMutation({mutationFn:autoMatchSupportLinks,onSuccess:(r:any)=>{message.success(`Сопоставлено: ${r.updated}`);reload()},onError:(e:any)=>message.error(e.response?.data?.detail||'Не удалось выполнить сопоставление')})
+ const save=useMutation({mutationFn:({child,parent}:{child:string;parent:number|undefined})=>saveDealLink(child,parent),onSuccess:()=>{message.success('Связь сохранена в Bitrix');reload()},onError:(e:any)=>message.error(e.response?.data?.detail||'Не удалось сохранить связь')})
+ const groups=report.data?.groups??[];const modules=[...new Set(groups.map(row=>row.module_name).filter(Boolean))] as string[];const managers=[...new Set(groups.flatMap(row=>[row.tech?.manager_name,row.implementation?.manager_name,row.support?.manager_name]).filter(Boolean))] as string[];
+ const groupDate=(row:DealGroup)=>row.tech?.created_time||row.implementation?.created_time||row.support?.created_time||''
+ const rows=groups.filter(row=>{const search=`${row.company_name} ${row.company_id??''}`.toLocaleLowerCase();const d=groupDate(row)?.slice(0,10)||'';return (!company||search.includes(company.toLocaleLowerCase()))&&(!module||row.module_name===module)&&(!status||row.client_status===status)&&(!manager||[row.tech,row.implementation,row.support].some(deal=>deal?.manager_name===manager))&&(!dateFrom||d>=dateFrom)&&(!dateTo||d<=dateTo)})
+ const dealCell=(deal:AnalyticsDeal|null)=>deal?<Space direction="vertical" size={0}><BitrixLink href={dealUrl(deal.bitrix_id)}>{deal.title}</BitrixLink><Text type="secondary">{deal.stage_title||deal.status}</Text></Space>:'—'
+ const columns:ColumnsType<DealGroup>=[
+  {title:'Организация',dataIndex:'company_name',fixed:'left',width:180,render:(name,row)=><>{name}<br/><Text type="secondary">{row.company_id?`ID ${row.company_id}`:'—'}</Text></>},{title:'Модуль',dataIndex:'module_name',width:135,render:value=>value||'—'},
+  {title:'Техинтеграция',dataIndex:'tech',width:250,render:dealCell},{title:'Внедрение',dataIndex:'implementation',width:250,render:dealCell},{title:'Сопровождение',dataIndex:'support',width:250,render:dealCell},
+  {title:'Срок ТИ',dataIndex:'tech_months',width:95,render:value=>value==null?'—':`${value} мес.`},{title:'Срок внедрения',dataIndex:'implementation_months',width:125,render:value=>value==null?'—':`${value} мес.`},{title:'На подписке',dataIndex:'subscription_months',width:110,render:value=>value==null?'—':`${value} мес.`},
+  {title:'Статус клиента',dataIndex:'client_status',width:155},{title:'Ответственный ТИ',dataIndex:['tech','manager_name'],width:180,render:(_:unknown,row)=>row.tech?.manager_name||'—'},{title:'Ответственный внедрения',dataIndex:['implementation','manager_name'],width:190,render:(_:unknown,row)=>row.implementation?.manager_name||'—'},{title:'Ответственный сопровождения',dataIndex:['support','manager_name'],width:205,render:(_:unknown,row)=>row.support?.manager_name||'—'}
+ ]
+ const issueColumns:ColumnsType<DealGroupIssue>=[
+  {title:'Ошибка',dataIndex:'title',width:290},{title:'Сделки',render:(_:unknown,issue)=><Space direction="vertical">{issue.child_deals.map(deal=><BitrixLink key={deal.id} href={dealUrl(deal.bitrix_id)}>{deal.title}</BitrixLink>)}</Space>},
+  {title:'Исправление',width:420,render:(_:unknown,issue)=>{const child=issue.child_deals[0];return child?<Space.Compact style={{width:'100%'}}><Select value={parents[child.id]} onChange={value=>setParents(values=>({...values,[child.id]:value}))} placeholder="Выберите родительскую сделку" style={{width:'100%'}} options={issue.candidates.map(deal=>({value:deal.bitrix_id,label:`${deal.bitrix_id} — ${deal.title}`}))}/><Button type="primary" disabled={!parents[child.id]} loading={save.isPending} onClick={()=>save.mutate({child:child.id,parent:parents[child.id]})}>Сохранить</Button><Button danger loading={save.isPending} onClick={()=>save.mutate({child:child.id,parent:undefined})}>Очистить</Button></Space.Compact>:null}}
+ ]
+ return <Space direction="vertical" size={24} style={{width:'100%'}}><Title level={2}>Аналитика по сделкам</Title><Card><Space wrap><Input value={company} onChange={e=>setCompany(e.target.value)} placeholder="Организация" style={{width:200}}/><Select allowClear value={module} onChange={setModule} placeholder="Модуль" options={modules.map(value=>({value,label:value}))} style={{width:170}}/><Select allowClear value={status} onChange={setStatus} placeholder="Статус клиента" options={['Работает','Не пользуется','Нет сделки Сопровождения'].map(value=>({value,label:value}))} style={{width:190}}/><Select allowClear value={manager} onChange={setManager} placeholder="Менеджер" options={managers.map(value=>({value,label:value}))} style={{width:200}}/><Input type="date" value={dateFrom} onChange={e=>setDateFrom(e.target.value)}/><Input type="date" value={dateTo} onChange={e=>setDateTo(e.target.value)}/></Space></Card><Card><Table rowKey="key" columns={columns} dataSource={rows} loading={report.isLoading} pagination={{pageSize:25}} scroll={{x:2300}}/></Card><Card title="Ошибки связей" extra={<Button onClick={()=>auto.mutate()} loading={auto.isPending}>Автоматически сопоставить Сопровождение</Button>}><Table rowKey={issue=>`${issue.type}:${issue.child_deals.map(deal=>deal.id).join(',')}`} columns={issueColumns} dataSource={report.data?.issues??[]} loading={report.isLoading} pagination={false} scroll={{x:900}}/></Card></Space>
 }
 
 function EmployeeMonthPlanPage(){
@@ -638,11 +674,12 @@ export default function App(){
  if(user.isLoading)return <Card loading/>
  if(user.isError||!user.data)return <Login onSuccess={()=>setAuthVersion(v=>v+1)}/>
  const isAdmin=user.data.is_admin
- const canUseWorkplace=['Отдел внедрения','Разработка 1С'].some(department=>user.data.department_name?.split(';').map(value=>value.trim()).includes(department))
+ const canUseWorkplace=isAdmin||['Отдел внедрения','Разработка 1С'].some(department=>user.data.department_name?.split(';').map(value=>value.trim()).includes(department))
+ const canUseTask1cErrors=isAdmin||user.data.department_name?.split(';').map(value=>value.trim()).includes('Отдел внедрения')===true
  const canUseEmployeeMonthPlan=user.data.department_name?.split(';').map(value=>value.trim()).includes('Отдел внедрения')??false
  const employeePages=['dashboard','bonus','deals','instruction','onboarding','time_report',...(canUseWorkplace?['workplace']:[]),...(canUseEmployeeMonthPlan?['employee_month_plan']:[])]
  const effectivePage=(!isAdmin&&!employeePages.includes(page))||(!canUseWorkplace&&page==='workplace')||(!canUseEmployeeMonthPlan&&page==='employee_month_plan')?'dashboard':page
- const content=({dashboard:<Dashboard isAdmin={isAdmin} userId={user.data.id}/>,kpi:<KPI/>,bonus:<Bonuses isAdmin={isAdmin} userId={user.data.id}/>,deals:<Deals isAdmin={isAdmin} userId={user.data.id}/>,instruction:<InstructionPage/>,onboarding:<OnboardingPage isAdmin={isAdmin}/>,time_report:<TimeSpentReport isAdmin={isAdmin}/>,workplace:<Workplace/>,employee_month_plan:<EmployeeMonthPlanPage/>,admin_employee_month_plan:<AdminEmployeeMonthPlanPage/>,diagnostics:<Diagnostics/>,bitrix_fields:<BitrixFields/>,rules:<Rules/>,settings:<SettingsPage/>,sync:<Sync/>}[effectivePage]??<Dashboard isAdmin={isAdmin} userId={user.data.id}/>)
+ const content=({dashboard:<Dashboard isAdmin={isAdmin} userId={user.data.id}/>,analytics_deals:<DealAnalytics/>,kpi:<KPI/>,bonus:<Bonuses isAdmin={isAdmin} userId={user.data.id}/>,deals:<Deals isAdmin={isAdmin} userId={user.data.id}/>,instruction:<InstructionPage/>,onboarding:<OnboardingPage isAdmin={isAdmin}/>,time_report:<TimeSpentReport isAdmin={isAdmin}/>,workplace:<Workplace isAdmin={isAdmin} canUseTask1cErrors={canUseTask1cErrors}/>,employee_month_plan:<EmployeeMonthPlanPage/>,admin_employee_month_plan:<AdminEmployeeMonthPlanPage/>,diagnostics:<Diagnostics/>,bitrix_fields:<BitrixFields/>,rules:<Rules/>,settings:<SettingsPage/>,sync:<Sync/>}[effectivePage]??<Dashboard isAdmin={isAdmin} userId={user.data.id}/>)
  const employeeMenu=[
   {key:'dashboard',icon:<DashboardOutlined/>,label:'Главная'},
   ...(canUseWorkplace?[{key:'workplace',icon:<DesktopOutlined/>,label:'АРМ'}]:[]),
@@ -655,6 +692,7 @@ export default function App(){
  ]
  const adminMenu=[
   {key:'dashboard',icon:<DashboardOutlined/>,label:'Главная'},{key:'kpi',icon:<TrophyOutlined/>,label:'KPI отдела'},
+  {key:'analytics',icon:<FundOutlined/>,label:'Аналитика',children:[{key:'analytics_deals',label:'Аналитика по сделкам'}]},
   {key:'admin_employee_month_plan',icon:<CalendarOutlined/>,label:'Планы сотрудников'},
   ...(canUseWorkplace?[{key:'workplace',icon:<DesktopOutlined/>,label:'АРМ'}]:[]),
   ...(canUseEmployeeMonthPlan?[{key:'employee_month_plan',icon:<CalendarOutlined/>,label:'План на месяц'}]:[]),

@@ -14,10 +14,12 @@ from cr_portal.repositories.deals import DealRepository
 from cr_portal.schemas.dashboard import DashboardSummary, FunnelSummary, ResponsibleSummary
 from cr_portal.schemas.deals import DealResponse
 from cr_portal.schemas.time_report import TimeReport
+from cr_portal.schemas.task_1c_errors import Task1CErrorReport
 from cr_portal.services.app_settings import get_business_settings
 from cr_portal.services.employee_scope import employee_is_in_kpi_department
 from cr_portal.services.subscriptions import subscription_deals_for_month
 from cr_portal.services.time_report import time_spent_report
+from cr_portal.services.task_1c_errors import task_1c_errors_report
 
 router = APIRouter()
 
@@ -65,6 +67,22 @@ async def workplace_time(
         current_user=user,
         current_user_only=True,
     )
+
+
+@router.get("/workplace-task-1c-errors", response_model=Task1CErrorReport)
+async def workplace_task_1c_errors(
+    employee_id: UUID | None = None,
+    user=Depends(current_user),
+    session: AsyncSession = Depends(db_session),
+):
+    try:
+        return await task_1c_errors_report(
+            session,
+            current_user=user,
+            employee_id=employee_id,
+        )
+    except PermissionError as exc:
+        raise HTTPException(403, str(exc)) from exc
 
 
 @router.get("/my-deals-in-work", response_model=list[DealResponse])
