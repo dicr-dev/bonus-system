@@ -38,6 +38,23 @@ def months_between(start: datetime | None, end: datetime | None) -> int | None:
     return max(0, (end.year - start.year) * 12 + end.month - start.month - (end.day < start.day))
 
 
+def source_deal_ids(deal: Deal, source_field: str) -> list[int]:
+    value = _raw(deal).get(source_field) if source_field else None
+    values = value if isinstance(value, list) else [value]
+    result: list[int] = []
+    for item in values:
+        raw = str(item or "").strip()
+        if raw.upper().startswith("D_"):
+            raw = raw[2:]
+        try:
+            bitrix_id = int(raw)
+        except (TypeError, ValueError):
+            continue
+        if bitrix_id not in result:
+            result.append(bitrix_id)
+    return result
+
+
 def _deal_row(deal: Deal | None, managers: dict) -> dict | None:
     if deal is None:
         return None
@@ -49,20 +66,23 @@ def _deal_row(deal: Deal | None, managers: dict) -> dict | None:
     }
 
 
-async def deal_groups_report(session: AsyncSession, billing_start_field: str) -> dict:
+async def deal_groups_report(session: AsyncSession, billing_start_field: str, source_deal_field: str) -> dict:
     deals = list((await session.execute(select(Deal).where(Deal.funnel.in_(("tech_integration", "implementation", "support"))))).scalars())
     users = {user.id: user.full_name for user in (await session.execute(select(User))).scalars()}
     tech = {deal.bitrix_id: deal for deal in deals if deal.funnel == "tech_integration"}
     implementations = [deal for deal in deals if deal.funnel == "implementation"]
     supports = [deal for deal in deals if deal.funnel == "support"]
+    implementation_ids = {deal.bitrix_id for deal in implementations}
     implementations_by_parent: dict[int, list[Deal]] = defaultdict(list)
     supports_by_parent: dict[int, list[Deal]] = defaultdict(list)
     for deal in implementations:
-        if deal.source_deal_bitrix_id:
-            implementations_by_parent[deal.source_deal_bitrix_id].append(deal)
+        for parent_id in source_deal_ids(deal, source_deal_field):
+            if parent_id in tech:
+                implementations_by_parent[parent_id].append(deal)
     for deal in supports:
-        if deal.source_deal_bitrix_id:
-            supports_by_parent[deal.source_deal_bitrix_id].append(deal)
+        for parent_id in source_deal_ids(deal, source_deal_field):
+            if parent_id in implementation_ids:
+                supports_by_parent[parent_id].append(deal)
     tech_candidates: dict[tuple[int | None, str | None, str], list[Deal]] = defaultdict(list)
     implementation_candidates: dict[tuple[int | None, str | None, str], list[Deal]] = defaultdict(list)
     tech_by_company_module: dict[tuple[int | None, str | None], list[Deal]] = defaultdict(list)
@@ -131,7 +151,7 @@ async def deal_groups_report(session: AsyncSession, billing_start_field: str) ->
         if support:
             used_supports.add(support.bitrix_id)
         rows.append(make_row(None, implementation, support))
-        if not implementation.source_deal_bitrix_id or implementation.source_deal_bitrix_id not in tech:
+        if not any(parent_id in tech for parent_id in source_deal_ids(implementation, source_deal_field)):
             key = (company_id(implementation), implementation.module_name, normalized_title(implementation.title))
             issues.append({"type": "implementation_without_tech", "title": "Внедрение без корректной ссылки на Техинтеграцию", "child_deals": [_deal_row(implementation, users)], "parent": None, "candidates": [_deal_row(candidate, users) for candidate in tech_by_company_module.get(key[:2], [])]})
     for support in supports:

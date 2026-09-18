@@ -464,16 +464,32 @@ async def sync_deals(
     salesperson_names: dict[int, str | None] = {}
     company_names: dict[int, str | None] = {}
 
-    async def company_name(company_id: int | None) -> str | None:
-        if not company_id:
-            return None
-        if company_id not in company_names:
+    async def load_company_names(company_ids: set[int]) -> None:
+        """Load company titles in batches instead of a REST request per deal."""
+        missing_ids = [company_id for company_id in company_ids if company_id and company_id not in company_names]
+        for offset in range(0, len(missing_ids), 50):
+            batch = missing_ids[offset:offset + 50]
             try:
-                payload = await client.call("crm.item.get", {"entityTypeId": 4, "id": company_id})
-                company_names[company_id] = str(payload.get("result", {}).get("item", {}).get("title") or "") or None
+                companies = await client.call_all(
+                    "crm.item.list",
+                    {
+                        "entityTypeId": 4,
+                        "select": ["id", "title"],
+                        "filter": {"@id": batch},
+                    },
+                )
+                found_ids: set[int] = set()
+                for company in companies:
+                    company_id = _int(company.get("id"))
+                    if company_id:
+                        company_names[company_id] = str(company.get("title") or "") or None
+                        found_ids.add(company_id)
+                for company_id in batch:
+                    if company_id not in found_ids:
+                        company_names[company_id] = None
             except Exception:
-                company_names[company_id] = None
-        return company_names[company_id]
+                for company_id in batch:
+                    company_names[company_id] = None
 
     for index, (
         category_id,
@@ -511,6 +527,7 @@ async def sync_deals(
                     filter_data,
             },
         )
+        await load_company_names({_int(item.get("companyId")) for item in items})
 
         for item in items:
             raw_id = item.get(
@@ -588,7 +605,7 @@ async def sync_deals(
                 or ""
             )
             deal.company_bitrix_id = _int(item.get("companyId")) or None
-            deal.company_name = await company_name(deal.company_bitrix_id)
+            deal.company_name = company_names.get(deal.company_bitrix_id) if deal.company_bitrix_id else None
             deal.module_name = _enum_label(item.get(business.field_module), module_labels)
 
             deal.opportunity = (

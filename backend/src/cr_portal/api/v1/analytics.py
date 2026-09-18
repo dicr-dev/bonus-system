@@ -1,6 +1,7 @@
 import json
 from uuid import UUID
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -19,10 +20,29 @@ class AutoMatchRequest(BaseModel):
     support_ids: list[UUID]
 
 
+def _source_deal_value(bitrix_id: int | None) -> list[str]:
+    """The configured Bitrix CRM field is multiple and stores deals as D_<id>."""
+    return [f"D_{bitrix_id}"] if bitrix_id is not None else []
+
+
+async def _save_source_link(client: BitrixClient, child: Deal, field_code: str, parent_bitrix_id: int | None) -> None:
+    try:
+        await client.call(
+            "crm.item.update",
+            {
+                "entityTypeId": 2,
+                "id": child.bitrix_id,
+                "fields": {field_code: _source_deal_value(parent_bitrix_id)},
+            },
+        )
+    except (httpx.HTTPError, RuntimeError) as error:
+        raise HTTPException(422, f"Bitrix не принял связь сделки: {error}") from error
+
+
 @router.get("/deal-groups")
 async def deal_groups(session: AsyncSession = Depends(db_session), _admin=Depends(admin_user)):
     business = await get_business_settings(session)
-    return await deal_groups_report(session, business.field_billing_start_date)
+    return await deal_groups_report(session, business.field_billing_start_date, business.field_source_deal_id)
 
 
 @router.put("/deal-links/{child_id}")
@@ -38,10 +58,10 @@ async def save_deal_link(child_id: UUID, parent_bitrix_id: int | None, session: 
     business = await get_business_settings(session)
     if not business.field_source_deal_id:
         raise HTTPException(422, "Не задано поле ссылки на исходную сделку")
-    await client.call("crm.item.update", {"entityTypeId": 2, "id": child.bitrix_id, "fields": {business.field_source_deal_id: parent_bitrix_id}})
+    await _save_source_link(client, child, business.field_source_deal_id, parent_bitrix_id)
     child.source_deal_bitrix_id = parent_bitrix_id
     raw = json.loads(child.raw_json or "{}")
-    raw[business.field_source_deal_id] = parent_bitrix_id
+    raw[business.field_source_deal_id] = _source_deal_value(parent_bitrix_id)
     child.raw_json = json.dumps(raw, ensure_ascii=False)
     await session.commit()
     return {"ok": True}
@@ -49,7 +69,7 @@ async def save_deal_link(child_id: UUID, parent_bitrix_id: int | None, session: 
 
 async def _auto_match_candidates(session: AsyncSession) -> list[dict]:
     business = await get_business_settings(session)
-    report = await deal_groups_report(session, business.field_billing_start_date)
+    report = await deal_groups_report(session, business.field_billing_start_date, business.field_source_deal_id)
     return [
         {"support": issue["child_deals"][0], "implementation": issue["auto_candidate"]}
         for issue in report["issues"]
@@ -77,10 +97,10 @@ async def auto_match_support_links(data: AutoMatchRequest, session: AsyncSession
         parent_id = item["implementation"]["bitrix_id"]
         if child is None:
             continue
-        await client.call("crm.item.update", {"entityTypeId": 2, "id": child.bitrix_id, "fields": {business.field_source_deal_id: parent_id}})
+        await _save_source_link(client, child, business.field_source_deal_id, parent_id)
         child.source_deal_bitrix_id = parent_id
         raw = json.loads(child.raw_json or "{}")
-        raw[business.field_source_deal_id] = parent_id
+        raw[business.field_source_deal_id] = _source_deal_value(parent_id)
         child.raw_json = json.dumps(raw, ensure_ascii=False)
         updated += 1
     await session.commit()
