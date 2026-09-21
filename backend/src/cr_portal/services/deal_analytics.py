@@ -2,12 +2,17 @@ import json
 import re
 from collections import defaultdict
 from datetime import UTC, datetime
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from cr_portal.models.deal import Deal
 from cr_portal.models.user import User
+from cr_portal.services.app_settings import get_business_settings
+from cr_portal.services.bonus import raw_date
+
+MOSCOW = ZoneInfo("Europe/Moscow")
 
 
 def _raw(deal: Deal) -> dict:
@@ -55,6 +60,24 @@ def source_deal_ids(deal: Deal, source_field: str) -> list[int]:
     return result
 
 
+def matching_source_ids(deal: Deal, source_field: str, parents: dict[int, Deal]) -> list[int]:
+    """Return source links of the expected funnel and the same module.
+
+    Bitrix retains the whole historical chain in the multiple source field,
+    so a deal can reference earlier stages belonging to another module.
+    """
+    return [
+        parent_id
+        for parent_id in source_deal_ids(deal, source_field)
+        if parent_id in parents
+        and (
+            not deal.module_name
+            or not parents[parent_id].module_name
+            or parents[parent_id].module_name == deal.module_name
+        )
+    ]
+
+
 def _deal_row(deal: Deal | None, managers: dict) -> dict | None:
     if deal is None:
         return None
@@ -72,17 +95,15 @@ async def deal_groups_report(session: AsyncSession, billing_start_field: str, so
     tech = {deal.bitrix_id: deal for deal in deals if deal.funnel == "tech_integration"}
     implementations = [deal for deal in deals if deal.funnel == "implementation"]
     supports = [deal for deal in deals if deal.funnel == "support"]
-    implementation_ids = {deal.bitrix_id for deal in implementations}
+    implementation_map = {deal.bitrix_id: deal for deal in implementations}
     implementations_by_parent: dict[int, list[Deal]] = defaultdict(list)
     supports_by_parent: dict[int, list[Deal]] = defaultdict(list)
     for deal in implementations:
-        for parent_id in source_deal_ids(deal, source_deal_field):
-            if parent_id in tech:
-                implementations_by_parent[parent_id].append(deal)
+        for parent_id in matching_source_ids(deal, source_deal_field, tech):
+            implementations_by_parent[parent_id].append(deal)
     for deal in supports:
-        for parent_id in source_deal_ids(deal, source_deal_field):
-            if parent_id in implementation_ids:
-                supports_by_parent[parent_id].append(deal)
+        for parent_id in matching_source_ids(deal, source_deal_field, implementation_map):
+            supports_by_parent[parent_id].append(deal)
     tech_candidates: dict[tuple[int | None, str | None, str], list[Deal]] = defaultdict(list)
     implementation_candidates: dict[tuple[int | None, str | None, str], list[Deal]] = defaultdict(list)
     tech_by_company_module: dict[tuple[int | None, str | None], list[Deal]] = defaultdict(list)
@@ -151,11 +172,18 @@ async def deal_groups_report(session: AsyncSession, billing_start_field: str, so
         if support:
             used_supports.add(support.bitrix_id)
         rows.append(make_row(None, implementation, support))
-        if not any(parent_id in tech for parent_id in source_deal_ids(implementation, source_deal_field)):
+        if not matching_source_ids(implementation, source_deal_field, tech):
             key = (company_id(implementation), implementation.module_name, normalized_title(implementation.title))
-            issues.append({"type": "implementation_without_tech", "title": "Внедрение без корректной ссылки на Техинтеграцию", "child_deals": [_deal_row(implementation, users)], "parent": None, "candidates": [_deal_row(candidate, users) for candidate in tech_by_company_module.get(key[:2], [])]})
+            exact_candidates = tech_candidates.get(key, [])
+            issues.append({"type": "implementation_without_tech", "title": "Внедрение без корректной ссылки на Техинтеграцию", "child_deals": [_deal_row(implementation, users)], "parent": None, "candidates": [_deal_row(candidate, users) for candidate in tech_by_company_module.get(key[:2], [])], "auto_candidate": _deal_row(exact_candidates[0], users) if len(exact_candidates) == 1 else None})
+        if len(linked_supports) > 1:
+            for item in linked_supports:
+                key = (company_id(item), item.module_name, normalized_title(item.title))
+                issues.append({"type": "multiple_supports", "title": "У Внедрения несколько сделок Сопровождения", "child_deals": [_deal_row(item, users)], "parent": _deal_row(implementation, users), "candidates": [_deal_row(candidate, users) for candidate in implementation_by_company_module.get(key[:2], [])]})
     for support in supports:
         if support.bitrix_id in used_supports:
+            continue
+        if matching_source_ids(support, source_deal_field, implementation_map):
             continue
         key = (company_id(support), support.module_name, normalized_title(support.title))
         exact_candidates = implementation_candidates.get(key, [])
@@ -163,3 +191,43 @@ async def deal_groups_report(session: AsyncSession, billing_start_field: str, so
         issues.append({"type": "support_without_implementation", "title": "Сопровождение без ссылки на Внедрение", "child_deals": [_deal_row(support, users)], "parent": None, "candidates": [_deal_row(item, users) for item in candidates], "auto_candidate": _deal_row(exact_candidates[0], users) if len(exact_candidates) == 1 else None})
         rows.append(make_row(None, None, support))
     return {"groups": rows, "issues": issues}
+
+
+async def deals_in_work_report(session: AsyncSession) -> dict:
+    business = await get_business_settings(session)
+    deals = list(
+        (
+            await session.execute(
+                select(Deal)
+                .where(
+                    Deal.status == "in_progress",
+                    Deal.funnel.in_(("tech_integration", "implementation")),
+                )
+                .order_by(Deal.funnel, Deal.title, Deal.bitrix_id)
+            )
+        ).scalars().all()
+    )
+    users = {user.id: user.full_name for user in (await session.execute(select(User))).scalars()}
+    today = datetime.now(MOSCOW).date()
+
+    def item(deal: Deal) -> dict:
+        planned_billing = raw_date(deal, business.field_implementation_planned_billing_start)
+        planned_subscription = raw_date(deal, business.field_implementation_planned_subscription)
+        calculated_subscription = raw_date(deal, business.field_planned_subscription_date)
+        return {
+            "id": str(deal.id),
+            "bitrix_id": deal.bitrix_id,
+            "title": deal.title,
+            "implementation_responsible_name": users.get(deal.implementation_responsible_user_id),
+            "funnel": deal.funnel,
+            "first_training_delay_days": (today - planned_billing).days if planned_billing else None,
+            "implementation_completion_delay_days": (calculated_subscription - planned_billing).days if calculated_subscription and planned_billing else None,
+            "implementation_planned_billing_start": planned_billing,
+            "implementation_planned_subscription": planned_subscription,
+            "planned_subscription_date": calculated_subscription,
+        }
+
+    return {
+        "tech_integration": [item(deal) for deal in deals if deal.funnel == "tech_integration"],
+        "implementation": [item(deal) for deal in deals if deal.funnel == "implementation"],
+    }

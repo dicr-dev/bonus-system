@@ -16,12 +16,12 @@ import {BitrixLink,dealUrl,sourceUrl,taskUrl} from './BitrixLink'
 import {
   createManualBonusAdjustment,deleteDealBonusOverride,deleteManualBonusAdjustment,excelUrl,getCalculation,
   getBitrixDealFields,getCalculations,getCurrentUser,getDashboard,getDealBonusOverrides,getDepartmentDeals,getDiagnostics,
-  addEmployeeMonthPlanDeal,autoMatchSupportLinks,getAdminEmployeeMonthPlan,getEmployeeMonthPlan,getEmployees,getKPI,getManualBonusAdjustments,getRules,getSyncJob,getSyncStatus,getTimeReport,getWorkplaceTask1cErrors,getWorkplaceTime,getDealGroups,getSupportAutoMatchPreview,login,logout,removeEmployeeMonthPlanDeal,runCalculation,saveDealLink,
+  addEmployeeMonthPlanDeal,autoMatchSupportLinks,getAdminEmployeeMonthPlan,getEmployeeMonthPlan,getEmployees,getKPI,getManualBonusAdjustments,getRules,getSyncJob,getSyncStatus,getTimeReport,getWorkplaceTask1cErrors,getWorkplaceTime,getDealGroups,getDealsInWork,getSupportAutoMatchPreview,login,logout,removeEmployeeMonthPlanDeal,runCalculation,saveDealLink,
   runDiagnostics,saveDealBonusOverride,savePlan,startDealsSync,startFullTasksSync,startRecentTasksSync,updateManualBonusAdjustment
 } from './api'
 import type {
   BitrixDealField,Calculation,CalculationDetail,Deal,DealBonusOverride,DealBonusOverrideInput,FunnelSummary,Issue,KPIDeal,
-  AdminEmployeeMonthPlanDeal,AnalyticsDeal,DealGroup,DealGroupIssue,EmployeeMonthPlanDeal,KPIPlannedDeal,KPIPartialSubscriptionDeal,ManualBonusAdjustment,ManualBonusAdjustmentInput,ResponsibleSummary,RuleVersion,SupportAutoMatchPreview,SyncJob,Task1CError,TimeReportDay,TimeReportEmployee,TimeReportTask
+  AdminEmployeeMonthPlanDeal,AnalyticsDeal,DealGroup,DealGroupIssue,DealInWork,EmployeeMonthPlanDeal,KPIPlannedDeal,KPIPartialSubscriptionDeal,ManualBonusAdjustment,ManualBonusAdjustmentInput,ResponsibleSummary,RuleVersion,SupportAutoMatchPreview,SyncJob,Task1CError,TimeReportDay,TimeReportEmployee,TimeReportTask
 } from './types'
 
 const {Header,Content,Sider}=Layout
@@ -562,7 +562,7 @@ function Workplace({isAdmin,canUseTask1cErrors}:{isAdmin:boolean;canUseTask1cErr
 
 function DealAnalytics(){
  const qc=useQueryClient();const report=useQuery({queryKey:['deal-groups'],queryFn:getDealGroups})
- const [company,setCompany]=useState('');const [module,setModule]=useState<string|undefined>();const [status,setStatus]=useState<string|undefined>();const [manager,setManager]=useState<string|undefined>();const [dateFrom,setDateFrom]=useState('');const [dateTo,setDateTo]=useState('');const [parents,setParents]=useState<Record<string,number|undefined>>({});const [previewOpen,setPreviewOpen]=useState(false);const [selectedAutoIds,setSelectedAutoIds]=useState<string[]>([]);const [previewPageSize,setPreviewPageSize]=useState(10)
+ const [company,setCompany]=useState('');const [module,setModule]=useState<string|undefined>();const [status,setStatus]=useState<string|undefined>();const [manager,setManager]=useState<string|undefined>();const [dateFrom,setDateFrom]=useState('');const [dateTo,setDateTo]=useState('');const [parents,setParents]=useState<Record<string,number|undefined>>({});const [previewOpen,setPreviewOpen]=useState(false);const [selectedAutoIds,setSelectedAutoIds]=useState<string[]>([]);const [previewPageSize,setPreviewPageSize]=useState(10);const [previewPage,setPreviewPage]=useState(1)
  const reload=()=>void qc.invalidateQueries({queryKey:['deal-groups']})
  const preview=useQuery({queryKey:['support-auto-match-preview'],queryFn:getSupportAutoMatchPreview,enabled:previewOpen})
  const auto=useMutation({mutationFn:autoMatchSupportLinks,onSuccess:(r:any)=>{message.success(`Сопоставлено: ${r.updated}`);setPreviewOpen(false);setSelectedAutoIds([]);reload()},onError:(e:any)=>message.error(e.response?.data?.detail||'Не удалось выполнить сопоставление')})
@@ -582,11 +582,32 @@ function DealAnalytics(){
   {title:'Исправление',width:420,render:(_:unknown,issue)=>{const child=issue.child_deals[0];return child?<Space.Compact style={{width:'100%'}}><Select value={parents[child.id]} onChange={value=>setParents(values=>({...values,[child.id]:value}))} placeholder="Выберите родительскую сделку" style={{width:'100%'}} options={issue.candidates.map(deal=>({value:deal.bitrix_id,label:`${deal.bitrix_id} — ${deal.title}`}))}/><Button type="primary" disabled={!parents[child.id]} loading={save.isPending} onClick={()=>save.mutate({child:child.id,parent:parents[child.id]})}>Сохранить</Button><Button danger loading={save.isPending} onClick={()=>save.mutate({child:child.id,parent:undefined})}>Очистить</Button></Space.Compact>:null}}
  ]
  const previewColumns:ColumnsType<SupportAutoMatchPreview>=[
-  {title:'Сделка Сопровождения',dataIndex:'support',render:deal=><BitrixLink href={dealUrl(deal.bitrix_id)}>{deal.title}</BitrixLink>},
-  {title:'Будет связана с Внедрением',dataIndex:'implementation',render:deal=><BitrixLink href={dealUrl(deal.bitrix_id)}>{deal.title}</BitrixLink>}
+  {title:'Связь',dataIndex:'relation',width:210},
+  {title:'Сделка',dataIndex:'child',render:deal=><BitrixLink href={dealUrl(deal.bitrix_id)}>{deal.title}</BitrixLink>},
+  {title:'Будет связана с',dataIndex:'parent',render:deal=><BitrixLink href={dealUrl(deal.bitrix_id)}>{deal.title}</BitrixLink>}
  ]
- const previewRows=preview.data?.items??[]
- return <Space direction="vertical" size={24} style={{width:'100%'}}><Title level={2}>Аналитика по сделкам</Title><Card><Space wrap><Input value={company} onChange={e=>setCompany(e.target.value)} placeholder="Организация" style={{width:200}}/><Select allowClear value={module} onChange={setModule} placeholder="Модуль" options={modules.map(value=>({value,label:value}))} style={{width:170}}/><Select allowClear value={status} onChange={setStatus} placeholder="Статус клиента" options={['Работает','Не пользуется','Нет сделки Сопровождения'].map(value=>({value,label:value}))} style={{width:190}}/><Select allowClear value={manager} onChange={setManager} placeholder="Менеджер" options={managers.map(value=>({value,label:value}))} style={{width:200}}/><Input type="date" value={dateFrom} onChange={e=>setDateFrom(e.target.value)}/><Input type="date" value={dateTo} onChange={e=>setDateTo(e.target.value)}/></Space></Card><Card><Table rowKey="key" columns={columns} dataSource={rows} loading={report.isLoading} pagination={{pageSize:25}} scroll={{x:2300}}/></Card><Card title="Ошибки связей" extra={<Button onClick={()=>{setSelectedAutoIds([]);setPreviewOpen(true)}}>Показать автосопоставления</Button>}><Table rowKey={issue=>`${issue.type}:${issue.child_deals.map(deal=>deal.id).join(',')}`} columns={issueColumns} dataSource={report.data?.issues??[]} loading={report.isLoading} pagination={false} scroll={{x:900}}/></Card><Modal open={previewOpen} title="Предварительный список автосопоставлений" width={980} onCancel={()=>setPreviewOpen(false)} onOk={()=>auto.mutate(selectedAutoIds)} okText={`Сопоставить выбранные (${selectedAutoIds.length})`} okButtonProps={{disabled:!selectedAutoIds.length,loading:auto.isPending}}><Space direction="vertical" style={{width:'100%'}} size={16}><Alert type="info" message="В списке только пары с единственным точным совпадением: организация, модуль и название. Выберите 2–4 сделки для проверки или любое нужное количество."/><Table rowKey={row=>row.support.id} columns={previewColumns} dataSource={previewRows} loading={preview.isLoading} pagination={{pageSize:previewPageSize,showSizeChanger:true,pageSizeOptions:[10,20,50,100],onChange:(_,pageSize)=>setPreviewPageSize(pageSize)}} rowSelection={{selectedRowKeys:selectedAutoIds,onChange:keys=>setSelectedAutoIds(keys.map(String))}}/></Space></Modal></Space>
+ const allPreviewRows=preview.data?.items??[];const previewRows=allPreviewRows.slice(0,previewPageSize)
+ return <Space direction="vertical" size={24} style={{width:'100%'}}><Title level={2}>Аналитика по сделкам</Title><Card><Space wrap><Input value={company} onChange={e=>setCompany(e.target.value)} placeholder="Организация" style={{width:200}}/><Select allowClear value={module} onChange={setModule} placeholder="Модуль" options={modules.map(value=>({value,label:value}))} style={{width:170}}/><Select allowClear value={status} onChange={setStatus} placeholder="Статус клиента" options={['Работает','Не пользуется','Нет сделки Сопровождения'].map(value=>({value,label:value}))} style={{width:190}}/><Select allowClear value={manager} onChange={setManager} placeholder="Менеджер" options={managers.map(value=>({value,label:value}))} style={{width:200}}/><Input type="date" value={dateFrom} onChange={e=>setDateFrom(e.target.value)}/><Input type="date" value={dateTo} onChange={e=>setDateTo(e.target.value)}/></Space></Card><Card><Table rowKey="key" columns={columns} dataSource={rows} loading={report.isLoading} pagination={{pageSize:25}} scroll={{x:2300}}/></Card><Card title="Ошибки связей" extra={<Button onClick={()=>{setSelectedAutoIds([]);setPreviewPage(1);setPreviewOpen(true)}}>Показать автосопоставления</Button>}><Table rowKey={issue=>`${issue.type}:${issue.child_deals.map(deal=>deal.id).join(',')}`} columns={issueColumns} dataSource={report.data?.issues??[]} loading={report.isLoading} pagination={false} scroll={{x:900}}/></Card><Modal open={previewOpen} title="Предварительный список автосопоставлений" width={980} onCancel={()=>setPreviewOpen(false)} onOk={()=>auto.mutate(selectedAutoIds)} okText={`Сопоставить выбранные (${selectedAutoIds.length})`} okButtonProps={{disabled:!selectedAutoIds.length,loading:auto.isPending}}><Space direction="vertical" style={{width:'100%'}} size={16}><Alert type="info" message="В списке только пары с единственным точным совпадением по организации, модулю и названию. Выберите нужные сделки и сохраните связи в Bitrix."/><Table rowKey={row=>row.child.id} columns={previewColumns} dataSource={previewRows} loading={preview.isLoading} pagination={{current:previewPage,pageSize:previewPageSize,showSizeChanger:true,pageSizeOptions:[10,20,50,100],onChange:(page,pageSize)=>{setPreviewPage(page);setPreviewPageSize(pageSize)},onShowSizeChange:(_,pageSize)=>{setPreviewPage(1);setPreviewPageSize(pageSize)}}} rowSelection={{selectedRowKeys:selectedAutoIds,onChange:keys=>setSelectedAutoIds(keys.map(String))}}/></Space></Modal></Space>
+}
+
+function DealsInWork(){
+ const report=useQuery({queryKey:['deals-in-work'],queryFn:getDealsInWork})
+ const days=(value:number|null)=>value===null?'—':<Text type={value>0?'danger':'success'}>{value}</Text>
+ const columns:ColumnsType<DealInWork>=[
+  {title:'Название сделки',dataIndex:'title',width:290,render:(title,deal)=><BitrixLink href={dealUrl(deal.bitrix_id)}>{title}</BitrixLink>},
+  {title:'Ответственный за внедрение',dataIndex:'implementation_responsible_name',width:190,render:value=>value||'—'},
+  {title:'Воронка',dataIndex:'funnel',width:150,render:funnel},
+  {title:'Кол-во дней опоздания на первое обучение',dataIndex:'first_training_delay_days',width:180,align:'center',render:days},
+  {title:'Кол-во дней опоздания от плана завершения внедрения',dataIndex:'implementation_completion_delay_days',width:190,align:'center',render:days},
+  {title:'Внедрение: Плановая дата начала списаний',dataIndex:'implementation_planned_billing_start',width:175,render:value=>value?shortDate(value):'—'},
+  {title:'Внедрение: Плановая дата перевода на подписку',dataIndex:'implementation_planned_subscription',width:185,render:value=>value?shortDate(value):'—'},
+  {title:'Расчетная дата перевода на подписку',dataIndex:'planned_subscription_date',width:170,render:value=>value?shortDate(value):'—'}
+ ]
+ const data=report.data
+ return <Space direction="vertical" size={24} style={{width:'100%'}}><Title level={2}>Сделки в работе</Title><Text type="secondary">Положительное число означает просрочку и выделено красным; отрицательное — запас по сроку и выделено зелёным.</Text><Collapse defaultActiveKey={[]} items={[
+  {key:'tech',label:<Space><Text strong>Техинтеграция</Text><Text type="secondary">{data?.tech_integration.length??0} сделок</Text></Space>,children:<Table rowKey="id" columns={columns} dataSource={data?.tech_integration??[]} loading={report.isLoading} pagination={{pageSize:25}} scroll={{x:1500}}/>},
+  {key:'implementation',label:<Space><Text strong>Внедрение</Text><Text type="secondary">{data?.implementation.length??0} сделок</Text></Space>,children:<Table rowKey="id" columns={columns} dataSource={data?.implementation??[]} loading={report.isLoading} pagination={{pageSize:25}} scroll={{x:1500}}/>}
+ ]}/></Space>
 }
 
 function EmployeeMonthPlanPage(){
@@ -685,7 +706,7 @@ export default function App(){
  const canUseEmployeeMonthPlan=user.data.department_name?.split(';').map(value=>value.trim()).includes('Отдел внедрения')??false
  const employeePages=['dashboard','bonus','deals','instruction','onboarding','time_report',...(canUseWorkplace?['workplace']:[]),...(canUseEmployeeMonthPlan?['employee_month_plan']:[])]
  const effectivePage=(!isAdmin&&!employeePages.includes(page))||(!canUseWorkplace&&page==='workplace')||(!canUseEmployeeMonthPlan&&page==='employee_month_plan')?'dashboard':page
- const content=({dashboard:<Dashboard isAdmin={isAdmin} userId={user.data.id}/>,analytics_deals:<DealAnalytics/>,kpi:<KPI/>,bonus:<Bonuses isAdmin={isAdmin} userId={user.data.id}/>,deals:<Deals isAdmin={isAdmin} userId={user.data.id}/>,instruction:<InstructionPage/>,onboarding:<OnboardingPage isAdmin={isAdmin}/>,time_report:<TimeSpentReport isAdmin={isAdmin}/>,workplace:<Workplace isAdmin={isAdmin} canUseTask1cErrors={canUseTask1cErrors}/>,employee_month_plan:<EmployeeMonthPlanPage/>,admin_employee_month_plan:<AdminEmployeeMonthPlanPage/>,diagnostics:<Diagnostics/>,bitrix_fields:<BitrixFields/>,rules:<Rules/>,settings:<SettingsPage/>,sync:<Sync/>}[effectivePage]??<Dashboard isAdmin={isAdmin} userId={user.data.id}/>)
+ const content=({dashboard:<Dashboard isAdmin={isAdmin} userId={user.data.id}/>,analytics_deals:<DealAnalytics/>,analytics_work:<DealsInWork/>,kpi:<KPI/>,bonus:<Bonuses isAdmin={isAdmin} userId={user.data.id}/>,deals:<Deals isAdmin={isAdmin} userId={user.data.id}/>,instruction:<InstructionPage/>,onboarding:<OnboardingPage isAdmin={isAdmin}/>,time_report:<TimeSpentReport isAdmin={isAdmin}/>,workplace:<Workplace isAdmin={isAdmin} canUseTask1cErrors={canUseTask1cErrors}/>,employee_month_plan:<EmployeeMonthPlanPage/>,admin_employee_month_plan:<AdminEmployeeMonthPlanPage/>,diagnostics:<Diagnostics/>,bitrix_fields:<BitrixFields/>,rules:<Rules/>,settings:<SettingsPage/>,sync:<Sync/>}[effectivePage]??<Dashboard isAdmin={isAdmin} userId={user.data.id}/>)
  const employeeMenu=[
   {key:'dashboard',icon:<DashboardOutlined/>,label:'Главная'},
   ...(canUseWorkplace?[{key:'workplace',icon:<DesktopOutlined/>,label:'АРМ'}]:[]),
@@ -698,7 +719,7 @@ export default function App(){
  ]
  const adminMenu=[
   {key:'dashboard',icon:<DashboardOutlined/>,label:'Главная'},{key:'kpi',icon:<TrophyOutlined/>,label:'KPI отдела'},
-  {key:'analytics',icon:<FundOutlined/>,label:'Аналитика',children:[{key:'analytics_deals',label:'Аналитика по сделкам'}]},
+  {key:'analytics',icon:<FundOutlined/>,label:'Аналитика',children:[{key:'analytics_deals',label:'Аналитика по сделкам'},{key:'analytics_work',label:'Сделки в работе'}]},
   {key:'admin_employee_month_plan',icon:<CalendarOutlined/>,label:'Планы сотрудников'},
   ...(canUseWorkplace?[{key:'workplace',icon:<DesktopOutlined/>,label:'АРМ'}]:[]),
   ...(canUseEmployeeMonthPlan?[{key:'employee_month_plan',icon:<CalendarOutlined/>,label:'План на месяц'}]:[]),

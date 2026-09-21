@@ -140,6 +140,11 @@ async def dashboard(
     user_scope = (
         [] if user.is_admin else [Deal.implementation_responsible_user_id == user.id]
     )
+    active_deal_scope = [
+        Deal.status == "in_progress",
+        Deal.funnel.in_(("tech_integration", "implementation")),
+        *user_scope,
+    ]
     subscription_deals = await subscription_deals_for_month(
         session,
         business,
@@ -162,7 +167,7 @@ async def dashboard(
                 func.coalesce(func.sum(Deal.monthly_amount), 0),
                 func.coalesce(func.sum(Deal.machines_count), 0),
                 func.count(Deal.id).filter(Deal.integration_1c.is_(True)),
-            ).where(Deal.status == "in_progress", *user_scope)
+            ).where(*active_deal_scope)
         )
     ).one()
 
@@ -174,7 +179,7 @@ async def dashboard(
             func.coalesce(func.sum(Deal.machines_count), 0),
             func.count(Deal.id).filter(Deal.integration_1c.is_(True)),
         )
-        .where(Deal.status == "in_progress", *user_scope)
+        .where(*active_deal_scope)
         .group_by(Deal.funnel)
         .order_by(Deal.funnel)
     )
@@ -198,7 +203,7 @@ async def dashboard(
             func.coalesce(func.sum(Deal.machines_count), 0),
         )
         .join(Deal, Deal.implementation_responsible_user_id == User.id)
-        .where(Deal.status == "in_progress", *user_scope)
+        .where(*active_deal_scope)
         .group_by(User.id, User.full_name)
         .order_by(func.count(Deal.id).desc())
     )
@@ -222,6 +227,7 @@ async def dashboard(
                     func.coalesce(func.sum(Deal.machines_count), 0),
                 ).where(
                     Deal.status == "in_progress",
+                    Deal.funnel.in_(("tech_integration", "implementation")),
                     Deal.implementation_responsible_user_id.is_(None),
                 )
             )
