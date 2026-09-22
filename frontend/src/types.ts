@@ -26,7 +26,7 @@ export interface DealInWork { id:string; bitrix_id:number; title:string; impleme
 export interface DealsInWorkReport { tech_integration:DealInWork[]; implementation:DealInWork[] }
 export interface SupportAnalysisDeal { id:string; bitrix_id:number; title:string; opportunity:string; machines_count:number }
 export interface SupportAnalysisRow { manager_id:string; manager_name:string; funnel:string; deals_count:number; opportunity:string; machines_count:number; deals:SupportAnalysisDeal[] }
-export interface GiftInfoDeal { id:string; bitrix_id:number; title:string; decision_maker:string|null; company_name:string|null; responsible_name:string|null; machines_count:number; location:string|null; courier_contact:string|null }
+export interface GiftInfoDeal { id:string; bitrix_id:number; title:string; module_name:string|null; decision_maker:string|null; company_name:string|null; responsible_name:string|null; machines_count:number; location:string|null; courier_contact:string|null }
 export interface EmployeeMonthPlanDeal { id:string; bitrix_id:number; title:string; module:string|null; machines_count:number; integration_1c:boolean; opportunity:string; monthly_amount:string }
 export interface EmployeeMonthPlan { month:string; available_deals:EmployeeMonthPlanDeal[]; planned_deals:EmployeeMonthPlanDeal[] }
 export interface AdminEmployeeMonthPlanDeal extends EmployeeMonthPlanDeal {

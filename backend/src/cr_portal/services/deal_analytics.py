@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from cr_portal.integrations.bitrix.client import BitrixClient
 from cr_portal.models.deal import Deal
 from cr_portal.models.user import User
 from cr_portal.services.app_settings import get_business_settings
@@ -260,7 +261,7 @@ def _raw_text(deal: Deal, field_name: str) -> str | None:
     return text or None
 
 
-async def gift_info_report(session: AsyncSession) -> list[dict]:
+async def gift_info_report(session: AsyncSession, client: BitrixClient) -> list[dict]:
     business = await get_business_settings(session)
     result = await session.execute(
         select(Deal, User.full_name)
@@ -269,17 +270,60 @@ async def gift_info_report(session: AsyncSession) -> list[dict]:
         .where(Deal.funnel == "support", Deal.status == "in_progress")
         .order_by(Deal.title, Deal.bitrix_id)
     )
+    source_rows = result.all()
+    contact_ids: set[int] = set()
+    for deal, _ in source_rows:
+        value = _raw(deal).get(business.field_gift_decision_maker)
+        values = value if isinstance(value, list) else [value]
+        for item in values:
+            try:
+                contact_ids.add(int(item))
+            except (TypeError, ValueError):
+                continue
+
+    contacts: dict[int, str] = {}
+    contact_id_list = sorted(contact_ids)
+    for offset in range(0, len(contact_id_list), 50):
+        try:
+            items = await client.call_all(
+                "crm.item.list",
+                {"entityTypeId": 3, "select": ["id", "title", "name", "lastName", "secondName"], "filter": {"@id": contact_id_list[offset:offset + 50]}},
+            )
+        except Exception:
+            continue
+        for item in items:
+            try:
+                contact_id = int(item.get("id"))
+            except (TypeError, ValueError):
+                continue
+            full_name = " ".join(str(item.get(key) or "").strip() for key in ("lastName", "name", "secondName")).strip()
+            contacts[contact_id] = full_name or str(item.get("title") or "").strip()
+
+    def decision_maker_name(deal: Deal) -> str | None:
+        value = _raw(deal).get(business.field_gift_decision_maker)
+        values = value if isinstance(value, list) else [value]
+        names = []
+        for item in values:
+            try:
+                name = contacts.get(int(item))
+            except (TypeError, ValueError):
+                name = None
+            if name and name not in names:
+                names.append(name)
+        return ", ".join(names) or None
+
     return [
         {
             "id": str(deal.id),
             "bitrix_id": deal.bitrix_id,
             "title": deal.title,
-            "decision_maker": _raw_text(deal, business.field_gift_decision_maker),
+            "module_name": deal.module_name,
+            "decision_maker": decision_maker_name(deal),
             "company_name": deal.company_name,
             "responsible_name": responsible_name,
             "machines_count": deal.machines_count,
             "location": _raw_text(deal, business.field_gift_location),
             "courier_contact": _raw_text(deal, business.field_gift_courier_contact),
         }
-        for deal, responsible_name in result.all()
+        for deal, responsible_name in source_rows
     ]

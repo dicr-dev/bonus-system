@@ -632,10 +632,12 @@ function SupportAnalysis(){
 
 function GiftInfo(){
  const report=useQuery({queryKey:['gift-info'],queryFn:getGiftInfo})
+ const [pageSize,setPageSize]=useState(25)
  const data=report.data??[]
  const filters=(field:keyof GiftInfoDeal)=>({filters:[...new Set(data.map(row=>String(row[field]??'—')))].sort((a,b)=>a.localeCompare(b,'ru')).map(value=>({text:value,value})),onFilter:(value:unknown,row:GiftInfoDeal)=>String(row[field]??'—')===String(value)})
  const columns:ColumnsType<GiftInfoDeal>=[
   {title:'Название сделки',dataIndex:'title',width:310,sorter:(a,b)=>a.title.localeCompare(b.title,'ru'),...filters('title'),render:(title,deal)=><BitrixLink href={dealUrl(deal.bitrix_id)}>{title}</BitrixLink>},
+  {title:'Модуль',dataIndex:'module_name',sorter:(a,b)=>(a.module_name||'').localeCompare(b.module_name||'','ru'),...filters('module_name'),render:value=>value||'—'},
   {title:'ЛПР',dataIndex:'decision_maker',sorter:(a,b)=>(a.decision_maker||'').localeCompare(b.decision_maker||'','ru'),...filters('decision_maker'),render:value=>value||'—'},
   {title:'Компания',dataIndex:'company_name',sorter:(a,b)=>(a.company_name||'').localeCompare(b.company_name||'','ru'),...filters('company_name'),render:value=>value||'—'},
   {title:'Ответственный',dataIndex:'responsible_name',sorter:(a,b)=>(a.responsible_name||'').localeCompare(b.responsible_name||'','ru'),...filters('responsible_name'),render:value=>value||'—'},
@@ -643,7 +645,7 @@ function GiftInfo(){
   {title:'Местонахождение клиента (насел. пункт)',dataIndex:'location',sorter:(a,b)=>(a.location||'').localeCompare(b.location||'','ru'),...filters('location'),render:value=>value||'—'},
   {title:'Контактное лицо для курьера',dataIndex:'courier_contact',sorter:(a,b)=>(a.courier_contact||'').localeCompare(b.courier_contact||'','ru'),...filters('courier_contact'),render:value=>value||'—'}
  ]
- return <Space direction="vertical" size={24} style={{width:'100%'}}><Title level={2}>Информация для подарков</Title><Card extra={<Button icon={<DownloadOutlined/>} href={giftInfoExcelUrl()}>Скачать Excel</Button>}><Text type="secondary">Активные сделки воронки «Сопровождение». Фильтры и сортировка доступны в заголовках столбцов.</Text><Table style={{marginTop:16}} rowKey="id" columns={columns} dataSource={data} loading={report.isLoading} pagination={{pageSize:25,showSizeChanger:true}} scroll={{x:1800}}/></Card></Space>
+ return <Space direction="vertical" size={24} style={{width:'100%'}}><Title level={2}>Информация для подарков</Title><Card extra={<Button icon={<DownloadOutlined/>} href={giftInfoExcelUrl()}>Скачать Excel</Button>}><Text type="secondary">Активные сделки воронки «Сопровождение». Фильтры и сортировка доступны в заголовках столбцов.</Text><Table style={{marginTop:16}} rowKey="id" columns={columns} dataSource={data} loading={report.isLoading} pagination={{pageSize,showSizeChanger:true,pageSizeOptions:[25,50,100],onChange:(_,size)=>setPageSize(size),onShowSizeChange:(_,size)=>setPageSize(size)}} scroll={{x:1800}}/></Card></Space>
 }
 
 function EmployeeMonthPlanPage(){
@@ -741,14 +743,17 @@ export default function App(){
  const canUseTask1cErrors=isAdmin||user.data.department_name?.split(';').map(value=>value.trim()).includes('Отдел внедрения')===true
  const canUseEmployeeMonthPlan=user.data.department_name?.split(';').map(value=>value.trim()).includes('Отдел внедрения')??false
  const canUseBusinessPartners=isAdmin||user.data.department_name?.split(';').map(value=>value.trim()).includes('Отдел сопровождения')===true
- const employeePages=['dashboard','bonus','deals','instruction','onboarding','time_report',...(canUseWorkplace?['workplace']:[]),...(canUseEmployeeMonthPlan?['employee_month_plan']:[]),...(canUseBusinessPartners?['analytics_support','gift_info']:[])]
- const effectivePage=(!isAdmin&&!employeePages.includes(page))||(!canUseWorkplace&&page==='workplace')||(!canUseEmployeeMonthPlan&&page==='employee_month_plan')||(!canUseBusinessPartners&&['analytics_support','gift_info'].includes(page))?'dashboard':page
+ const isSupportEmployee=!isAdmin&&user.data.department_name?.split(';').map(value=>value.trim()).includes('Отдел сопровождения')===true
+ const employeePages=isSupportEmployee?['analytics_support','gift_info']:['dashboard','bonus','deals','instruction','onboarding','time_report',...(canUseWorkplace?['workplace']:[]),...(canUseEmployeeMonthPlan?['employee_month_plan']:[]),...(canUseBusinessPartners?['analytics_support','gift_info']:[])]
+ const fallbackPage=isSupportEmployee?'analytics_support':'dashboard'
+ const effectivePage=(!isAdmin&&!employeePages.includes(page))||(!canUseWorkplace&&page==='workplace')||(!canUseEmployeeMonthPlan&&page==='employee_month_plan')||(!canUseBusinessPartners&&['analytics_support','gift_info'].includes(page))?fallbackPage:page
  const content=({dashboard:<Dashboard isAdmin={isAdmin} userId={user.data.id}/>,analytics_deals:<DealAnalytics/>,analytics_work:<DealsInWork/>,analytics_support:<SupportAnalysis/>,gift_info:<GiftInfo/>,kpi:<KPI/>,bonus:<Bonuses isAdmin={isAdmin} userId={user.data.id}/>,deals:<Deals isAdmin={isAdmin} userId={user.data.id}/>,instruction:<InstructionPage/>,onboarding:<OnboardingPage isAdmin={isAdmin}/>,time_report:<TimeSpentReport isAdmin={isAdmin}/>,workplace:<Workplace isAdmin={isAdmin} canUseTask1cErrors={canUseTask1cErrors}/>,employee_month_plan:<EmployeeMonthPlanPage/>,admin_employee_month_plan:<AdminEmployeeMonthPlanPage/>,diagnostics:<Diagnostics/>,bitrix_fields:<BitrixFields/>,rules:<Rules/>,settings:<SettingsPage/>,sync:<Sync/>}[effectivePage]??<Dashboard isAdmin={isAdmin} userId={user.data.id}/>)
- const employeeMenu=[
+ const businessPartnersMenu={key:'business_partners',icon:<FundOutlined/>,label:'Бизнес партнеры',children:[{key:'analytics_support',label:'Анализ по менеджерам'},{key:'gift_info',label:'Информация для подарков'}]}
+ const employeeMenu=isSupportEmployee?[businessPartnersMenu]:[
   {key:'dashboard',icon:<DashboardOutlined/>,label:'Главная'},
   ...(canUseWorkplace?[{key:'workplace',icon:<DesktopOutlined/>,label:'АРМ'}]:[]),
   ...(canUseEmployeeMonthPlan?[{key:'employee_month_plan',icon:<CalendarOutlined/>,label:'План на месяц'}]:[]),
-  ...(canUseBusinessPartners?[{key:'business_partners',icon:<FundOutlined/>,label:'Бизнес партнеры',children:[{key:'analytics_support',label:'Анализ по менеджерам'},{key:'gift_info',label:'Информация для подарков'}]}]:[]),
+  ...(canUseBusinessPartners?[businessPartnersMenu]:[]),
   {key:'bonus',icon:<FundOutlined/>,label:'Моя премия'},
   {key:'time_report',icon:<TrophyOutlined/>,label:'Отчёт по затраченному времени'},
   {key:'deals',icon:<DatabaseOutlined/>,label:'Мои сделки'},
@@ -758,7 +763,7 @@ export default function App(){
  const adminMenu=[
   {key:'dashboard',icon:<DashboardOutlined/>,label:'Главная'},{key:'kpi',icon:<TrophyOutlined/>,label:'KPI отдела'},
   {key:'analytics',icon:<FundOutlined/>,label:'Аналитика',children:[{key:'analytics_deals',label:'Аналитика по сделкам'},{key:'analytics_work',label:'Сделки в работе'}]},
-  {key:'business_partners',icon:<FundOutlined/>,label:'Бизнес партнеры',children:[{key:'analytics_support',label:'Анализ по менеджерам'},{key:'gift_info',label:'Информация для подарков'}]},
+  businessPartnersMenu,
   {key:'admin_employee_month_plan',icon:<CalendarOutlined/>,label:'Планы сотрудников'},
   ...(canUseWorkplace?[{key:'workplace',icon:<DesktopOutlined/>,label:'АРМ'}]:[]),
   ...(canUseEmployeeMonthPlan?[{key:'employee_month_plan',icon:<CalendarOutlined/>,label:'План на месяц'}]:[]),

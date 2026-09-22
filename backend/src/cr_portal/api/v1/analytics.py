@@ -66,24 +66,24 @@ async def support_analysis(session: AsyncSession = Depends(db_session), _user=De
 
 
 @router.get("/gift-info")
-async def gift_info(session: AsyncSession = Depends(db_session), _user=Depends(business_partners_user)):
-    return await gift_info_report(session)
+async def gift_info(session: AsyncSession = Depends(db_session), client: BitrixClient = Depends(bitrix_client), _user=Depends(business_partners_user)):
+    return await gift_info_report(session, client)
 
 
 @router.get("/gift-info/export")
-async def export_gift_info(session: AsyncSession = Depends(db_session), _user=Depends(business_partners_user)):
-    rows = await gift_info_report(session)
+async def export_gift_info(session: AsyncSession = Depends(db_session), client: BitrixClient = Depends(bitrix_client), _user=Depends(business_partners_user)):
+    rows = await gift_info_report(session, client)
     workbook = Workbook()
     sheet = workbook.active
     sheet.title = "Информация для подарков"
     sheet.append([
-        "Название сделки", "ЛПР", "Компания", "Ответственный",
+        "Название сделки", "Модуль", "ЛПР", "Компания", "Ответственный",
         "Количество машин", "Местонахождение клиента (насел. пункт)",
         "Контактное лицо для курьера",
     ])
     for row in rows:
         sheet.append([
-            row["title"], row["decision_maker"], row["company_name"], row["responsible_name"],
+            row["title"], row["module_name"], row["decision_maker"], row["company_name"], row["responsible_name"],
             row["machines_count"], row["location"], row["courier_contact"],
         ])
     for column in sheet.columns:
