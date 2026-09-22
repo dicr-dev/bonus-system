@@ -1,23 +1,33 @@
 import json
+from io import BytesIO
 from uuid import UUID
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
+from openpyxl import Workbook
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from cr_portal.api.deps import admin_user, bitrix_client, db_session
+from cr_portal.api.deps import admin_user, bitrix_client, current_user, db_session
 from cr_portal.integrations.bitrix.client import BitrixClient
 from cr_portal.models.deal import Deal
 from cr_portal.services.app_settings import get_business_settings
-from cr_portal.services.deal_analytics import deal_groups_report, deals_in_work_report
+from cr_portal.services.deal_analytics import deal_groups_report, deals_in_work_report, gift_info_report, support_analysis_report
+from cr_portal.services.employee_scope import employee_is_in_department
 
 router = APIRouter()
 
 
 class AutoMatchRequest(BaseModel):
     support_ids: list[UUID]
+
+
+async def business_partners_user(user=Depends(current_user)):
+    if not user.is_admin and not employee_is_in_department(user, "Отдел сопровождения"):
+        raise HTTPException(status_code=403, detail="Business partners access required")
+    return user
 
 
 def _source_deal_value(bitrix_id: int | None) -> list[str]:
@@ -48,6 +58,46 @@ async def deal_groups(session: AsyncSession = Depends(db_session), _admin=Depend
 @router.get("/deals-in-work")
 async def deals_in_work(session: AsyncSession = Depends(db_session), _admin=Depends(admin_user)):
     return await deals_in_work_report(session)
+
+
+@router.get("/support-analysis")
+async def support_analysis(session: AsyncSession = Depends(db_session), _user=Depends(business_partners_user)):
+    return await support_analysis_report(session)
+
+
+@router.get("/gift-info")
+async def gift_info(session: AsyncSession = Depends(db_session), _user=Depends(business_partners_user)):
+    return await gift_info_report(session)
+
+
+@router.get("/gift-info/export")
+async def export_gift_info(session: AsyncSession = Depends(db_session), _user=Depends(business_partners_user)):
+    rows = await gift_info_report(session)
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Информация для подарков"
+    sheet.append([
+        "Название сделки", "ЛПР", "Компания", "Ответственный",
+        "Количество машин", "Местонахождение клиента (насел. пункт)",
+        "Контактное лицо для курьера",
+    ])
+    for row in rows:
+        sheet.append([
+            row["title"], row["decision_maker"], row["company_name"], row["responsible_name"],
+            row["machines_count"], row["location"], row["courier_contact"],
+        ])
+    for column in sheet.columns:
+        sheet.column_dimensions[column[0].column_letter].width = min(
+            60, max(14, max(len(str(cell.value or "")) for cell in column) + 2)
+        )
+    payload = BytesIO()
+    workbook.save(payload)
+    payload.seek(0)
+    return StreamingResponse(
+        payload,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="gift_info.xlsx"'},
+    )
 
 
 @router.put("/deal-links/{child_id}")

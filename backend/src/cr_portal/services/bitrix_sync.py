@@ -11,7 +11,6 @@ from cr_portal.models.deal import Deal
 from cr_portal.repositories.deals import DealRepository
 from cr_portal.repositories.users import UserRepository
 from cr_portal.services.app_settings import BusinessSettings, get_business_settings
-from cr_portal.services.employee_scope import KPI_DEPARTMENT_IDS
 from cr_portal.services.kpi import ensure_kpi_event
 
 STATUS_MAP = {
@@ -320,8 +319,7 @@ async def sync_users(
         user_department_names = list(dict.fromkeys(
             department_names.get(str(department_id), "")
             for department_id in raw_department_ids
-            if str(department_id) in KPI_DEPARTMENT_IDS
-            and department_names.get(str(department_id), "")
+            if department_names.get(str(department_id), "")
         ))
 
         user = await repository.upsert(
@@ -443,6 +441,9 @@ async def sync_deals(
         business.field_second_training_date,
         business.field_reports_training_date,
         business.field_cr_company_id,
+        business.field_gift_decision_maker,
+        business.field_gift_location,
+        business.field_gift_courier_contact,
         *business.cr_start_boolean_fields,
     ]
 

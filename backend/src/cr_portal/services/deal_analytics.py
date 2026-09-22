@@ -1,5 +1,4 @@
 import json
-import re
 from collections import defaultdict
 from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
@@ -30,11 +29,6 @@ def company_id(deal: Deal) -> int | None:
         return int(value) if value else None
     except (TypeError, ValueError):
         return None
-
-
-def normalized_title(value: str) -> str:
-    value = re.sub(r"^\s*(?:№|#)?\s*\d+\s*[-—:.]?\s*", "", value or "")
-    return re.sub(r"\s+", " ", value).strip().casefold()
 
 
 def months_between(start: datetime | None, end: datetime | None) -> int | None:
@@ -83,7 +77,7 @@ def _deal_row(deal: Deal | None, managers: dict) -> dict | None:
         return None
     return {
         "id": str(deal.id), "bitrix_id": deal.bitrix_id, "title": deal.title,
-        "status": deal.status, "stage_title": deal.stage_title,
+        "funnel": deal.funnel, "status": deal.status, "stage_title": deal.stage_title,
         "created_time": deal.created_time, "closed_time": deal.closed_time,
         "manager_name": managers.get(deal.implementation_responsible_user_id),
     }
@@ -104,15 +98,11 @@ async def deal_groups_report(session: AsyncSession, billing_start_field: str, so
     for deal in supports:
         for parent_id in matching_source_ids(deal, source_deal_field, implementation_map):
             supports_by_parent[parent_id].append(deal)
-    tech_candidates: dict[tuple[int | None, str | None, str], list[Deal]] = defaultdict(list)
-    implementation_candidates: dict[tuple[int | None, str | None, str], list[Deal]] = defaultdict(list)
     tech_by_company_module: dict[tuple[int | None, str | None], list[Deal]] = defaultdict(list)
     implementation_by_company_module: dict[tuple[int | None, str | None], list[Deal]] = defaultdict(list)
     for deal in tech.values():
-        tech_candidates[(company_id(deal), deal.module_name, normalized_title(deal.title))].append(deal)
         tech_by_company_module[(company_id(deal), deal.module_name)].append(deal)
     for deal in implementations:
-        implementation_candidates[(company_id(deal), deal.module_name, normalized_title(deal.title))].append(deal)
         implementation_by_company_module[(company_id(deal), deal.module_name)].append(deal)
 
     rows: list[dict] = []
@@ -122,14 +112,11 @@ async def deal_groups_report(session: AsyncSession, billing_start_field: str, so
 
     def make_row(tech_deal: Deal | None, implementation: Deal | None, support: Deal | None) -> dict:
         anchor = tech_deal or implementation or support
-        support_raw = _raw(support) if support else {}
-        billing = support_raw.get(billing_start_field) if billing_start_field else None
-        try:
-            billing_date = datetime.fromisoformat(str(billing).replace("Z", "+00:00")) if billing else None
-            if billing_date and billing_date.tzinfo is None:
-                billing_date = billing_date.replace(tzinfo=UTC)
-        except ValueError:
-            billing_date = None
+        billing_date = (
+            implementation.closed_time
+            if support and implementation and implementation.status == "won"
+            else support.created_time if support and implementation is None else None
+        )
         subscription_end = support.closed_time if support and support.status != "in_progress" else datetime.now(UTC)
         return {
             "key": f"{tech_deal.bitrix_id if tech_deal else 0}:{implementation.bitrix_id if implementation else 0}:{support.bitrix_id if support else 0}",
@@ -147,8 +134,8 @@ async def deal_groups_report(session: AsyncSession, billing_start_field: str, so
             rows.append(make_row(tech_deal, None, None))
             if len(linked) > 1:
                 for item in linked:
-                    key = (company_id(item), item.module_name, normalized_title(item.title))
-                    issues.append({"type": "multiple_implementations", "title": "У Техинтеграции несколько сделок Внедрения", "child_deals": [_deal_row(item, users)], "parent": _deal_row(tech_deal, users), "candidates": [_deal_row(candidate, users) for candidate in tech_by_company_module.get(key[:2], [])]})
+                    key = (company_id(item), item.module_name)
+                    issues.append({"type": "multiple_implementations", "title": "У Техинтеграции несколько сделок Внедрения", "child_deals": [_deal_row(item, users)], "parent": _deal_row(tech_deal, users), "candidates": [_deal_row(candidate, users) for candidate in tech_by_company_module.get(key, [])]})
             continue
         implementation = linked[0]
         used_implementations.add(implementation.bitrix_id)
@@ -161,8 +148,8 @@ async def deal_groups_report(session: AsyncSession, billing_start_field: str, so
             rows.append(make_row(tech_deal, implementation, None))
             if len(linked_supports) > 1:
                 for item in linked_supports:
-                    key = (company_id(item), item.module_name, normalized_title(item.title))
-                    issues.append({"type": "multiple_supports", "title": "У Внедрения несколько сделок Сопровождения", "child_deals": [_deal_row(item, users)], "parent": _deal_row(implementation, users), "candidates": [_deal_row(candidate, users) for candidate in implementation_by_company_module.get(key[:2], [])]})
+                    key = (company_id(item), item.module_name)
+                    issues.append({"type": "multiple_supports", "title": "У Внедрения несколько сделок Сопровождения", "child_deals": [_deal_row(item, users)], "parent": _deal_row(implementation, users), "candidates": [_deal_row(candidate, users) for candidate in implementation_by_company_module.get(key, [])]})
 
     for implementation in implementations:
         if implementation.bitrix_id in used_implementations:
@@ -173,22 +160,21 @@ async def deal_groups_report(session: AsyncSession, billing_start_field: str, so
             used_supports.add(support.bitrix_id)
         rows.append(make_row(None, implementation, support))
         if not matching_source_ids(implementation, source_deal_field, tech):
-            key = (company_id(implementation), implementation.module_name, normalized_title(implementation.title))
-            exact_candidates = tech_candidates.get(key, [])
-            issues.append({"type": "implementation_without_tech", "title": "Внедрение без корректной ссылки на Техинтеграцию", "child_deals": [_deal_row(implementation, users)], "parent": None, "candidates": [_deal_row(candidate, users) for candidate in tech_by_company_module.get(key[:2], [])], "auto_candidate": _deal_row(exact_candidates[0], users) if len(exact_candidates) == 1 else None})
+            key = (company_id(implementation), implementation.module_name)
+            candidates = tech_by_company_module.get(key, [])
+            issues.append({"type": "implementation_without_tech", "title": "Внедрение без корректной ссылки на Техинтеграцию", "child_deals": [_deal_row(implementation, users)], "parent": None, "candidates": [_deal_row(candidate, users) for candidate in candidates], "auto_candidate": _deal_row(candidates[0], users) if len(candidates) == 1 else None})
         if len(linked_supports) > 1:
             for item in linked_supports:
-                key = (company_id(item), item.module_name, normalized_title(item.title))
-                issues.append({"type": "multiple_supports", "title": "У Внедрения несколько сделок Сопровождения", "child_deals": [_deal_row(item, users)], "parent": _deal_row(implementation, users), "candidates": [_deal_row(candidate, users) for candidate in implementation_by_company_module.get(key[:2], [])]})
+                key = (company_id(item), item.module_name)
+                issues.append({"type": "multiple_supports", "title": "У Внедрения несколько сделок Сопровождения", "child_deals": [_deal_row(item, users)], "parent": _deal_row(implementation, users), "candidates": [_deal_row(candidate, users) for candidate in implementation_by_company_module.get(key, [])]})
     for support in supports:
         if support.bitrix_id in used_supports:
             continue
         if matching_source_ids(support, source_deal_field, implementation_map):
             continue
-        key = (company_id(support), support.module_name, normalized_title(support.title))
-        exact_candidates = implementation_candidates.get(key, [])
-        candidates = exact_candidates or implementation_by_company_module.get(key[:2], [])
-        issues.append({"type": "support_without_implementation", "title": "Сопровождение без ссылки на Внедрение", "child_deals": [_deal_row(support, users)], "parent": None, "candidates": [_deal_row(item, users) for item in candidates], "auto_candidate": _deal_row(exact_candidates[0], users) if len(exact_candidates) == 1 else None})
+        key = (company_id(support), support.module_name)
+        candidates = implementation_by_company_module.get(key, [])
+        issues.append({"type": "support_without_implementation", "title": "Сопровождение без ссылки на Внедрение", "child_deals": [_deal_row(support, users)], "parent": None, "candidates": [_deal_row(item, users) for item in candidates], "auto_candidate": _deal_row(candidates[0], users) if len(candidates) == 1 else None})
         rows.append(make_row(None, None, support))
     return {"groups": rows, "issues": issues}
 
@@ -231,3 +217,69 @@ async def deals_in_work_report(session: AsyncSession) -> dict:
         "tech_integration": [item(deal) for deal in deals if deal.funnel == "tech_integration"],
         "implementation": [item(deal) for deal in deals if deal.funnel == "implementation"],
     }
+
+
+async def support_analysis_report(session: AsyncSession) -> list[dict]:
+    result = await session.execute(
+        select(Deal, User.id, User.full_name)
+        .select_from(Deal)
+        .outerjoin(User, Deal.responsible_user_id == User.id)
+        .where(Deal.funnel == "support", Deal.status == "in_progress")
+        .order_by(User.full_name, Deal.title, Deal.bitrix_id)
+    )
+    groups: dict[str, dict] = {}
+    for deal, user_id, manager_name in result.all():
+        key = str(user_id) if user_id else "unassigned"
+        group = groups.setdefault(
+            key,
+            {"manager_id": key, "manager_name": manager_name or "Без ответственного", "funnel": "support", "deals_count": 0, "opportunity": 0, "machines_count": 0, "deals": []},
+        )
+        group["deals_count"] += 1
+        group["opportunity"] += deal.opportunity or 0
+        group["machines_count"] += deal.machines_count or 0
+        group["deals"].append(
+            {"id": str(deal.id), "bitrix_id": deal.bitrix_id, "title": deal.title, "opportunity": str(deal.opportunity or 0), "machines_count": deal.machines_count or 0}
+        )
+    return [
+        {**group, "opportunity": str(group["opportunity"])}
+        for group in sorted(groups.values(), key=lambda item: item["manager_name"])
+    ]
+
+
+def _raw_text(deal: Deal, field_name: str) -> str | None:
+    if not field_name:
+        return None
+    value = _raw(deal).get(field_name)
+    if value is None or value == "":
+        return None
+    if isinstance(value, list):
+        value = ", ".join(str(item) for item in value if item not in (None, ""))
+    elif isinstance(value, dict):
+        value = ", ".join(str(item) for item in value.values() if item not in (None, ""))
+    text = str(value).strip()
+    return text or None
+
+
+async def gift_info_report(session: AsyncSession) -> list[dict]:
+    business = await get_business_settings(session)
+    result = await session.execute(
+        select(Deal, User.full_name)
+        .select_from(Deal)
+        .outerjoin(User, Deal.responsible_user_id == User.id)
+        .where(Deal.funnel == "support", Deal.status == "in_progress")
+        .order_by(Deal.title, Deal.bitrix_id)
+    )
+    return [
+        {
+            "id": str(deal.id),
+            "bitrix_id": deal.bitrix_id,
+            "title": deal.title,
+            "decision_maker": _raw_text(deal, business.field_gift_decision_maker),
+            "company_name": deal.company_name,
+            "responsible_name": responsible_name,
+            "machines_count": deal.machines_count,
+            "location": _raw_text(deal, business.field_gift_location),
+            "courier_contact": _raw_text(deal, business.field_gift_courier_contact),
+        }
+        for deal, responsible_name in result.all()
+    ]

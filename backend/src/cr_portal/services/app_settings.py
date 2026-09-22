@@ -39,6 +39,9 @@ class BusinessSettings:
     field_second_training_date: str
     field_reports_training_date: str
     field_cr_company_id: str
+    field_gift_decision_maker: str
+    field_gift_location: str
+    field_gift_courier_contact: str
     task_training_yes_value: str = ""
     task_training_date_field: str = "DEADLINE"
     overtime_project_id: int | None = None
@@ -84,6 +87,9 @@ KEYS = {
     "field_second_training_date": "BITRIX_FIELD_SECOND_TRAINING_DATE",
     "field_reports_training_date": "BITRIX_FIELD_REPORTS_TRAINING_DATE",
     "field_cr_company_id": "BITRIX_FIELD_CR_COMPANY_ID",
+    "field_gift_decision_maker": "BITRIX_FIELD_GIFT_DECISION_MAKER",
+    "field_gift_location": "BITRIX_FIELD_GIFT_LOCATION",
+    "field_gift_courier_contact": "BITRIX_FIELD_GIFT_COURIER_CONTACT",
 }
 
 
@@ -180,6 +186,9 @@ async def get_business_settings(session: AsyncSession) -> BusinessSettings:
         field_second_training_date=value("field_second_training_date"),
         field_reports_training_date=value("field_reports_training_date"),
         field_cr_company_id=value("field_cr_company_id"),
+        field_gift_decision_maker=value("field_gift_decision_maker"),
+        field_gift_location=value("field_gift_location"),
+        field_gift_courier_contact=value("field_gift_courier_contact"),
     )
 
 

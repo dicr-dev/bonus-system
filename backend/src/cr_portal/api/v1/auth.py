@@ -14,7 +14,6 @@ from cr_portal.integrations.bitrix.client import BitrixClient
 from cr_portal.models.oauth import BitrixInstallation
 from cr_portal.models.user import User
 from cr_portal.repositories.users import UserRepository
-from cr_portal.services.employee_scope import kpi_department_name_from_user_data
 
 router = APIRouter()
 
@@ -344,7 +343,24 @@ async def _resolve_current_user(
         if value
     ).strip()
 
-    user = await UserRepository(session).upsert(
+    departments = await client.call_all("department.get", {})
+    department_names = {
+        str(item.get("ID") or item.get("id")): str(item.get("NAME") or item.get("name") or "").strip()
+        for item in departments
+        if item.get("ID") or item.get("id")
+    }
+    department_ids = current.get("UF_DEPARTMENT") or current.get("ufDepartment") or []
+    if not isinstance(department_ids, list):
+        department_ids = [department_ids]
+    department_name = "; ".join(dict.fromkeys(
+        department_names.get(str(department_id), "")
+        for department_id in department_ids
+        if department_names.get(str(department_id), "")
+    )) or None
+
+    repository = UserRepository(session)
+    existing_user = await repository.by_bitrix_id(int(current["ID"]))
+    user = await repository.upsert(
         bitrix_id=int(current["ID"]),
         email=current.get("EMAIL"),
         full_name=(
@@ -352,7 +368,7 @@ async def _resolve_current_user(
             or f"Bitrix user {current['ID']}"
         ),
         position=current.get("WORK_POSITION"),
-        department_name=kpi_department_name_from_user_data(current),
+        department_name=department_name or (existing_user.department_name if existing_user else None),
     )
 
     await session.commit()

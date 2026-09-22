@@ -17,13 +17,16 @@ export interface TimeReportEmployee { employee_id:string; full_name:string; depa
 export interface TimeReport { date_from:string; date_to:string; days:string[]; employees:TimeReportEmployee[] }
 export interface Task1CError { task_bitrix_id:number; title:string; group_id:number|null; responsible_bitrix_id:number|null; creator_id:string; creator_name:string; start_time:string; status:number|null }
 export interface Task1CErrorReport { tasks:Task1CError[] }
-export interface AnalyticsDeal { id:string; bitrix_id:number; title:string; status:string; stage_title:string|null; created_time:string|null; closed_time:string|null; manager_name:string|null }
+export interface AnalyticsDeal { id:string; bitrix_id:number; title:string; funnel:string; status:string; stage_title:string|null; created_time:string|null; closed_time:string|null; manager_name:string|null }
 export interface DealGroup { key:string; company_id:number|null; company_name:string; module_name:string|null; client_status:string; tech:AnalyticsDeal|null; implementation:AnalyticsDeal|null; support:AnalyticsDeal|null; tech_months:number|null; implementation_months:number|null; subscription_months:number|null }
 export interface DealGroupIssue { type:string; title:string; child_deals:AnalyticsDeal[]; parent:AnalyticsDeal|null; candidates:AnalyticsDeal[] }
 export interface DealGroupsReport { groups:DealGroup[]; issues:DealGroupIssue[] }
 export interface SupportAutoMatchPreview { child:AnalyticsDeal; parent:AnalyticsDeal; relation:string }
 export interface DealInWork { id:string; bitrix_id:number; title:string; implementation_responsible_name:string|null; funnel:string; first_training_delay_days:number|null; implementation_completion_delay_days:number|null; implementation_planned_billing_start:string|null; implementation_planned_subscription:string|null; planned_subscription_date:string|null }
 export interface DealsInWorkReport { tech_integration:DealInWork[]; implementation:DealInWork[] }
+export interface SupportAnalysisDeal { id:string; bitrix_id:number; title:string; opportunity:string; machines_count:number }
+export interface SupportAnalysisRow { manager_id:string; manager_name:string; funnel:string; deals_count:number; opportunity:string; machines_count:number; deals:SupportAnalysisDeal[] }
+export interface GiftInfoDeal { id:string; bitrix_id:number; title:string; decision_maker:string|null; company_name:string|null; responsible_name:string|null; machines_count:number; location:string|null; courier_contact:string|null }
 export interface EmployeeMonthPlanDeal { id:string; bitrix_id:number; title:string; module:string|null; machines_count:number; integration_1c:boolean; opportunity:string; monthly_amount:string }
 export interface EmployeeMonthPlan { month:string; available_deals:EmployeeMonthPlanDeal[]; planned_deals:EmployeeMonthPlanDeal[] }
 export interface AdminEmployeeMonthPlanDeal extends EmployeeMonthPlanDeal {
@@ -190,6 +193,9 @@ export interface AppSettings {
   field_second_training_date:string
   field_reports_training_date:string
   field_cr_company_id:string
+  field_gift_decision_maker:string
+  field_gift_location:string
+  field_gift_courier_contact:string
 }
 
 export interface RuleConfig {
