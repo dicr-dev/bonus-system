@@ -16,12 +16,12 @@ import {BitrixLink,dealUrl,sourceUrl,taskUrl} from './BitrixLink'
 import {
   createManualBonusAdjustment,deleteDealBonusOverride,deleteManualBonusAdjustment,excelUrl,getCalculation,giftInfoExcelUrl,
   getBitrixDealFields,getCalculations,getCurrentUser,getDashboard,getDealBonusOverrides,getDepartmentDeals,getDiagnostics,
-  addEmployeeMonthPlanDeal,autoMatchSupportLinks,getAdminEmployeeMonthPlan,getEmployeeMonthPlan,getEmployees,getGiftInfo,getKPI,getManualBonusAdjustments,getRules,getSyncJob,getSyncStatus,getTimeReport,getWorkplaceTask1cErrors,getWorkplaceTime,getDealGroups,getDealsInWork,getSupportAnalysis,getSupportAutoMatchPreview,login,logout,removeEmployeeMonthPlanDeal,runCalculation,saveDealLink,
+  addEmployeeMonthPlanDeal,autoMatchSupportLinks,getAdminEmployeeMonthPlan,getEmployeeMonthPlan,getEmployees,getGiftInfo,getKPI,getManualBonusAdjustments,getRules,getSyncJob,getSyncStatus,getTimeReport,getWorkplaceTask1cErrors,getWorkplaceTime,getDealGroups,getDealsInWork,getSupportAnalysis,getSupportAutoMatchPreview,getWeeklyOv,login,logout,removeEmployeeMonthPlanDeal,runCalculation,saveDealLink,weeklyOvExcelUrl,
   runDiagnostics,saveDealBonusOverride,savePlan,startDealsSync,startFullTasksSync,startRecentTasksSync,updateManualBonusAdjustment
 } from './api'
 import type {
   BitrixDealField,Calculation,CalculationDetail,Deal,DealBonusOverride,DealBonusOverrideInput,FunnelSummary,Issue,KPIDeal,
-  AdminEmployeeMonthPlanDeal,AnalyticsDeal,DealGroup,DealGroupIssue,DealInWork,EmployeeMonthPlanDeal,GiftInfoDeal,KPIPlannedDeal,KPIPartialSubscriptionDeal,ManualBonusAdjustment,ManualBonusAdjustmentInput,ResponsibleSummary,RuleVersion,SupportAnalysisRow,SupportAutoMatchPreview,SyncJob,Task1CError,TimeReportDay,TimeReportEmployee,TimeReportTask
+  AdminEmployeeMonthPlanDeal,AnalyticsDeal,DealGroup,DealGroupIssue,DealInWork,EmployeeMonthPlanDeal,GiftInfoDeal,KPIPlannedDeal,KPIPartialSubscriptionDeal,ManualBonusAdjustment,ManualBonusAdjustmentInput,ResponsibleSummary,RuleVersion,SupportAnalysisRow,SupportAutoMatchPreview,SyncJob,Task1CError,TimeReportDay,TimeReportEmployee,TimeReportTask,WeeklyOvDeal
 } from './types'
 
 const {Header,Content,Sider}=Layout
@@ -33,7 +33,7 @@ const rub=(v:string|number)=>new Intl.NumberFormat('ru-RU',{style:'currency',cur
 const num=(v:string|number)=>new Intl.NumberFormat('ru-RU').format(Number(v||0))
 const duration=(seconds:number)=>`${Math.floor(seconds/3600)} ч ${Math.floor(seconds%3600/60)} м`
 const dateTime=(v:string|null|undefined)=>v?new Date(v).toLocaleString('ru-RU'):'—'
-const shortDate=(v:string)=>{const [y,m,d]=v.split('-').map(Number);return new Date(y,m-1,d).toLocaleDateString('ru-RU')}
+const shortDate=(v:string)=>{const [y,m,d]=String(v).slice(0,10).split('-').map(Number);return Number.isFinite(y)&&Number.isFinite(m)&&Number.isFinite(d)?new Date(Date.UTC(y,m-1,d)).toLocaleDateString('ru-RU',{timeZone:'UTC'}):'—'}
 const monthName=(v:string)=>new Date(`${v.slice(0,7)}-01T00:00:00Z`).toLocaleDateString('ru-RU',{month:'long',year:'numeric',timeZone:'UTC'})
 const monthNow=()=>{const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`}
 const Month=({value,onChange}:{value:string;onChange:(v:string)=>void})=><Input type="month" value={value} onChange={e=>onChange(e.target.value)} style={{width:180}}/>
@@ -612,6 +612,41 @@ function DealsInWork(){
  ]}/></Space>
 }
 
+function previousWeekDates(){
+ const today=new Date();const monday=new Date(today)
+ monday.setDate(today.getDate()-((today.getDay()+6)%7)-7)
+ const sunday=new Date(monday);sunday.setDate(monday.getDate()+6)
+ const format=(value:Date)=>`${value.getFullYear()}-${String(value.getMonth()+1).padStart(2,'0')}-${String(value.getDate()).padStart(2,'0')}`
+ return {dateFrom:format(monday),dateTo:format(sunday)}
+}
+
+function WeeklyOvReport(){
+ const defaults=previousWeekDates()
+ const [dateFrom,setDateFrom]=useState(defaults.dateFrom)
+ const [dateTo,setDateTo]=useState(defaults.dateTo)
+ const [statusLength,setStatusLength]=useState(300)
+ const [columnFilters,setColumnFilters]=useState<Partial<Record<keyof WeeklyOvDeal,string>>>({})
+ const report=useQuery({queryKey:['weekly-ov',dateFrom,dateTo],queryFn:()=>getWeeklyOv(dateFrom,dateTo),enabled:!!dateFrom&&!!dateTo&&dateFrom<=dateTo})
+ const filterFields:{key:keyof WeeklyOvDeal;label:string;value:(row:WeeklyOvDeal)=>string}[]=[
+  {key:'funnel',label:'Воронка',value:row=>row.funnel==='tech_integration'?'Тех.интеграция':funnel(row.funnel)},{key:'movement_status',label:'Новые, текущие, передали',value:row=>row.movement_status},
+  {key:'module_name',label:'Модуль',value:row=>row.module_name||''},{key:'implementation_responsible_name',label:'Сотрудник',value:row=>row.implementation_responsible_name||''},
+  {key:'title',label:'Название сделки',value:row=>row.title},{key:'salesperson_name',label:'Ответственный продавец',value:row=>row.salesperson_name||''},
+  {key:'opportunity',label:'Сумма',value:row=>row.opportunity},{key:'machines_count',label:'Кол-во ТС',value:row=>String(row.machines_count)},
+  {key:'stage_title',label:'Статус в воронке',value:row=>row.stage_title||''},{key:'days_in_current_status',label:'Дней в текущем статусе',value:row=>String(row.days_in_current_status??'')},
+  {key:'days_in_funnel',label:'Дней в воронке',value:row=>String(row.days_in_funnel??'')},{key:'deal_current_status',label:'Текущий статус по сделке',value:row=>row.deal_current_status||''}
+ ]
+ const rows=(report.data??[]).filter(row=>filterFields.every(({key,value})=>!columnFilters[key]||value(row).toLocaleLowerCase().includes(columnFilters[key]!.toLocaleLowerCase())))
+ const columns:ColumnsType<WeeklyOvDeal>=[
+  {title:'Воронка',dataIndex:'funnel',width:140,render:value=>value==='tech_integration'?'Тех.интеграция':funnel(value)},{title:'Новые, текущие, передали',dataIndex:'movement_status',width:180},
+  {title:'Модуль',dataIndex:'module_name',width:160,render:value=>value||'—'},{title:'Сотрудник',dataIndex:'implementation_responsible_name',width:190,render:value=>value||'—'},
+  {title:'Название сделки',dataIndex:'title',width:280,render:(title,deal)=><BitrixLink href={dealUrl(deal.bitrix_id)}>{title}</BitrixLink>},{title:'Ответственный продавец',dataIndex:'salesperson_name',width:190,render:value=>value||'—'},
+  {title:'Сумма',dataIndex:'opportunity',width:130,align:'right',render:rub},{title:'Кол-во ТС',dataIndex:'machines_count',width:110,align:'right',render:num},
+  {title:'Статус в воронке',dataIndex:'stage_title',width:190,render:value=>value||'—'},{title:'Кол-во дней в текущем статусе',dataIndex:'days_in_current_status',width:150,align:'right',render:value=>value??'—'},
+  {title:'Кол-во дней в воронке',dataIndex:'days_in_funnel',width:140,align:'right',render:value=>value??'—'},{title:'Текущий статус по сделке',dataIndex:'deal_current_status',width:300,render:value=>value?value.slice(0,statusLength):'—'}
+ ]
+ return <Space direction="vertical" size={24} style={{width:'100%'}}><Title level={2}>Еженедельный отчёт ОВ</Title><Card><Space wrap><span>Дата начала</span><Input type="date" value={dateFrom} onChange={e=>setDateFrom(e.target.value)} style={{width:150}}/><span>Дата окончания</span><Input type="date" value={dateTo} onChange={e=>setDateTo(e.target.value)} style={{width:150}}/><span>Символов статуса</span><InputNumber min={1} value={statusLength} onChange={value=>setStatusLength(Math.max(1,Number(value)||300))}/><Button icon={<DownloadOutlined/>} disabled={!dateFrom||!dateTo||dateFrom>dateTo} href={weeklyOvExcelUrl(dateFrom,dateTo)}>Скачать Excel</Button></Space></Card><Card title="Фильтры"><Space wrap>{filterFields.map(({key,label})=><Input key={key} allowClear value={columnFilters[key]??''} onChange={e=>setColumnFilters(filters=>({...filters,[key]:e.target.value}))} placeholder={label} style={{width:210}}/>)}</Space></Card><Card><Table rowKey="id" columns={columns} dataSource={rows} loading={report.isLoading} pagination={false} scroll={{x:2300}}/></Card></Space>
+}
+
 function SupportAnalysis(){
  const report=useQuery({queryKey:['support-analysis'],queryFn:getSupportAnalysis})
  const columns:ColumnsType<SupportAnalysisRow>=[
@@ -747,7 +782,7 @@ export default function App(){
  const employeePages=isSupportEmployee?['analytics_support','gift_info']:['dashboard','bonus','deals','instruction','onboarding','time_report',...(canUseWorkplace?['workplace']:[]),...(canUseEmployeeMonthPlan?['employee_month_plan']:[]),...(canUseBusinessPartners?['analytics_support','gift_info']:[])]
  const fallbackPage=isSupportEmployee?'analytics_support':'dashboard'
  const effectivePage=(!isAdmin&&!employeePages.includes(page))||(!canUseWorkplace&&page==='workplace')||(!canUseEmployeeMonthPlan&&page==='employee_month_plan')||(!canUseBusinessPartners&&['analytics_support','gift_info'].includes(page))?fallbackPage:page
- const content=({dashboard:<Dashboard isAdmin={isAdmin} userId={user.data.id}/>,analytics_deals:<DealAnalytics/>,analytics_work:<DealsInWork/>,analytics_support:<SupportAnalysis/>,gift_info:<GiftInfo/>,kpi:<KPI/>,bonus:<Bonuses isAdmin={isAdmin} userId={user.data.id}/>,deals:<Deals isAdmin={isAdmin} userId={user.data.id}/>,instruction:<InstructionPage/>,onboarding:<OnboardingPage isAdmin={isAdmin}/>,time_report:<TimeSpentReport isAdmin={isAdmin}/>,workplace:<Workplace isAdmin={isAdmin} canUseTask1cErrors={canUseTask1cErrors}/>,employee_month_plan:<EmployeeMonthPlanPage/>,admin_employee_month_plan:<AdminEmployeeMonthPlanPage/>,diagnostics:<Diagnostics/>,bitrix_fields:<BitrixFields/>,rules:<Rules/>,settings:<SettingsPage/>,sync:<Sync/>}[effectivePage]??<Dashboard isAdmin={isAdmin} userId={user.data.id}/>)
+ const content=({dashboard:<Dashboard isAdmin={isAdmin} userId={user.data.id}/>,analytics_deals:<DealAnalytics/>,analytics_work:<DealsInWork/>,analytics_weekly_ov:<WeeklyOvReport/>,analytics_support:<SupportAnalysis/>,gift_info:<GiftInfo/>,kpi:<KPI/>,bonus:<Bonuses isAdmin={isAdmin} userId={user.data.id}/>,deals:<Deals isAdmin={isAdmin} userId={user.data.id}/>,instruction:<InstructionPage/>,onboarding:<OnboardingPage isAdmin={isAdmin}/>,time_report:<TimeSpentReport isAdmin={isAdmin}/>,workplace:<Workplace isAdmin={isAdmin} canUseTask1cErrors={canUseTask1cErrors}/>,employee_month_plan:<EmployeeMonthPlanPage/>,admin_employee_month_plan:<AdminEmployeeMonthPlanPage/>,diagnostics:<Diagnostics/>,bitrix_fields:<BitrixFields/>,rules:<Rules/>,settings:<SettingsPage/>,sync:<Sync/>}[effectivePage]??<Dashboard isAdmin={isAdmin} userId={user.data.id}/>)
  const businessPartnersMenu={key:'business_partners',icon:<FundOutlined/>,label:'Бизнес партнеры',children:[{key:'analytics_support',label:'Анализ по менеджерам'},{key:'gift_info',label:'Информация для подарков'}]}
  const employeeMenu=isSupportEmployee?[businessPartnersMenu]:[
   {key:'dashboard',icon:<DashboardOutlined/>,label:'Главная'},
@@ -762,7 +797,7 @@ export default function App(){
  ]
  const adminMenu=[
   {key:'dashboard',icon:<DashboardOutlined/>,label:'Главная'},{key:'kpi',icon:<TrophyOutlined/>,label:'KPI отдела'},
-  {key:'analytics',icon:<FundOutlined/>,label:'Аналитика',children:[{key:'analytics_deals',label:'Аналитика по сделкам'},{key:'analytics_work',label:'Сделки в работе'}]},
+  {key:'analytics',icon:<FundOutlined/>,label:'Аналитика',children:[{key:'analytics_deals',label:'Аналитика по сделкам'},{key:'analytics_work',label:'Сделки в работе'},{key:'analytics_weekly_ov',label:'Еженедельный отчёт ОВ'}]},
   businessPartnersMenu,
   {key:'admin_employee_month_plan',icon:<CalendarOutlined/>,label:'Планы сотрудников'},
   ...(canUseWorkplace?[{key:'workplace',icon:<DesktopOutlined/>,label:'АРМ'}]:[]),

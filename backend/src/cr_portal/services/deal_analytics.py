@@ -1,6 +1,6 @@
 import json
 from collections import defaultdict
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
@@ -10,7 +10,7 @@ from cr_portal.integrations.bitrix.client import BitrixClient
 from cr_portal.models.deal import Deal
 from cr_portal.models.user import User
 from cr_portal.services.app_settings import get_business_settings
-from cr_portal.services.bonus import raw_date
+from cr_portal.services.bonus import raw_date, raw_value
 
 MOSCOW = ZoneInfo("Europe/Moscow")
 
@@ -218,6 +218,97 @@ async def deals_in_work_report(session: AsyncSession) -> dict:
         "tech_integration": [item(deal) for deal in deals if deal.funnel == "tech_integration"],
         "implementation": [item(deal) for deal in deals if deal.funnel == "implementation"],
     }
+
+
+def _moscow_datetime(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC).astimezone(MOSCOW)
+    return value.astimezone(MOSCOW)
+
+
+def _period_bounds(date_from: date, date_to: date) -> tuple[datetime, datetime]:
+    start = datetime.combine(date_from, time.min, tzinfo=MOSCOW)
+    return start, datetime.combine(date_to + timedelta(days=1), time.min, tzinfo=MOSCOW)
+
+
+async def weekly_ov_report(session: AsyncSession, date_from: date, date_to: date) -> list[dict]:
+    """Deals that were created, active, or successfully completed in a period."""
+    start, end_exclusive = _period_bounds(date_from, date_to)
+    business = await get_business_settings(session)
+    deals = list(
+        (
+            await session.execute(
+                select(Deal)
+                .where(Deal.funnel.in_(("tech_integration", "implementation")))
+                .order_by(Deal.funnel, Deal.title, Deal.bitrix_id)
+            )
+        ).scalars().all()
+    )
+    users = {user.id: user.full_name for user in (await session.execute(select(User))).scalars().all()}
+    rows: list[dict] = []
+    report_end = end_exclusive - timedelta(microseconds=1)
+
+    for deal in deals:
+        created_at = _moscow_datetime(deal.created_time)
+        closed_at = _moscow_datetime(deal.closed_time)
+        updated_at = _moscow_datetime(deal.updated_time)
+        is_new = bool(created_at and start <= created_at < end_exclusive)
+        is_transferred = bool(deal.status == "won" and closed_at and start <= closed_at < end_exclusive)
+        # "Текущий" means the deal existed for the whole period and did not
+        # successfully finish in it. Deals lost in the period are not reported.
+        is_current = bool(
+            created_at
+            and created_at < start
+            and (closed_at is None or closed_at >= end_exclusive)
+        )
+        if not (is_new or is_current or is_transferred):
+            continue
+
+        labels = []
+        if is_new:
+            labels.append("1. Новый")
+        if is_current:
+            labels.append("2. Текущий")
+        if is_transferred:
+            labels.append("3. Передали")
+        stage_started_at = closed_at if is_transferred else updated_at
+        current_status = raw_value(deal, business.field_deal_current_status)
+        if isinstance(current_status, list):
+            current_status = ", ".join(str(value) for value in current_status if str(value).strip())
+        current_status = str(current_status or "").strip() or None
+        rows.append(
+            {
+                "id": str(deal.id),
+                "bitrix_id": deal.bitrix_id,
+                "funnel": deal.funnel,
+                "movement_status": ", ".join(labels),
+                "module_name": deal.module_name,
+                "implementation_responsible_name": users.get(deal.implementation_responsible_user_id),
+                "title": deal.title,
+                "salesperson_name": deal.salesperson_name,
+                "opportunity": str(deal.opportunity or 0),
+                "machines_count": deal.machines_count or 0,
+                "stage_title": deal.stage_title or deal.stage_id,
+                # Bitrix sync preserves the last deal update, but not a stage-history
+                # record. It is the best available start point for the current stage.
+                "days_in_current_status": max(0, (report_end.date() - stage_started_at.date()).days) if stage_started_at else None,
+                "days_in_funnel": (report_end.date() - created_at.date()).days if created_at else None,
+                "deal_current_status": current_status,
+            }
+        )
+    funnel_order = {"tech_integration": 0, "implementation": 1}
+    movement_order = {"1. Новый": 1, "2. Текущий": 2, "3. Передали": 3}
+    return sorted(
+        rows,
+        key=lambda row: (
+            funnel_order[row["funnel"]],
+            min(movement_order[item] for item in row["movement_status"].split(", ")),
+            row["title"],
+            row["bitrix_id"],
+        ),
+    )
 
 
 async def support_analysis_report(session: AsyncSession) -> list[dict]:

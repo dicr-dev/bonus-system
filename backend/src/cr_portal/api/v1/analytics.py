@@ -1,11 +1,13 @@
 import json
+from datetime import date
 from io import BytesIO
 from uuid import UUID
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from openpyxl import Workbook
+from openpyxl.styles import Font
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,7 +16,7 @@ from cr_portal.api.deps import admin_user, bitrix_client, current_user, db_sessi
 from cr_portal.integrations.bitrix.client import BitrixClient
 from cr_portal.models.deal import Deal
 from cr_portal.services.app_settings import get_business_settings
-from cr_portal.services.deal_analytics import deal_groups_report, deals_in_work_report, gift_info_report, support_analysis_report
+from cr_portal.services.deal_analytics import deal_groups_report, deals_in_work_report, gift_info_report, support_analysis_report, weekly_ov_report
 from cr_portal.services.employee_scope import employee_is_in_department
 
 router = APIRouter()
@@ -58,6 +60,58 @@ async def deal_groups(session: AsyncSession = Depends(db_session), _admin=Depend
 @router.get("/deals-in-work")
 async def deals_in_work(session: AsyncSession = Depends(db_session), _admin=Depends(admin_user)):
     return await deals_in_work_report(session)
+
+
+def _weekly_ov_dates(date_from: date, date_to: date) -> tuple[date, date]:
+    if date_from > date_to:
+        raise HTTPException(422, "Дата начала не может быть позже даты окончания")
+    return date_from, date_to
+
+
+@router.get("/weekly-ov")
+async def weekly_ov(
+    date_from: date = Query(...), date_to: date = Query(...),
+    session: AsyncSession = Depends(db_session), _admin=Depends(admin_user),
+):
+    date_from, date_to = _weekly_ov_dates(date_from, date_to)
+    return await weekly_ov_report(session, date_from, date_to)
+
+
+@router.get("/weekly-ov/export")
+async def export_weekly_ov(
+    date_from: date = Query(...), date_to: date = Query(...),
+    session: AsyncSession = Depends(db_session), _admin=Depends(admin_user),
+):
+    date_from, date_to = _weekly_ov_dates(date_from, date_to)
+    rows = await weekly_ov_report(session, date_from, date_to)
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Еженедельный отчет ОВ"
+    sheet.append([
+        "Воронка", "Новые, текущие, передали", "Модуль", "Сотрудник", "Название сделки",
+        "Ответственный продавец", "Сумма", "Кол-во ТС", "Статус в воронке",
+        "Кол-во дней в текущем статусе", "Кол-во дней в воронке", "Текущий статус по сделке",
+    ])
+    for row in rows:
+        sheet.append([
+            "Тех.интеграция" if row["funnel"] == "tech_integration" else "Внедрение",
+            row["movement_status"], row["module_name"], row["implementation_responsible_name"], row["title"],
+            row["salesperson_name"], float(row["opportunity"]), row["machines_count"], row["stage_title"],
+            row["days_in_current_status"], row["days_in_funnel"], row["deal_current_status"],
+        ])
+    for cell in sheet[1]:
+        cell.font = Font(bold=True)
+    for column in sheet.columns:
+        sheet.column_dimensions[column[0].column_letter].width = min(48, max(14, max(len(str(cell.value or "")) for cell in column) + 2))
+    sheet.freeze_panes = "A2"
+    payload = BytesIO()
+    workbook.save(payload)
+    payload.seek(0)
+    return StreamingResponse(
+        payload,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="weekly_ov_{date_from:%Y-%m-%d}_{date_to:%Y-%m-%d}.xlsx"'},
+    )
 
 
 @router.get("/support-analysis")
