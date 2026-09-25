@@ -947,7 +947,8 @@ async def calculate_month(
     if business.field_sales_bonus_user_id:
         sales_result = await session.execute(
             select(Deal).where(
-                Deal.funnel == "tech_integration",
+                Deal.funnel == "implementation",
+                Deal.status == "won",
                 Deal.sales_bonus_user_id.is_not(None),
                 Deal.closed_time >= dt(month),
                 Deal.closed_time < dt(end),

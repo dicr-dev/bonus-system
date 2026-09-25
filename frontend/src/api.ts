@@ -1,5 +1,5 @@
 import axios from 'axios'
-import type { AdminEmployeeMonthPlan,AppSettings,BitrixDealField,Calculation,CalculationDetail,CurrentUser,DashboardSummary,Deal,DealBonusOverride,DealBonusOverrideInput,DealGroupsReport,DealsInWorkReport,Employee,EmployeeMonthPlan,GiftInfoDeal,Issue,KPISummary,ManualBonusAdjustment,ManualBonusAdjustmentInput,OnboardingAssignment,OnboardingPlanSection,RuleConfig,RuleVersion,SupportAnalysisRow,SupportAutoMatchPreview,SyncJob,SyncStatus,Task1CErrorReport,TimeReport,WeeklyOvDeal } from './types'
+import type { AdminEmployeeMonthPlan,AppSettings,BitrixDealField,Calculation,CalculationDetail,CurrentUser,DashboardSummary,Deal,DealBonusOverride,DealBonusOverrideInput,DealGroupsReport,DealsInWorkReport,Employee,EmployeeMonthPlan,GiftInfoDeal,Issue,KPISummary,ManualBonusAdjustment,ManualBonusAdjustmentInput,OnboardingAssignment,OnboardingPlanSection,RuleConfig,RuleVersion,SupportAnalysisRow,SupportAutoMatchPreview,SyncJob,SyncStatus,Task1CCheckReport,Task1CErrorReport,TimeReport,WeeklyOvDeal } from './types'
 
 export const api=axios.create({baseURL:'/api/v1',withCredentials:true,timeout:30000})
 export async function login(login:string,password:string){return (await api.post('/auth/login',{login,password})).data}
@@ -35,6 +35,8 @@ export async function getBitrixDealFields():Promise<BitrixDealField[]>{return (a
 export async function getTimeReport(params:{date_from:string;date_to:string;departments:string[];employee_ids:string[];funnels:string[]}):Promise<TimeReport>{return (await api.get('/reports/time-spent',{params,paramsSerializer:{indexes:null}})).data}
 export async function getWorkplaceTime():Promise<TimeReport>{return (await api.get('/reports/workplace-time')).data}
 export async function getWorkplaceTask1cErrors(employeeId?:string):Promise<Task1CErrorReport>{return (await api.get('/reports/workplace-task-1c-errors',{params:employeeId?{employee_id:employeeId}:{}})).data}
+export async function getTask1cCheck():Promise<Task1CCheckReport>{return (await api.get('/reports/task-1c-check')).data}
+export async function exportTask1cCheck(taskBitrixIds:number[]):Promise<Blob>{return (await api.post('/reports/task-1c-check/export',{task_bitrix_ids:taskBitrixIds},{responseType:'blob'})).data}
 export async function getDealGroups():Promise<DealGroupsReport>{return (await api.get('/analytics/deal-groups')).data}
 export async function getDealsInWork():Promise<DealsInWorkReport>{return (await api.get('/analytics/deals-in-work')).data}
 export async function getWeeklyOv(dateFrom:string,dateTo:string):Promise<WeeklyOvDeal[]>{return (await api.get('/analytics/weekly-ov',{params:{date_from:dateFrom,date_to:dateTo}})).data}

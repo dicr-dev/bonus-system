@@ -268,19 +268,18 @@ async def sync_task_1c_errors(
     session: AsyncSession,
     client: BitrixClient,
 ) -> dict[str, int]:
-    """Cache tasks started after 01.11.2025 for validation of the 1C type field."""
+    """Cache 1C developers' tasks for validation of the project and type field."""
     business = await get_business_settings(session)
     type_field = business.task_1c_type_field
-    project_id = business.task_1c_errors_project_id
-    if not type_field or project_id is None:
+    if not type_field:
         return {"task_1c_errors_tasks": 0, "task_1c_errors": 0}
 
-    creators = [
+    responsible_users = [
         user.bitrix_id
         for user in (await session.execute(select(User).where(User.is_active.is_(True)))).scalars()
-        if employee_is_in_department(user, "Отдел внедрения")
+        if employee_is_in_department(user, "Разработка 1С")
     ]
-    if not creators:
+    if not responsible_users:
         return {"task_1c_errors_tasks": 0, "task_1c_errors": 0}
 
     payloads: list[dict] = []
@@ -289,10 +288,9 @@ async def sync_task_1c_errors(
         "CREATED_DATE", "DATE_START", "CHANGED_DATE", "DEADLINE", "CLOSED_DATE",
         "UF_CRM_TASK", type_field,
     ]
-    start = "2025-11-01T00:00:00+03:00"
-    for creator_id in creators:
+    for responsible_id in responsible_users:
         payloads.extend(await client.call_all("tasks.task.list", {
-            "filter": {"CREATED_BY": creator_id, "GROUP_ID": project_id, ">DATE_START": start},
+            "filter": {"RESPONSIBLE_ID": responsible_id},
             "select": select_fields,
             "order": {"ID": "ASC"},
         }))

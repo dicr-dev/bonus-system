@@ -130,7 +130,11 @@ async def deal_groups_report(session: AsyncSession, billing_start_field: str, so
         }
 
     for tech_deal in tech.values():
-        linked = implementations_by_parent.get(tech_deal.bitrix_id, [])
+        linked = [
+            item
+            for item in implementations_by_parent.get(tech_deal.bitrix_id, [])
+            if item.status != "lost"
+        ]
         if len(linked) != 1:
             rows.append(make_row(tech_deal, None, None))
             if len(linked) > 1:

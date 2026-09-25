@@ -17,6 +17,8 @@ export interface TimeReportEmployee { employee_id:string; full_name:string; depa
 export interface TimeReport { date_from:string; date_to:string; days:string[]; employees:TimeReportEmployee[] }
 export interface Task1CError { task_bitrix_id:number; title:string; group_id:number|null; responsible_bitrix_id:number|null; creator_id:string; creator_name:string; start_time:string; status:number|null }
 export interface Task1CErrorReport { tasks:Task1CError[] }
+export interface Task1CCheckItem { task_bitrix_id:number; title:string; group_id:number|null; responsible_bitrix_id:number|null; deal_bitrix_id:number|null; deal_title:string|null; deal_funnel:string|null; creator_name:string|null; responsible_name:string|null; created_time:string|null; in_1c_project:boolean; has_1c_type:boolean; status:number|null }
+export interface Task1CCheckReport { tasks:Task1CCheckItem[] }
 export interface AnalyticsDeal { id:string; bitrix_id:number; title:string; funnel:string; status:string; stage_title:string|null; created_time:string|null; closed_time:string|null; manager_name:string|null }
 export interface DealGroup { key:string; company_id:number|null; company_name:string; module_name:string|null; client_status:string; tech:AnalyticsDeal|null; implementation:AnalyticsDeal|null; support:AnalyticsDeal|null; tech_months:number|null; implementation_months:number|null; subscription_months:number|null }
 export interface DealGroupIssue { type:string; title:string; child_deals:AnalyticsDeal[]; parent:AnalyticsDeal|null; candidates:AnalyticsDeal[] }

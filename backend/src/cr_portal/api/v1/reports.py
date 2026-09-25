@@ -1,13 +1,17 @@
 from datetime import UTC, date, datetime, timedelta
+from io import BytesIO
 from decimal import Decimal
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
+from openpyxl import Workbook
+from openpyxl.styles import Font
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from cr_portal.api.deps import current_user, db_session
+from cr_portal.api.deps import admin_user, current_user, db_session
 from cr_portal.models.deal import Deal
 from cr_portal.models.user import User
 from cr_portal.repositories.deals import DealRepository
@@ -15,13 +19,57 @@ from cr_portal.schemas.dashboard import DashboardSummary, FunnelSummary, Respons
 from cr_portal.schemas.deals import DealResponse
 from cr_portal.schemas.time_report import TimeReport
 from cr_portal.schemas.task_1c_errors import Task1CErrorReport
+from cr_portal.schemas.task_1c_check import Task1CCheckExportRequest, Task1CCheckReport
 from cr_portal.services.app_settings import get_business_settings
 from cr_portal.services.employee_scope import employee_is_in_kpi_department
 from cr_portal.services.subscriptions import subscription_deals_for_month
 from cr_portal.services.time_report import time_spent_report
 from cr_portal.services.task_1c_errors import task_1c_errors_report
+from cr_portal.services.task_1c_check import task_1c_check_report
 
 router = APIRouter()
+
+
+@router.get("/task-1c-check", response_model=Task1CCheckReport)
+async def task_1c_check(
+    user=Depends(admin_user),
+    session: AsyncSession = Depends(db_session),
+):
+    return await task_1c_check_report(session)
+
+
+@router.post("/task-1c-check/export")
+async def export_task_1c_check(
+    payload: Task1CCheckExportRequest,
+    _user=Depends(admin_user),
+    session: AsyncSession = Depends(db_session),
+):
+    rows = (await task_1c_check_report(session, task_bitrix_ids=payload.task_bitrix_ids))["tasks"]
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Проверка задач 1С"
+    sheet.append(["№", "ID", "Название", "Сделка", "Воронка", "Постановщик", "Исполнитель", "Дата создания", "Задачи по 1С", "Тип задачи 1С", "Статус"])
+    statuses = {1: "Новая", 2: "В работе", 3: "Выполняется", 4: "Ждёт контроля", 5: "Завершена", 6: "Отложена"}
+    funnels = {"tech_integration": "Тех интеграция", "implementation": "Внедрение", "cr_start": "CR Start", "support": "Сопровождение"}
+    for number, row in enumerate(rows, start=1):
+        sheet.append([
+            number, row["task_bitrix_id"], row["title"], row["deal_title"], funnels.get(row["deal_funnel"], row["deal_funnel"]), row["creator_name"], row["responsible_name"], row["created_time"],
+            "Да" if row["in_1c_project"] else "Нет", "Заполнено" if row["has_1c_type"] else "Не заполнено",
+            statuses.get(row["status"], "—"),
+        ])
+    for cell in sheet[1]:
+        cell.font = Font(bold=True)
+    for column in sheet.columns:
+        sheet.column_dimensions[column[0].column_letter].width = min(60, max(14, max(len(str(cell.value or "")) for cell in column) + 2))
+    sheet.freeze_panes = "A2"
+    content = BytesIO()
+    workbook.save(content)
+    content.seek(0)
+    return StreamingResponse(
+        content,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="task_1c_check.xlsx"'},
+    )
 
 
 @router.get("/time-spent", response_model=TimeReport)

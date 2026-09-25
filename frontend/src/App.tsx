@@ -16,12 +16,12 @@ import {BitrixLink,dealUrl,sourceUrl,taskUrl} from './BitrixLink'
 import {
   createManualBonusAdjustment,deleteDealBonusOverride,deleteManualBonusAdjustment,excelUrl,getCalculation,giftInfoExcelUrl,
   getBitrixDealFields,getCalculations,getCurrentUser,getDashboard,getDealBonusOverrides,getDepartmentDeals,getDiagnostics,
-  addEmployeeMonthPlanDeal,autoMatchSupportLinks,getAdminEmployeeMonthPlan,getEmployeeMonthPlan,getEmployees,getGiftInfo,getKPI,getManualBonusAdjustments,getRules,getSyncJob,getSyncStatus,getTimeReport,getWorkplaceTask1cErrors,getWorkplaceTime,getDealGroups,getDealsInWork,getSupportAnalysis,getSupportAutoMatchPreview,getWeeklyOv,login,logout,removeEmployeeMonthPlanDeal,runCalculation,saveDealLink,weeklyOvExcelUrl,
+  addEmployeeMonthPlanDeal,autoMatchSupportLinks,exportTask1cCheck,getAdminEmployeeMonthPlan,getEmployeeMonthPlan,getEmployees,getGiftInfo,getKPI,getManualBonusAdjustments,getRules,getSyncJob,getSyncStatus,getTask1cCheck,getTimeReport,getWorkplaceTask1cErrors,getWorkplaceTime,getDealGroups,getDealsInWork,getSupportAnalysis,getSupportAutoMatchPreview,getWeeklyOv,login,logout,removeEmployeeMonthPlanDeal,runCalculation,saveDealLink,weeklyOvExcelUrl,
   runDiagnostics,saveDealBonusOverride,savePlan,startDealsSync,startFullTasksSync,startRecentTasksSync,updateManualBonusAdjustment
 } from './api'
 import type {
   BitrixDealField,Calculation,CalculationDetail,Deal,DealBonusOverride,DealBonusOverrideInput,FunnelSummary,Issue,KPIDeal,
-  AdminEmployeeMonthPlanDeal,AnalyticsDeal,DealGroup,DealGroupIssue,DealInWork,EmployeeMonthPlanDeal,GiftInfoDeal,KPIPlannedDeal,KPIPartialSubscriptionDeal,ManualBonusAdjustment,ManualBonusAdjustmentInput,ResponsibleSummary,RuleVersion,SupportAnalysisRow,SupportAutoMatchPreview,SyncJob,Task1CError,TimeReportDay,TimeReportEmployee,TimeReportTask,WeeklyOvDeal
+  AdminEmployeeMonthPlanDeal,AnalyticsDeal,DealGroup,DealGroupIssue,DealInWork,EmployeeMonthPlanDeal,GiftInfoDeal,KPIPlannedDeal,KPIPartialSubscriptionDeal,ManualBonusAdjustment,ManualBonusAdjustmentInput,ResponsibleSummary,RuleVersion,SupportAnalysisRow,SupportAutoMatchPreview,SyncJob,Task1CCheckItem,Task1CError,TimeReportDay,TimeReportEmployee,TimeReportTask,WeeklyOvDeal
 } from './types'
 
 const {Header,Content,Sider}=Layout
@@ -560,6 +560,39 @@ function Workplace({isAdmin,canUseTask1cErrors}:{isAdmin:boolean;canUseTask1cErr
  </Space>
 }
 
+function Task1CCheck(){
+ const report=useQuery({queryKey:['task-1c-check'],queryFn:getTask1cCheck})
+ const [page,setPage]=useState({current:1,pageSize:25})
+ const [activeFilters,setActiveFilters]=useState<Record<string,(string|number|boolean)[]|null>>({})
+ const data=report.data?.tasks??[]
+ const filteredData=data.filter(row=>Object.entries(activeFilters).every(([field,values])=>!values?.length||values.some(value=>String(row[field as keyof Task1CCheckItem])===String(value))))
+ const exportList=useMutation({mutationFn:async()=>{
+  const blob=await exportTask1cCheck(filteredData.map(row=>row.task_bitrix_id));const url=URL.createObjectURL(blob);const link=document.createElement('a');link.href=url;link.download='task_1c_check.xlsx';link.click();URL.revokeObjectURL(url)
+ },onSuccess:()=>message.success('Файл Excel сформирован'),onError:()=>message.error('Не удалось сформировать Excel-файл')})
+ const filters=(field:keyof Task1CCheckItem)=>({filters:[...new Set(data.map(row=>String(row[field])))].sort((a,b)=>a.localeCompare(b,'ru')).map(value=>({text:value,value})),onFilter:(value:unknown,row:Task1CCheckItem)=>String(row[field])===String(value)})
+ const yesNoFilters=(field:'in_1c_project'|'has_1c_type')=>({filters:[{text:'Да',value:'true'},{text:'Нет',value:'false'}],onFilter:(value:unknown,row:Task1CCheckItem)=>String(row[field])===String(value)})
+ const taskStatuses:Record<number,string>={1:'Новая',2:'В работе',3:'Выполняется',4:'Ждёт контроля',5:'Завершена',6:'Отложена'}
+ const status=(value:number|null)=>value==null?'—':taskStatuses[value]||'—'
+ const columns:ColumnsType<Task1CCheckItem>=[
+  {title:'№',width:65,render:(_:unknown,_row:Task1CCheckItem,index:number)=>(page.current-1)*page.pageSize+index+1},
+  {title:'ID',dataIndex:'task_bitrix_id',width:110,sorter:(a,b)=>a.task_bitrix_id-b.task_bitrix_id,...filters('task_bitrix_id')},
+  {title:'Название',dataIndex:'title',width:300,sorter:(a,b)=>a.title.localeCompare(b.title,'ru'),...filters('title'),render:(title,row)=><BitrixLink href={taskUrl(row.task_bitrix_id,row.group_id,row.responsible_bitrix_id)}>{title}</BitrixLink>},
+  {title:'Сделка',dataIndex:'deal_title',width:280,sorter:(a,b)=>(a.deal_title||'').localeCompare(b.deal_title||'','ru'),...filters('deal_title'),render:(title,row)=><BitrixLink href={dealUrl(row.deal_bitrix_id)}>{title||'—'}</BitrixLink>},
+  {title:'Воронка',dataIndex:'deal_funnel',width:160,sorter:(a,b)=>(a.deal_funnel||'').localeCompare(b.deal_funnel||'','ru'),...filters('deal_funnel'),render:value=>value?funnel(value):'—'},
+  {title:'Постановщик',dataIndex:'creator_name',width:220,sorter:(a,b)=>(a.creator_name||'').localeCompare(b.creator_name||'','ru'),...filters('creator_name'),render:value=>value||'—'},
+  {title:'Исполнитель',dataIndex:'responsible_name',width:220,sorter:(a,b)=>(a.responsible_name||'').localeCompare(b.responsible_name||'','ru'),...filters('responsible_name'),render:value=>value||'—'},
+  {title:'Дата создания',dataIndex:'created_time',width:145,sorter:(a,b)=>(a.created_time||'').localeCompare(b.created_time||''),...filters('created_time'),render:value=>value?shortDate(value):'—'},
+  {title:'Задачи по 1С',dataIndex:'in_1c_project',width:155,sorter:(a,b)=>Number(a.in_1c_project)-Number(b.in_1c_project),...yesNoFilters('in_1c_project'),render:value=>value?'Да':'Нет'},
+  {title:'Тип задачи 1С',dataIndex:'has_1c_type',width:160,sorter:(a,b)=>Number(a.has_1c_type)-Number(b.has_1c_type),...yesNoFilters('has_1c_type'),render:value=>value?'Заполнено':'Не заполнено'},
+  {title:'Статус',dataIndex:'status',width:160,sorter:(a,b)=>(a.status??0)-(b.status??0),filters:Object.entries(taskStatuses).map(([value,text])=>({text,value})),onFilter:(value:unknown,row)=>String(row.status)===String(value),render:status}
+ ]
+ return <Space direction="vertical" size={24} style={{width:'100%'}}>
+  <Title level={2}>Проверка задач 1С</Title>
+  <Text type="secondary">Показаны задачи исполнителей отдела «Разработка 1С», у которых не выбран проект «Задачи по 1С» или не заполнен тип задачи 1С.</Text>
+  <Card extra={<Button icon={<DownloadOutlined/>} loading={exportList.isPending} onClick={()=>exportList.mutate()}>Скачать Excel</Button>}><Table rowKey="task_bitrix_id" columns={columns} dataSource={data} loading={report.isLoading} pagination={{...page,showSizeChanger:true,pageSizeOptions:[25,50,100],showTotal:total=>`Всего: ${total}`,onChange:(current,pageSize)=>setPage({current:pageSize!==page.pageSize?1:current,pageSize})}} onChange={(_pagination,tableFilters,_sorter,extra)=>{setActiveFilters(tableFilters as Record<string,(string|number|boolean)[]|null>);if(extra.action==='filter')setPage(value=>({...value,current:1}))}} scroll={{x:1975}}/></Card>
+ </Space>
+}
+
 function DealAnalytics(){
  const qc=useQueryClient();const report=useQuery({queryKey:['deal-groups'],queryFn:getDealGroups})
  const [company,setCompany]=useState('');const [module,setModule]=useState<string|undefined>();const [status,setStatus]=useState<string|undefined>();const [manager,setManager]=useState<string|undefined>();const [dateFrom,setDateFrom]=useState('');const [dateTo,setDateTo]=useState('');const [parents,setParents]=useState<Record<string,number|undefined>>({});const [previewOpen,setPreviewOpen]=useState(false);const [selectedAutoIds,setSelectedAutoIds]=useState<string[]>([]);const [previewPageSize,setPreviewPageSize]=useState(10);const [previewPage,setPreviewPage]=useState(1)
@@ -782,7 +815,7 @@ export default function App(){
  const employeePages=isSupportEmployee?['analytics_support','gift_info']:['dashboard','bonus','deals','instruction','onboarding','time_report',...(canUseWorkplace?['workplace']:[]),...(canUseEmployeeMonthPlan?['employee_month_plan']:[]),...(canUseBusinessPartners?['analytics_support','gift_info']:[])]
  const fallbackPage=isSupportEmployee?'analytics_support':'dashboard'
  const effectivePage=(!isAdmin&&!employeePages.includes(page))||(!canUseWorkplace&&page==='workplace')||(!canUseEmployeeMonthPlan&&page==='employee_month_plan')||(!canUseBusinessPartners&&['analytics_support','gift_info'].includes(page))?fallbackPage:page
- const content=({dashboard:<Dashboard isAdmin={isAdmin} userId={user.data.id}/>,analytics_deals:<DealAnalytics/>,analytics_work:<DealsInWork/>,analytics_weekly_ov:<WeeklyOvReport/>,analytics_support:<SupportAnalysis/>,gift_info:<GiftInfo/>,kpi:<KPI/>,bonus:<Bonuses isAdmin={isAdmin} userId={user.data.id}/>,deals:<Deals isAdmin={isAdmin} userId={user.data.id}/>,instruction:<InstructionPage/>,onboarding:<OnboardingPage isAdmin={isAdmin}/>,time_report:<TimeSpentReport isAdmin={isAdmin}/>,workplace:<Workplace isAdmin={isAdmin} canUseTask1cErrors={canUseTask1cErrors}/>,employee_month_plan:<EmployeeMonthPlanPage/>,admin_employee_month_plan:<AdminEmployeeMonthPlanPage/>,diagnostics:<Diagnostics/>,bitrix_fields:<BitrixFields/>,rules:<Rules/>,settings:<SettingsPage/>,sync:<Sync/>}[effectivePage]??<Dashboard isAdmin={isAdmin} userId={user.data.id}/>)
+ const content=({dashboard:<Dashboard isAdmin={isAdmin} userId={user.data.id}/>,analytics_deals:<DealAnalytics/>,analytics_work:<DealsInWork/>,analytics_weekly_ov:<WeeklyOvReport/>,analytics_support:<SupportAnalysis/>,gift_info:<GiftInfo/>,kpi:<KPI/>,bonus:<Bonuses isAdmin={isAdmin} userId={user.data.id}/>,deals:<Deals isAdmin={isAdmin} userId={user.data.id}/>,instruction:<InstructionPage/>,onboarding:<OnboardingPage isAdmin={isAdmin}/>,time_report:<TimeSpentReport isAdmin={isAdmin}/>,workplace:<Workplace isAdmin={isAdmin} canUseTask1cErrors={canUseTask1cErrors}/>,employee_month_plan:<EmployeeMonthPlanPage/>,admin_employee_month_plan:<AdminEmployeeMonthPlanPage/>,task_1c_check:<Task1CCheck/>,diagnostics:<Diagnostics/>,bitrix_fields:<BitrixFields/>,rules:<Rules/>,settings:<SettingsPage/>,sync:<Sync/>}[effectivePage]??<Dashboard isAdmin={isAdmin} userId={user.data.id}/>)
  const businessPartnersMenu={key:'business_partners',icon:<FundOutlined/>,label:'Бизнес партнеры',children:[{key:'analytics_support',label:'Анализ по менеджерам'},{key:'gift_info',label:'Информация для подарков'}]}
  const employeeMenu=isSupportEmployee?[businessPartnersMenu]:[
   {key:'dashboard',icon:<DashboardOutlined/>,label:'Главная'},
@@ -805,6 +838,7 @@ export default function App(){
   {key:'bonus',icon:<FundOutlined/>,label:'Расчет премий'},{key:'deals',icon:<DatabaseOutlined/>,label:'Сделки'},
   {key:'instruction',icon:<BookOutlined/>,label:'Инструкция'},{key:'onboarding',icon:<CheckCircleOutlined/>,label:'Адаптация'},{key:'time_report',icon:<TrophyOutlined/>,label:'Отчёт по затраченному времени'},
   {key:'diagnostics',icon:<ExclamationCircleOutlined/>,label:'Диагностика'},{key:'bitrix_fields',icon:<DatabaseOutlined/>,label:'Поля Bitrix'},{key:'rules',icon:<SettingOutlined/>,label:'Правила'},
+  {key:'service',icon:<SettingOutlined/>,label:'Служебные',children:[{key:'task_1c_check',label:'Проверка задач 1С'}]},
   {key:'settings',icon:<SettingOutlined/>,label:'\u041d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0438'},
   {key:'sync',icon:<CloudSyncOutlined/>,label:'Синхронизация'}
  ]
