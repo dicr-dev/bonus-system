@@ -63,6 +63,7 @@ export interface Calculation {
   current_client_total:string
   kpi_total:string
   kpi_divided_total:string
+  divider:string
   total_bonus:string
   issues_count:number
   created_at:string

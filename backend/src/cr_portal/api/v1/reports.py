@@ -52,8 +52,11 @@ async def export_task_1c_check(
     statuses = {1: "Новая", 2: "В работе", 3: "Выполняется", 4: "Ждёт контроля", 5: "Завершена", 6: "Отложена"}
     funnels = {"tech_integration": "Тех интеграция", "implementation": "Внедрение", "cr_start": "CR Start", "support": "Сопровождение"}
     for number, row in enumerate(rows, start=1):
+        created_time = row["created_time"]
+        if isinstance(created_time, datetime):
+            created_time = created_time.astimezone(ZoneInfo("Europe/Moscow")).strftime("%d.%m.%Y %H:%M")
         sheet.append([
-            number, row["task_bitrix_id"], row["title"], row["deal_title"], funnels.get(row["deal_funnel"], row["deal_funnel"]), row["creator_name"], row["responsible_name"], row["created_time"],
+            number, row["task_bitrix_id"], row["title"], row["deal_title"], funnels.get(row["deal_funnel"], row["deal_funnel"]), row["creator_name"], row["responsible_name"], created_time,
             "Да" if row["in_1c_project"] else "Нет", "Заполнено" if row["has_1c_type"] else "Не заполнено",
             statuses.get(row["status"], "—"),
         ])

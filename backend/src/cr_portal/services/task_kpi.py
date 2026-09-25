@@ -332,7 +332,7 @@ async def task_contributions(
             if str(field_value(task, config.task_training_bonus_field)) != yes:
                 continue
             if employee is None:
-                raise ValueError(f"Исполнитель задачи {task_id} не синхронизирован")
+                continue
             rate = Decimal(str(rules["training_bonus"]))
             result.append((employee, (None, "training", rate, rate, Decimal(1), rate, True,
                 f"Обучение: {field_value(task, 'TITLE')}", {"task_id": task_id, "task": task, "date_field": date_field})))
@@ -360,7 +360,7 @@ async def task_contributions(
                 continue
             seen.add(task_id)
             if responsible not in user_map:
-                raise ValueError(f"Исполнитель задачи {task_id} не синхронизирован")
+                continue
             hours, source = overtime_hours(task, config)
             result.append((user_map[responsible], (None, "overtime_hours", Decimal(0), Decimal(0), hours,
                 Decimal(0), False, f"Переработки: {field_value(task, 'TITLE')} — {hours} ч",

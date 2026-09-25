@@ -30,6 +30,7 @@ const FUNNELS:Record<string,string>={tech_integration:'Тех интеграци
 const BONUS:Record<string,string>={tech_integration:'Тех интеграция',implementation:'Внедрение',cr_start_implementation:'CR Start как внедрение',cr_start_fixed:'CR Start фикс.',deal_manual_adjustment:'Ручная корректировка сделки',manual_adjustment:'Ручной бонус / штраф',sale:'Продажа',support_hours:'Сопровождение по часам',task_hours_reference:'Справочные часы по задачам',current_client:'Текущий клиент',training:'Обучение'}
 const funnel=(v:string)=>FUNNELS[v]??v
 const rub=(v:string|number)=>new Intl.NumberFormat('ru-RU',{style:'currency',currency:'RUB',maximumFractionDigits:0}).format(Number(v||0))
+const rubExact=(v:string|number)=>new Intl.NumberFormat('ru-RU',{style:'currency',currency:'RUB',minimumFractionDigits:2,maximumFractionDigits:2}).format(Number(v||0))
 const num=(v:string|number)=>new Intl.NumberFormat('ru-RU').format(Number(v||0))
 const duration=(seconds:number)=>`${Math.floor(seconds/3600)} ч ${Math.floor(seconds%3600/60)} м`
 const dateTime=(v:string|null|undefined)=>v?new Date(v).toLocaleString('ru-RU'):'—'
@@ -278,6 +279,7 @@ function Bonuses({isAdmin,userId}:{isAdmin:boolean;userId:string}){
   const data=detail.data
 
   const totalBy=(type:string)=>data.items.filter(item=>item.bonus_type===type).reduce((sum,item)=>sum+Number(item.amount_before_divider||0),0)
+  const finalBy=(type:string)=>data.items.filter(item=>item.bonus_type===type).reduce((sum,item)=>sum+Number(item.amount_final||0),0)
   const hoursBy=(type:string)=>data.items.filter(item=>item.bonus_type===type).reduce((sum,item)=>sum+Number(item.quantity||0),0)
   const sectionRows=(type:string, labelFactory?:(item:Item)=>string)=>{
     const items=data.items.filter(item=>item.bonus_type===type)
@@ -298,10 +300,20 @@ function Bonuses({isAdmin,userId}:{isAdmin:boolean;userId:string}){
    {label:'Часы текущих клиентов', total:hoursBy('support_hours'), rows:[], suffix:' ч'},
    {label:'Переработка', total:hoursBy('overtime_hours'), rows:[], suffix:' ч'},
    {label:'CR Start', total:totalBy('cr_start_fixed'), rows:sectionRows('cr_start_fixed',item=>sourceValue(item))},
+   {label:'Продажи', total:totalBy('sale'), rows:sectionRows('sale',item=>sourceValue(item))},
    {label:'Корректировки сделок', total:totalBy('deal_manual_adjustment'), rows:sectionRows('deal_manual_adjustment',item=>sourceValue(item))},
    {label:'Ручные бонусы и штрафы', total:totalBy('manual_adjustment'), rows:sectionRows('manual_adjustment',item=>item.description)},
    {label:'Текущие', total:totalBy('current_client'), rows:[]}
   ]
+  const divider=Number(data.divider||2.5)
+  const totalLines=[
+   {label:'Текущие сделки', value:finalBy('current_client')},
+   {label:'CR Start', value:finalBy('cr_start_fixed')},
+   {label:'Продажи', value:finalBy('sale')},
+   {label:`Переработки ${num(hoursBy('overtime_hours'))} ч`, value:finalBy('overtime_hours')},
+   {label:'Корректировки сделок', value:finalBy('deal_manual_adjustment')},
+   {label:'Ручные бонусы и штрафы', value:finalBy('manual_adjustment')}
+  ].filter(line=>line.value!==0 || line.label.startsWith('Переработки'))
 
   const taskHourItems=data.items.filter(item=>['support_hours','task_hours_reference'].includes(item.bonus_type))
   const taskHourFunnels=[
@@ -324,6 +336,14 @@ function Bonuses({isAdmin,userId}:{isAdmin:boolean;userId:string}){
        </div>}
       </div>
      })}
+     <div style={{borderTop:'1px solid #f0f0f0',paddingTop:12,marginTop:4}}>
+      <Text strong>Итоговые суммы</Text>
+      <Space direction="vertical" size={4} style={{display:'flex',marginTop:8}}>
+       <Text>KPI / {num(divider)} — {rubExact(data.kpi_total)} / {num(divider)} = {rubExact(data.kpi_divided_total)}</Text>
+       {totalLines.map(line=><Text key={line.label}>{line.label} — {rubExact(line.value)}</Text>)}
+       <Text strong>Итого — {rubExact(data.total_bonus)}</Text>
+      </Space>
+     </div>
     </Space>
    </Card>
 
@@ -564,8 +584,19 @@ function Task1CCheck(){
  const report=useQuery({queryKey:['task-1c-check'],queryFn:getTask1cCheck})
  const [page,setPage]=useState({current:1,pageSize:25})
  const [activeFilters,setActiveFilters]=useState<Record<string,(string|number|boolean)[]|null>>({})
+ const [dateFilter,setDateFilter]=useState<{operator:'gt'|'gte'|'lt'|'lte'|'eq';value:string}>({operator:'gte',value:''})
  const data=report.data?.tasks??[]
- const filteredData=data.filter(row=>Object.entries(activeFilters).every(([field,values])=>!values?.length||values.some(value=>String(row[field as keyof Task1CCheckItem])===String(value))))
+ const dateMatches=(value:string|null)=>{
+  if(!dateFilter.value)return true
+  const date=value?.slice(0,10)
+  if(!date)return false
+  if(dateFilter.operator==='gt')return date>dateFilter.value
+  if(dateFilter.operator==='gte')return date>=dateFilter.value
+  if(dateFilter.operator==='lt')return date<dateFilter.value
+  if(dateFilter.operator==='lte')return date<=dateFilter.value
+  return date===dateFilter.value
+ }
+ const filteredData=data.filter(row=>dateMatches(row.created_time)&&Object.entries(activeFilters).every(([field,values])=>field==='created_time'||!values?.length||values.some(value=>String(row[field as keyof Task1CCheckItem])===String(value))))
  const exportList=useMutation({mutationFn:async()=>{
   const blob=await exportTask1cCheck(filteredData.map(row=>row.task_bitrix_id));const url=URL.createObjectURL(blob);const link=document.createElement('a');link.href=url;link.download='task_1c_check.xlsx';link.click();URL.revokeObjectURL(url)
  },onSuccess:()=>message.success('Файл Excel сформирован'),onError:()=>message.error('Не удалось сформировать Excel-файл')})
@@ -581,7 +612,7 @@ function Task1CCheck(){
   {title:'Воронка',dataIndex:'deal_funnel',width:160,sorter:(a,b)=>(a.deal_funnel||'').localeCompare(b.deal_funnel||'','ru'),...filters('deal_funnel'),render:value=>value?funnel(value):'—'},
   {title:'Постановщик',dataIndex:'creator_name',width:220,sorter:(a,b)=>(a.creator_name||'').localeCompare(b.creator_name||'','ru'),...filters('creator_name'),render:value=>value||'—'},
   {title:'Исполнитель',dataIndex:'responsible_name',width:220,sorter:(a,b)=>(a.responsible_name||'').localeCompare(b.responsible_name||'','ru'),...filters('responsible_name'),render:value=>value||'—'},
-  {title:'Дата создания',dataIndex:'created_time',width:145,sorter:(a,b)=>(a.created_time||'').localeCompare(b.created_time||''),...filters('created_time'),render:value=>value?shortDate(value):'—'},
+  {title:'Дата создания',dataIndex:'created_time',width:145,sorter:(a,b)=>(a.created_time||'').localeCompare(b.created_time||''),filterDropdown:({confirm,clearFilters})=><div style={{padding:8,width:220}}><Space direction="vertical" size={8} style={{width:'100%'}}><Select value={dateFilter.operator} onChange={operator=>setDateFilter(value=>({...value,operator}))} options={[{value:'gt',label:'Больше'},{value:'gte',label:'Больше или равно'},{value:'lt',label:'Меньше'},{value:'lte',label:'Меньше или равно'},{value:'eq',label:'Равно'}]}/><Input type="date" value={dateFilter.value} onChange={event=>setDateFilter(value=>({...value,value:event.target.value}))}/><Space><Button size="small" type="primary" onClick={()=>{setPage(value=>({...value,current:1}));confirm()}}>Применить</Button><Button size="small" onClick={()=>{setDateFilter({operator:'gte',value:''});setPage(value=>({...value,current:1}));clearFilters?.();confirm()}}>Сбросить</Button></Space></Space></div>,render:value=>value?shortDate(value):'—'},
   {title:'Задачи по 1С',dataIndex:'in_1c_project',width:155,sorter:(a,b)=>Number(a.in_1c_project)-Number(b.in_1c_project),...yesNoFilters('in_1c_project'),render:value=>value?'Да':'Нет'},
   {title:'Тип задачи 1С',dataIndex:'has_1c_type',width:160,sorter:(a,b)=>Number(a.has_1c_type)-Number(b.has_1c_type),...yesNoFilters('has_1c_type'),render:value=>value?'Заполнено':'Не заполнено'},
   {title:'Статус',dataIndex:'status',width:160,sorter:(a,b)=>(a.status??0)-(b.status??0),filters:Object.entries(taskStatuses).map(([value,text])=>({text,value})),onFilter:(value:unknown,row)=>String(row.status)===String(value),render:status}
@@ -589,7 +620,7 @@ function Task1CCheck(){
  return <Space direction="vertical" size={24} style={{width:'100%'}}>
   <Title level={2}>Проверка задач 1С</Title>
   <Text type="secondary">Показаны задачи исполнителей отдела «Разработка 1С», у которых не выбран проект «Задачи по 1С» или не заполнен тип задачи 1С.</Text>
-  <Card extra={<Button icon={<DownloadOutlined/>} loading={exportList.isPending} onClick={()=>exportList.mutate()}>Скачать Excel</Button>}><Table rowKey="task_bitrix_id" columns={columns} dataSource={data} loading={report.isLoading} pagination={{...page,showSizeChanger:true,pageSizeOptions:[25,50,100],showTotal:total=>`Всего: ${total}`,onChange:(current,pageSize)=>setPage({current:pageSize!==page.pageSize?1:current,pageSize})}} onChange={(_pagination,tableFilters,_sorter,extra)=>{setActiveFilters(tableFilters as Record<string,(string|number|boolean)[]|null>);if(extra.action==='filter')setPage(value=>({...value,current:1}))}} scroll={{x:1975}}/></Card>
+  <Card extra={<Button icon={<DownloadOutlined/>} loading={exportList.isPending} onClick={()=>exportList.mutate()}>Скачать Excel</Button>}><Table rowKey="task_bitrix_id" columns={columns} dataSource={filteredData} loading={report.isLoading} pagination={{...page,showSizeChanger:true,pageSizeOptions:[25,50,100],showTotal:total=>`Всего: ${total}`,onChange:(current,pageSize)=>setPage({current:pageSize!==page.pageSize?1:current,pageSize})}} onChange={(_pagination,tableFilters,_sorter,extra)=>{setActiveFilters(tableFilters as Record<string,(string|number|boolean)[]|null>);if(extra.action==='filter')setPage(value=>({...value,current:1}))}} scroll={{x:1975}}/></Card>
  </Space>
 }
 

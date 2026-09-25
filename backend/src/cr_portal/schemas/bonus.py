@@ -59,6 +59,7 @@ class CalculationResponse(BaseModel):
     current_client_total: Decimal = Decimal("0")
     kpi_total: Decimal = Decimal("0")
     kpi_divided_total: Decimal = Decimal("0")
+    divider: Decimal = Decimal("2.5")
     total_bonus: Decimal
     issues_count: int
     created_at: datetime

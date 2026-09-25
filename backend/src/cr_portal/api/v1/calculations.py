@@ -1,5 +1,6 @@
+import json
 from datetime import date
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from uuid import UUID
 
 import httpx
@@ -81,6 +82,11 @@ def _calculation_response(
     data["current_client_total"] = extra.get("current_client_total", Decimal("0"))
     data["kpi_total"] = extra.get("kpi_total", calculation.subtotal_dividable)
     data["kpi_divided_total"] = extra.get("kpi_divided_total", Decimal("0"))
+    try:
+        rules_snapshot = json.loads(calculation.rules_snapshot_json or "{}")
+        data["divider"] = Decimal(str(rules_snapshot.get("divider", "2.5")))
+    except (json.JSONDecodeError, InvalidOperation, TypeError, ValueError):
+        data["divider"] = Decimal("2.5")
     return CalculationResponse(**data)
 
 
