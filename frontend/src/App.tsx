@@ -26,6 +26,16 @@ import type {
 
 const {Header,Content,Sider}=Layout
 const {Title,Text}=Typography
+const PAGE_PATHS:Record<string,string>={
+ dashboard:'/dashboard',kpi:'/kpi',analytics_deals:'/analytics/deals',analytics_work:'/analytics/deals-in-work',analytics_weekly_ov:'/analytics/weekly-ov',
+ analytics_support:'/business-partners/support-analysis',gift_info:'/business-partners/gift-info',bonus:'/bonuses',deals:'/deals',instruction:'/instruction',
+ onboarding:'/onboarding',time_report:'/time-report',workplace:'/workplace',employee_month_plan:'/employee-month-plan',
+ admin_employee_month_plan:'/admin/employee-month-plans',task_1c_check:'/service/task-1c-check',diagnostics:'/diagnostics',
+ bitrix_fields:'/settings/bitrix-fields',rules:'/settings/rules',settings:'/settings',sync:'/sync'
+}
+const PATH_PAGES=Object.fromEntries(Object.entries(PAGE_PATHS).map(([page,path])=>[path,page])) as Record<string,string>
+const pageFromPath=(pathname:string)=>PATH_PAGES[pathname.replace(/\/+$/,'')||'/']??'dashboard'
+const pagePath=(page:string)=>PAGE_PATHS[page]??PAGE_PATHS.dashboard
 const FUNNELS:Record<string,string>={tech_integration:'Тех интеграция',implementation:'Внедрение',cr_start:'CR Start',support:'Сопровождение'}
 const BONUS:Record<string,string>={tech_integration:'Тех интеграция',implementation:'Внедрение',cr_start_implementation:'CR Start как внедрение',cr_start_fixed:'CR Start фикс.',deal_manual_adjustment:'Ручная корректировка сделки',manual_adjustment:'Ручной бонус / штраф',sale:'Продажа',support_hours:'Сопровождение по часам',task_hours_reference:'Справочные часы по задачам',current_client:'Текущий клиент',training:'Обучение'}
 const funnel=(v:string)=>FUNNELS[v]??v
@@ -832,20 +842,36 @@ function Login({onSuccess}:{onSuccess:()=>void}){
 }
 
 export default function App(){
- const [page,setPage]=useState('dashboard')
+ const [page,setPage]=useState(()=>pageFromPath(window.location.pathname))
  const [authVersion,setAuthVersion]=useState(0)
  const user=useQuery({queryKey:['current-user',authVersion],queryFn:getCurrentUser,retry:false})
- if(user.isLoading)return <Card loading/>
- if(user.isError||!user.data)return <Login onSuccess={()=>setAuthVersion(v=>v+1)}/>
- const isAdmin=user.data.is_admin
- const canUseWorkplace=isAdmin||['Отдел внедрения','Разработка 1С'].some(department=>user.data.department_name?.split(';').map(value=>value.trim()).includes(department))
- const canUseTask1cErrors=isAdmin||user.data.department_name?.split(';').map(value=>value.trim()).includes('Отдел внедрения')===true
- const canUseEmployeeMonthPlan=user.data.department_name?.split(';').map(value=>value.trim()).includes('Отдел внедрения')??false
- const canUseBusinessPartners=isAdmin||user.data.department_name?.split(';').map(value=>value.trim()).includes('Отдел сопровождения')===true
- const isSupportEmployee=!isAdmin&&user.data.department_name?.split(';').map(value=>value.trim()).includes('Отдел сопровождения')===true
+ useEffect(()=>{
+  const onPopState=()=>setPage(pageFromPath(window.location.pathname))
+  window.addEventListener('popstate',onPopState)
+  return()=>window.removeEventListener('popstate',onPopState)
+ },[])
+ const departments=user.data?.department_name?.split(';').map(value=>value.trim())??[]
+ const isAdmin=user.data?.is_admin??false
+ const canUseWorkplace=isAdmin||['Отдел внедрения','Разработка 1С'].some(department=>departments.includes(department))
+ const canUseTask1cErrors=isAdmin||departments.includes('Отдел внедрения')
+ const canUseEmployeeMonthPlan=departments.includes('Отдел внедрения')
+ const canUseBusinessPartners=isAdmin||departments.includes('Отдел сопровождения')
+ const isSupportEmployee=!isAdmin&&departments.includes('Отдел сопровождения')
  const employeePages=isSupportEmployee?['analytics_support','gift_info']:['dashboard','bonus','deals','instruction','onboarding','time_report',...(canUseWorkplace?['workplace']:[]),...(canUseEmployeeMonthPlan?['employee_month_plan']:[]),...(canUseBusinessPartners?['analytics_support','gift_info']:[])]
  const fallbackPage=isSupportEmployee?'analytics_support':'dashboard'
- const effectivePage=(!isAdmin&&!employeePages.includes(page))||(!canUseWorkplace&&page==='workplace')||(!canUseEmployeeMonthPlan&&page==='employee_month_plan')||(!canUseBusinessPartners&&['analytics_support','gift_info'].includes(page))?fallbackPage:page
+ const effectivePage=user.data&&((!isAdmin&&!employeePages.includes(page))||(!canUseWorkplace&&page==='workplace')||(!canUseEmployeeMonthPlan&&page==='employee_month_plan')||(!canUseBusinessPartners&&['analytics_support','gift_info'].includes(page)))?fallbackPage:page
+ useEffect(()=>{
+  if(!user.data)return
+  const path=pagePath(effectivePage)
+  if(window.location.pathname!==path)window.history.replaceState(null,'',path)
+ },[effectivePage,user.data])
+ if(user.isLoading)return <Card loading/>
+ if(user.isError||!user.data)return <Login onSuccess={()=>setAuthVersion(v=>v+1)}/>
+ const navigate=(nextPage:string)=>{
+  const path=pagePath(nextPage)
+  if(window.location.pathname!==path)window.history.pushState(null,'',path)
+  setPage(nextPage)
+ }
  const content=({dashboard:<Dashboard isAdmin={isAdmin} userId={user.data.id}/>,analytics_deals:<DealAnalytics/>,analytics_work:<DealsInWork/>,analytics_weekly_ov:<WeeklyOvReport/>,analytics_support:<SupportAnalysis/>,gift_info:<GiftInfo/>,kpi:<KPI/>,bonus:<Bonuses isAdmin={isAdmin} userId={user.data.id}/>,deals:<Deals isAdmin={isAdmin} userId={user.data.id}/>,instruction:<InstructionPage/>,onboarding:<OnboardingPage isAdmin={isAdmin}/>,time_report:<TimeSpentReport isAdmin={isAdmin}/>,workplace:<Workplace isAdmin={isAdmin} canUseTask1cErrors={canUseTask1cErrors}/>,employee_month_plan:<EmployeeMonthPlanPage/>,admin_employee_month_plan:<AdminEmployeeMonthPlanPage/>,task_1c_check:<Task1CCheck/>,diagnostics:<Diagnostics/>,bitrix_fields:<BitrixFields/>,rules:<Rules/>,settings:<SettingsPage/>,sync:<Sync/>}[effectivePage]??<Dashboard isAdmin={isAdmin} userId={user.data.id}/>)
  const businessPartnersMenu={key:'business_partners',icon:<FundOutlined/>,label:'Бизнес партнеры',children:[{key:'analytics_support',label:'Анализ по менеджерам'},{key:'gift_info',label:'Информация для подарков'}]}
  const employeeMenu=isSupportEmployee?[businessPartnersMenu]:[
@@ -876,7 +902,7 @@ export default function App(){
  return <Layout className="app-layout">
   <Sider breakpoint="lg" collapsedWidth={0} width={240} className="app-sider">
    <div className="app-logo"><div className="logo-mark">CR</div><div><div className="logo-title">CR Portal</div><div className="logo-subtitle">KPI & Bonus</div></div></div>
-   <Menu theme="dark" mode="inline" selectedKeys={[effectivePage]} onClick={({key})=>setPage(key)} items={isAdmin?adminMenu:employeeMenu}/>
+   <Menu theme="dark" mode="inline" selectedKeys={[effectivePage]} onClick={({key})=>navigate(String(key))} items={isAdmin?adminMenu:employeeMenu}/>
   </Sider>
   <Layout><Header className="app-header"><Text strong>CR Integration Portal</Text><Space><Tag color="green" icon={<CheckCircleOutlined/>}>{user.data.full_name}</Tag><Button size="small" onClick={async()=>{await logout();setAuthVersion(v=>v+1)}}>Выйти</Button></Space></Header><Content className="app-content"><div className="content-container">{content}</div></Content></Layout>
  </Layout>
