@@ -3,6 +3,7 @@ from collections import defaultdict
 from datetime import date, datetime, time, timezone
 from decimal import ROUND_HALF_UP, Decimal
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,6 +16,7 @@ from cr_portal.models.bonus import (
 )
 from cr_portal.models.deal import Deal
 from cr_portal.models.kpi import CalculationIssue
+from cr_portal.models.task import BitrixTask, BitrixTaskElapsedItem
 from cr_portal.models.user import User
 from cr_portal.schemas.bonus import BonusInput, BonusResult
 from cr_portal.services.app_settings import get_business_settings
@@ -623,6 +625,63 @@ async def latest_version(session: AsyncSession, employee_id, month):
     return int(result.scalar_one_or_none() or 0) + 1
 
 
+async def cached_task_reference_contributions(
+    session: AsyncSession,
+    month: date,
+    end: date,
+    users: list[User],
+    deals: list[Deal],
+    existing_task_keys: set[tuple[UUID, str]],
+    business,
+):
+    """Keep cached task hours visible when Bitrix live task lookup omits a row.
+
+    These fallback rows are always informational and never affect a bonus.
+    """
+    users_by_bitrix_id = {user.bitrix_id: user.id for user in users}
+    deals_by_bitrix_id = {deal.bitrix_id: deal for deal in deals}
+    rows = (await session.execute(
+        select(BitrixTaskElapsedItem, BitrixTask)
+        .join(BitrixTask, BitrixTask.bitrix_id == BitrixTaskElapsedItem.task_bitrix_id)
+        .where(
+            BitrixTaskElapsedItem.user_bitrix_id.in_(users_by_bitrix_id),
+            BitrixTaskElapsedItem.created_time >= dt(month),
+            BitrixTaskElapsedItem.created_time < dt(end),
+            BitrixTaskElapsedItem.seconds > 0,
+        )
+    )).all()
+    grouped = defaultdict(lambda: {"seconds": 0, "elapsed_ids": []})
+    for elapsed, task in rows:
+        employee_id = users_by_bitrix_id.get(elapsed.user_bitrix_id)
+        task_key = (employee_id, str(task.bitrix_id))
+        if employee_id is None or task_key in existing_task_keys:
+            continue
+        try:
+            deal_ids = [int(value) for value in json.loads(task.crm_deal_ids_json or "[]")]
+        except (TypeError, ValueError, json.JSONDecodeError):
+            continue
+        deal = next((deals_by_bitrix_id[deal_id] for deal_id in deal_ids if deal_id in deals_by_bitrix_id), None)
+        if deal is None:
+            continue
+        key = (employee_id, task.bitrix_id, deal.id)
+        grouped[key]["seconds"] += elapsed.seconds
+        grouped[key]["elapsed_ids"].append(str(elapsed.bitrix_id))
+
+    result = []
+    for (employee_id, task_id, _), entry in grouped.items():
+        task = next(task for _, task in rows if task.bitrix_id == task_id)
+        deal_ids = json.loads(task.crm_deal_ids_json or "[]")
+        deal = next(deals_by_bitrix_id[int(value)] for value in deal_ids if int(value) in deals_by_bitrix_id)
+        hours = (Decimal(entry["seconds"]) / Decimal(3600)).quantize(CENT, rounding=ROUND_HALF_UP)
+        phase = None
+        if deal.funnel == "cr_start":
+            commercial = raw_date(deal, business.field_cr_start_commercial_use_date)
+            phase = "commercial" if commercial and commercial <= month else "before_commercial"
+        result.append((employee_id, (deal, "task_hours_reference", Decimal("0"), Decimal("0"), hours, Decimal("0"), False,
+            f"Справочные часы: {task.title} — {hours} ч", {"task_id": str(task_id), "task": json.loads(task.raw_json or "{}"), "client_deal_funnel": deal.funnel, "elapsed_ids": entry["elapsed_ids"], "seconds": entry["seconds"], "hours_source": "cached_elapsed_items", "task_hours_group": f"cr_start_{phase}" if phase else None})))
+    return result
+
+
 async def calculate_month(
     session: AsyncSession,
     month: date,
@@ -661,7 +720,7 @@ async def calculate_month(
             ]
             for deal in support_deals
         }
-        for employee_id, contribution in await task_contributions(
+        task_rows = await task_contributions(
             client,
             business,
             month,
@@ -670,6 +729,16 @@ async def calculate_month(
             support_deals,
             implementations_by_support,
             [deal for deal in task_deals if deal.funnel != "support"],
+        )
+        for employee_id, contribution in task_rows:
+            contributions[employee_id].append(contribution)
+        existing_task_keys = {
+            (employee_id, str(contribution[8].get("task_id")))
+            for employee_id, contribution in task_rows
+            if len(contribution) > 8 and isinstance(contribution[8], dict) and contribution[8].get("task_id")
+        }
+        for employee_id, contribution in await cached_task_reference_contributions(
+            session, month, end, users, task_deals, existing_task_keys, business
         ):
             contributions[employee_id].append(contribution)
 
