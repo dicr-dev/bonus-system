@@ -17,3 +17,14 @@ class TaskTitlesTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["1"]["title"], "Первая")
         self.assertEqual(result["2"]["title"], "Вторая")
         self.assertEqual(client.call.await_count, 2)
+
+    async def test_accepts_list_from_single_task_request(self):
+        client = type("Client", (), {})()
+        client.call = AsyncMock(side_effect=[
+            {"result": {"tasks": []}},
+            {"result": [{"id": "2", "title": "Task two"}]},
+        ])
+
+        result = await tasks_by_id(client, ["2"])
+
+        self.assertEqual(result["2"]["title"], "Task two")

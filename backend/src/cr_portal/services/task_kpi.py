@@ -129,8 +129,15 @@ async def tasks_by_id(
             })
         except Exception:
             continue
-        task = response.get("result", {}).get("task")
-        if task:
+        payload = response.get("result")
+        if isinstance(payload, dict):
+            task = payload.get("task")
+        elif isinstance(payload, list):
+            first = next((item for item in payload if isinstance(item, dict)), None)
+            task = first.get("task", first) if first else None
+        else:
+            task = None
+        if isinstance(task, dict):
             result[str(field_value(task, "ID"))] = task
     return result
 
