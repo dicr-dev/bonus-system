@@ -5,6 +5,17 @@ from cr_portal.services.task_kpi import tasks_by_id
 
 
 class TaskTitlesTests(unittest.IsolatedAsyncioTestCase):
+    async def test_accepts_list_from_bulk_task_request(self):
+        client = type("Client", (), {})()
+        client.call = AsyncMock(return_value={
+            "result": [{"id": "1", "title": "Task one"}],
+        })
+
+        result = await tasks_by_id(client, ["1"])
+
+        self.assertEqual(result["1"]["title"], "Task one")
+        self.assertEqual(client.call.await_count, 1)
+
     async def test_retries_missing_bulk_task_by_id(self):
         client = type("Client", (), {})()
         client.call = AsyncMock(side_effect=[

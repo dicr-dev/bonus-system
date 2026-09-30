@@ -114,8 +114,19 @@ async def tasks_by_id(
             "select": select,
             "order": {"ID": "asc"},
         })
-        for task in response.get("result", {}).get("tasks", []):
-            result[str(field_value(task, "ID"))] = task
+        payload = response.get("result")
+        if isinstance(payload, dict):
+            tasks = payload.get("tasks", [])
+        elif isinstance(payload, list):
+            tasks = payload
+        else:
+            tasks = []
+        for task in tasks:
+            if not isinstance(task, dict):
+                continue
+            task = task.get("task", task)
+            if isinstance(task, dict):
+                result[str(field_value(task, "ID"))] = task
 
     # Some old or individually restricted tasks are absent from a bulk list.
     # Retry those IDs one by one so time reports show their actual titles.
