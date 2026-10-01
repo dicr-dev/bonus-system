@@ -240,7 +240,9 @@ async def support_hour_contributions(
                 ),
                 None,
             )
-        if deal is None:
+        # A task without a CRM link remains visible in the breakdown but
+        # never affects the bonus.
+        if deal is None and deal_ids:
             continue
 
         paid = paid_employee_ids is None or employee_id in paid_employee_ids
@@ -255,7 +257,7 @@ async def support_hour_contributions(
             cr_start_phase = "commercial" if is_commercial else "before_commercial"
             calculated = is_commercial and paid
 
-        key = (employee_id, task_id, deal.id, cr_start_phase)
+        key = (employee_id, task_id, deal.id if deal is not None else None, cr_start_phase)
         entry = aggregated.setdefault(key, {
             "employee_id": employee_id,
             "task_id": task_id,
@@ -286,7 +288,9 @@ async def support_hour_contributions(
         task_title = field_value(entry["task"], "TITLE") or f"Задача {entry['task_id']}"
         cr_start_phase = entry["cr_start_phase"]
         description_prefix = (
-            "Часы CR Start при коммерческом использовании"
+            "Часы без сделки"
+            if entry["deal"] is None
+            else "Часы CR Start при коммерческом использовании"
             if cr_start_phase == "commercial"
             else "Часы CR Start до коммерческого использования"
             if cr_start_phase == "before_commercial"
@@ -302,12 +306,17 @@ async def support_hour_contributions(
             {
                 "task_id": entry["task_id"],
                 "task": entry["task"],
-                "client_deal_funnel": getattr(entry["deal"], "funnel", "support"),
+                "client_deal_funnel": (
+                    getattr(entry["deal"], "funnel", "")
+                    if entry["deal"] is not None else "no_deal"
+                ),
                 "elapsed_ids": entry["elapsed_ids"],
                 "seconds": entry["seconds"],
                 "hours_source": "elapsed_items",
                 "task_hours_group": (
-                    f"cr_start_{cr_start_phase}"
+                    "no_deal"
+                    if entry["deal"] is None
+                    else f"cr_start_{cr_start_phase}"
                     if cr_start_phase is not None
                     else None
                 ),

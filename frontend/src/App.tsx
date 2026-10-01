@@ -331,7 +331,8 @@ function Bonuses({isAdmin,userId}:{isAdmin:boolean;userId:string}){
    ['implementation','Внедрение'],
    ['support','Сопровождение'],
    ['cr_start_before_commercial','CR Start до комм. использования'],
-   ['cr_start_commercial','CR Start при комм. использовании']
+   ['cr_start_commercial','CR Start при комм. использовании'],
+   ['no_deal','Без сделки']
   ] as const
 
   return <>

@@ -151,6 +151,28 @@ class TaskTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(rows, [])
 
+    async def test_unlinked_task_hours_are_reference_only(self):
+        client = SimpleNamespace(call=AsyncMock(side_effect=[
+            {"result": [{
+                "ID": "1", "TASK_ID": "100", "USER_ID": "10", "SECONDS": "3600",
+                "CREATED_DATE": "2026-09-03T10:00:00+03:00",
+            }]},
+            {"result": {"tasks": [{"id": "100", "title": "Без сделки", "ufCrmTask": []}]}},
+        ]))
+
+        rows = await support_hour_contributions(
+            client, date(2026, 9, 1), [SimpleNamespace(bitrix_id=10, id="employee")],
+            {"support_hour_rate": "200"}, [], {},
+        )
+
+        self.assertEqual(len(rows), 1)
+        row = rows[0][1]
+        self.assertEqual(row[1], "task_hours_reference")
+        self.assertEqual(row[4], Decimal("1.00"))
+        self.assertEqual(row[5], Decimal("0"))
+        self.assertFalse(row[6])
+        self.assertEqual(row[8]["task_hours_group"], "no_deal")
+
     async def test_active_support_without_implementation_link_is_included(self):
         client = SimpleNamespace(call=AsyncMock(side_effect=[
             {"result": [{

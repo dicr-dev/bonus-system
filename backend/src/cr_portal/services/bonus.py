@@ -650,7 +650,7 @@ async def cached_task_reference_contributions(
             BitrixTaskElapsedItem.seconds > 0,
         )
     )).all()
-    grouped = defaultdict(lambda: {"seconds": 0, "elapsed_ids": []})
+    grouped = {}
     for elapsed, task in rows:
         employee_id = users_by_bitrix_id.get(elapsed.user_bitrix_id)
         task_key = (employee_id, str(task.bitrix_id))
@@ -661,24 +661,27 @@ async def cached_task_reference_contributions(
         except (TypeError, ValueError, json.JSONDecodeError):
             continue
         deal = next((deals_by_bitrix_id[deal_id] for deal_id in deal_ids if deal_id in deals_by_bitrix_id), None)
-        if deal is None:
+        if deal_ids and deal is None:
             continue
-        key = (employee_id, task.bitrix_id, deal.id)
-        grouped[key]["seconds"] += elapsed.seconds
-        grouped[key]["elapsed_ids"].append(str(elapsed.bitrix_id))
+        key = (employee_id, task.bitrix_id, deal.id if deal is not None else None)
+        entry = grouped.setdefault(key, {
+            "seconds": 0, "elapsed_ids": [], "task": task, "deal": deal,
+        })
+        entry["seconds"] += elapsed.seconds
+        entry["elapsed_ids"].append(str(elapsed.bitrix_id))
 
     result = []
     for (employee_id, task_id, _), entry in grouped.items():
-        task = next(task for _, task in rows if task.bitrix_id == task_id)
-        deal_ids = json.loads(task.crm_deal_ids_json or "[]")
-        deal = next(deals_by_bitrix_id[int(value)] for value in deal_ids if int(value) in deals_by_bitrix_id)
+        task = entry["task"]
+        deal = entry["deal"]
         hours = (Decimal(entry["seconds"]) / Decimal(3600)).quantize(CENT, rounding=ROUND_HALF_UP)
         phase = None
-        if deal.funnel == "cr_start":
+        if deal is not None and deal.funnel == "cr_start":
             commercial = raw_date(deal, business.field_cr_start_commercial_use_date)
             phase = "commercial" if commercial and commercial <= month else "before_commercial"
+        label = "Часы без сделки" if deal is None else "Справочные часы"
         result.append((employee_id, (deal, "task_hours_reference", Decimal("0"), Decimal("0"), hours, Decimal("0"), False,
-            f"Справочные часы: {task.title} — {hours} ч", {"task_id": str(task_id), "task": json.loads(task.raw_json or "{}"), "client_deal_funnel": deal.funnel, "elapsed_ids": entry["elapsed_ids"], "seconds": entry["seconds"], "hours_source": "cached_elapsed_items", "task_hours_group": f"cr_start_{phase}" if phase else None})))
+            f"{label}: {task.title} — {hours} ч", {"task_id": str(task_id), "task": json.loads(task.raw_json or "{}"), "client_deal_funnel": deal.funnel if deal is not None else "no_deal", "elapsed_ids": entry["elapsed_ids"], "seconds": entry["seconds"], "hours_source": "cached_elapsed_items", "task_hours_group": "no_deal" if deal is None else f"cr_start_{phase}" if phase else None})))
     return result
 
 
