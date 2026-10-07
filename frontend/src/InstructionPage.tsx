@@ -26,6 +26,26 @@ export default function InstructionPage(){
    defaultActiveKey={['training']}
    items={[
     {
+     key:'current-clients',
+     label:<Space><Text strong>Бонус по текущим клиентам</Text><Tag color="green">за сделку Сопровождения</Tag></Space>,
+     children:<>
+      <Paragraph>
+       Бонус начисляется за каждую активную сделку воронки {field('Сопровождение')}. Количество машин берётся из этой сделки,
+       а получатель — из поля {field('Ответственный за внедрение')} в ней.
+      </Paragraph>
+      <Paragraph strong>Шкала бонуса по количеству машин:</Paragraph>
+      <ul>
+       <li>от 1 до 99 машин — <Text strong>1 000 ₽</Text>;</li>
+       <li>от 100 до 299 машин — <Text strong>2 000 ₽</Text>;</li>
+       <li>от 300 до 499 машин — <Text strong>3 000 ₽</Text>;</li>
+       <li>500 машин и более — <Text strong>4 000 ₽</Text>.</li>
+      </ul>
+      <Paragraph type="secondary">
+       Это прямая выплата: она не делится на 2,5. Актуальную шкалу администратор может изменить в настройках версии правил премирования.
+      </Paragraph>
+     </>
+    },
+    {
      key:'training',
      label:<Space><Text strong>Задача с обучением</Text><Tag color="blue">2 000 ₽ в KPI</Tag></Space>,
      children:<>
