@@ -29,6 +29,12 @@ export interface DealsInWorkReport { tech_integration:DealInWork[]; implementati
 export interface WeeklyOvDeal { id:string; bitrix_id:number; funnel:string; movement_status:string; module_name:string|null; implementation_responsible_name:string|null; title:string; salesperson_name:string|null; opportunity:string; machines_count:number; stage_title:string|null; days_in_current_status:number|null; days_in_funnel:number|null; deal_current_status:string|null }
 export interface SupportAnalysisDeal { id:string; bitrix_id:number; title:string; opportunity:string; machines_count:number }
 export interface SupportAnalysisRow { manager_id:string; manager_name:string; funnel:string; deals_count:number; opportunity:string; machines_count:number; deals:SupportAnalysisDeal[] }
+export interface CrStartManagerDeal { id:string; bitrix_id:number; title:string; stage_title:string; opportunity:string }
+export interface CrStartManagerReportRow {
+  implementation_responsible_id:string; implementation_responsible_name:string; deals_count:number; opportunity:string
+  working_count:number; working_opportunity:string; commercial_count:number; commercial_opportunity:string
+  lost_count:number; lost_opportunity:string; deals:CrStartManagerDeal[]
+}
 export interface GiftInfoDeal { id:string; bitrix_id:number; title:string; module_name:string|null; decision_maker:string|null; company_name:string|null; responsible_name:string|null; machines_count:number; location:string|null; courier_contact:string|null }
 export interface EmployeeMonthPlanDeal { id:string; bitrix_id:number; title:string; module:string|null; machines_count:number; integration_1c:boolean; opportunity:string; monthly_amount:string }
 export interface EmployeeMonthPlan { month:string; available_deals:EmployeeMonthPlanDeal[]; planned_deals:EmployeeMonthPlanDeal[] }

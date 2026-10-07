@@ -14,14 +14,14 @@ import InstructionPage from './InstructionPage'
 import OnboardingPage from './OnboardingPage'
 import {BitrixLink,dealUrl,sourceUrl,taskUrl} from './BitrixLink'
 import {
-  createManualBonusAdjustment,deleteDealBonusOverride,deleteManualBonusAdjustment,excelUrl,getCalculation,giftInfoExcelUrl,
+  createManualBonusAdjustment,crStartManagersExcelUrl,deleteDealBonusOverride,deleteManualBonusAdjustment,excelUrl,getCalculation,giftInfoExcelUrl,
   getBitrixDealFields,getCalculations,getCurrentUser,getDashboard,getDealBonusOverrides,getDepartmentDeals,getDiagnostics,
-  addEmployeeMonthPlanDeal,autoMatchSupportLinks,exportTask1cCheck,getAdminEmployeeMonthPlan,getEmployeeMonthPlan,getEmployees,getGiftInfo,getKPI,getManualBonusAdjustments,getRules,getSyncJob,getSyncStatus,getTask1cCheck,getTimeReport,getWorkplaceTask1cErrors,getWorkplaceTime,getDealGroups,getDealsInWork,getSupportAnalysis,getSupportAutoMatchPreview,getWeeklyOv,login,logout,removeEmployeeMonthPlanDeal,runCalculation,saveDealLink,weeklyOvExcelUrl,
+  addEmployeeMonthPlanDeal,autoMatchSupportLinks,exportTask1cCheck,getAdminEmployeeMonthPlan,getCrStartManagersReport,getEmployeeMonthPlan,getEmployees,getGiftInfo,getKPI,getManualBonusAdjustments,getRules,getSyncJob,getSyncStatus,getTask1cCheck,getTimeReport,getWorkplaceTask1cErrors,getWorkplaceTime,getDealGroups,getDealsInWork,getSupportAnalysis,getSupportAutoMatchPreview,getWeeklyOv,login,logout,removeEmployeeMonthPlanDeal,runCalculation,saveDealLink,weeklyOvExcelUrl,
   runDiagnostics,saveDealBonusOverride,savePlan,startDealsSync,startFullTasksSync,startRecentTasksSync,updateManualBonusAdjustment
 } from './api'
 import type {
   BitrixDealField,Calculation,CalculationDetail,Deal,DealBonusOverride,DealBonusOverrideInput,FunnelSummary,Issue,KPIDeal,
-  AdminEmployeeMonthPlanDeal,AnalyticsDeal,DealGroup,DealGroupIssue,DealInWork,EmployeeMonthPlanDeal,GiftInfoDeal,KPIPlannedDeal,KPIPartialSubscriptionDeal,ManualBonusAdjustment,ManualBonusAdjustmentInput,ResponsibleSummary,RuleVersion,SupportAnalysisRow,SupportAutoMatchPreview,SyncJob,Task1CCheckItem,Task1CError,TimeReportDay,TimeReportEmployee,TimeReportTask,WeeklyOvDeal
+  AdminEmployeeMonthPlanDeal,AnalyticsDeal,CrStartManagerDeal,CrStartManagerReportRow,DealGroup,DealGroupIssue,DealInWork,EmployeeMonthPlanDeal,GiftInfoDeal,KPIPlannedDeal,KPIPartialSubscriptionDeal,ManualBonusAdjustment,ManualBonusAdjustmentInput,ResponsibleSummary,RuleVersion,SupportAnalysisRow,SupportAutoMatchPreview,SyncJob,Task1CCheckItem,Task1CError,TimeReportDay,TimeReportEmployee,TimeReportTask,WeeklyOvDeal
 } from './types'
 
 const {Header,Content,Sider}=Layout
@@ -30,7 +30,7 @@ const PAGE_PATHS:Record<string,string>={
  dashboard:'/dashboard',kpi:'/kpi',analytics_deals:'/analytics/deals',analytics_work:'/analytics/deals-in-work',analytics_weekly_ov:'/analytics/weekly-ov',
  analytics_support:'/business-partners/support-analysis',gift_info:'/business-partners/gift-info',bonus:'/bonuses',deals:'/deals',instruction:'/instruction',
  onboarding:'/onboarding',time_report:'/time-report',workplace:'/workplace',employee_month_plan:'/employee-month-plan',
- admin_employee_month_plan:'/admin/employee-month-plans',task_1c_check:'/service/task-1c-check',diagnostics:'/diagnostics',
+ admin_employee_month_plan:'/admin/employee-month-plans',task_1c_check:'/service/task-1c-check',cr_start_managers_report:'/reports/cr-start-managers',diagnostics:'/diagnostics',
  bitrix_fields:'/settings/bitrix-fields',rules:'/settings/rules',settings:'/settings',sync:'/sync'
 }
 const PATH_PAGES=Object.fromEntries(Object.entries(PAGE_PATHS).map(([page,path])=>[path,page])) as Record<string,string>
@@ -740,6 +740,32 @@ function SupportAnalysis(){
  return <Space direction="vertical" size={24} style={{width:'100%'}}><Title level={2}>Анализ по менеджерам</Title><Card><Table rowKey="manager_id" columns={columns} dataSource={report.data??[]} loading={report.isLoading} pagination={false} expandable={{expandedRowRender:row=><Table rowKey="id" columns={dealColumns} dataSource={row.deals} pagination={false} size="small"/>,rowExpandable:row=>row.deals.length>0}}/></Card></Space>
 }
 
+function CrStartManagersReport(){
+ const report=useQuery({queryKey:['cr-start-managers-report'],queryFn:getCrStartManagersReport})
+ const rows=report.data??[]
+ const columns:ColumnsType<CrStartManagerReportRow>=[
+  {title:'Ответственный за внедрение',dataIndex:'implementation_responsible_name',width:250,sorter:(a,b)=>a.implementation_responsible_name.localeCompare(b.implementation_responsible_name,'ru')},
+  {title:'Общее кол-во сделок',dataIndex:'deals_count',align:'right',width:135,sorter:(a,b)=>a.deals_count-b.deals_count},
+  {title:'Сумма всех сделок',dataIndex:'opportunity',align:'right',width:150,sorter:(a,b)=>Number(a.opportunity)-Number(b.opportunity),render:rub},
+  {title:'Кол-во «В работе»',dataIndex:'working_count',align:'right',width:135,sorter:(a,b)=>a.working_count-b.working_count},
+  {title:'Сумма «В работе»',dataIndex:'working_opportunity',align:'right',width:145,sorter:(a,b)=>Number(a.working_opportunity)-Number(b.working_opportunity),render:rub},
+  {title:'Кол-во «Коммерческое использование»',dataIndex:'commercial_count',align:'right',width:185,sorter:(a,b)=>a.commercial_count-b.commercial_count},
+  {title:'Сумма «Коммерческое использование»',dataIndex:'commercial_opportunity',align:'right',width:195,sorter:(a,b)=>Number(a.commercial_opportunity)-Number(b.commercial_opportunity),render:rub},
+  {title:'Кол-во «Отвал»',dataIndex:'lost_count',align:'right',width:120,sorter:(a,b)=>a.lost_count-b.lost_count},
+  {title:'Сумма «Отвал»',dataIndex:'lost_opportunity',align:'right',width:135,sorter:(a,b)=>Number(a.lost_opportunity)-Number(b.lost_opportunity),render:rub}
+ ]
+ const dealColumns:ColumnsType<CrStartManagerDeal>=[
+  {title:'Название сделки',dataIndex:'title',width:380,render:(title,deal)=><BitrixLink href={dealUrl(deal.bitrix_id)}>{title}</BitrixLink>},
+  {title:'Статус',dataIndex:'stage_title',width:270},
+  {title:'Сумма',dataIndex:'opportunity',align:'right',width:150,render:rub}
+ ]
+ return <Space direction="vertical" size={24} style={{width:'100%'}}>
+  <Title level={2}>CR Start отчет по менеджерам</Title>
+  <Text type="secondary">Включены только сделки CR Start в статусах «В работе», «Коммерческое использование» и «Отвал».</Text>
+  <Card extra={<Button icon={<DownloadOutlined/>} href={crStartManagersExcelUrl()}>Выгрузить в Excel</Button>}><Table rowKey="implementation_responsible_id" columns={columns} dataSource={rows} loading={report.isLoading} pagination={false} scroll={{x:1450}} expandable={{expandedRowRender:row=><Table rowKey="id" columns={dealColumns} dataSource={row.deals} pagination={false} size="small" scroll={{x:800}}/>,rowExpandable:row=>row.deals.length>0}}/></Card>
+ </Space>
+}
+
 function GiftInfo(){
  const report=useQuery({queryKey:['gift-info'],queryFn:getGiftInfo})
  const [pageSize,setPageSize]=useState(25)
@@ -873,7 +899,7 @@ export default function App(){
   if(window.location.pathname!==path)window.history.pushState(null,'',path)
   setPage(nextPage)
  }
- const content=({dashboard:<Dashboard isAdmin={isAdmin} userId={user.data.id}/>,analytics_deals:<DealAnalytics/>,analytics_work:<DealsInWork/>,analytics_weekly_ov:<WeeklyOvReport/>,analytics_support:<SupportAnalysis/>,gift_info:<GiftInfo/>,kpi:<KPI/>,bonus:<Bonuses isAdmin={isAdmin} userId={user.data.id}/>,deals:<Deals isAdmin={isAdmin} userId={user.data.id}/>,instruction:<InstructionPage/>,onboarding:<OnboardingPage isAdmin={isAdmin}/>,time_report:<TimeSpentReport isAdmin={isAdmin}/>,workplace:<Workplace isAdmin={isAdmin} canUseTask1cErrors={canUseTask1cErrors}/>,employee_month_plan:<EmployeeMonthPlanPage/>,admin_employee_month_plan:<AdminEmployeeMonthPlanPage/>,task_1c_check:<Task1CCheck/>,diagnostics:<Diagnostics/>,bitrix_fields:<BitrixFields/>,rules:<Rules/>,settings:<SettingsPage/>,sync:<Sync/>}[effectivePage]??<Dashboard isAdmin={isAdmin} userId={user.data.id}/>)
+ const content=({dashboard:<Dashboard isAdmin={isAdmin} userId={user.data.id}/>,analytics_deals:<DealAnalytics/>,analytics_work:<DealsInWork/>,analytics_weekly_ov:<WeeklyOvReport/>,analytics_support:<SupportAnalysis/>,gift_info:<GiftInfo/>,cr_start_managers_report:<CrStartManagersReport/>,kpi:<KPI/>,bonus:<Bonuses isAdmin={isAdmin} userId={user.data.id}/>,deals:<Deals isAdmin={isAdmin} userId={user.data.id}/>,instruction:<InstructionPage/>,onboarding:<OnboardingPage isAdmin={isAdmin}/>,time_report:<TimeSpentReport isAdmin={isAdmin}/>,workplace:<Workplace isAdmin={isAdmin} canUseTask1cErrors={canUseTask1cErrors}/>,employee_month_plan:<EmployeeMonthPlanPage/>,admin_employee_month_plan:<AdminEmployeeMonthPlanPage/>,task_1c_check:<Task1CCheck/>,diagnostics:<Diagnostics/>,bitrix_fields:<BitrixFields/>,rules:<Rules/>,settings:<SettingsPage/>,sync:<Sync/>}[effectivePage]??<Dashboard isAdmin={isAdmin} userId={user.data.id}/>)
  const businessPartnersMenu={key:'business_partners',icon:<FundOutlined/>,label:'Бизнес партнеры',children:[{key:'analytics_support',label:'Анализ по менеджерам'},{key:'gift_info',label:'Информация для подарков'}]}
  const employeeMenu=isSupportEmployee?[businessPartnersMenu]:[
   {key:'dashboard',icon:<DashboardOutlined/>,label:'Главная'},
@@ -889,6 +915,7 @@ export default function App(){
  const adminMenu=[
   {key:'dashboard',icon:<DashboardOutlined/>,label:'Главная'},{key:'kpi',icon:<TrophyOutlined/>,label:'KPI отдела'},
   {key:'analytics',icon:<FundOutlined/>,label:'Аналитика',children:[{key:'analytics_deals',label:'Аналитика по сделкам'},{key:'analytics_work',label:'Сделки в работе'},{key:'analytics_weekly_ov',label:'Еженедельный отчёт ОВ'}]},
+  {key:'reports',icon:<FundOutlined/>,label:'Отчеты',children:[{key:'cr_start_managers_report',label:'CR Start отчет по менеджерам'}]},
   businessPartnersMenu,
   {key:'admin_employee_month_plan',icon:<CalendarOutlined/>,label:'Планы сотрудников'},
   ...(canUseWorkplace?[{key:'workplace',icon:<DesktopOutlined/>,label:'АРМ'}]:[]),

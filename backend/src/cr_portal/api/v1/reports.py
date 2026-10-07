@@ -21,6 +21,7 @@ from cr_portal.schemas.time_report import TimeReport
 from cr_portal.schemas.task_1c_errors import Task1CErrorReport
 from cr_portal.schemas.task_1c_check import Task1CCheckExportRequest, Task1CCheckReport
 from cr_portal.services.app_settings import get_business_settings
+from cr_portal.services.cr_start_manager_report import cr_start_manager_report
 from cr_portal.services.employee_scope import employee_is_in_kpi_department
 from cr_portal.services.subscriptions import subscription_deals_for_month
 from cr_portal.services.time_report import time_spent_report
@@ -28,6 +29,53 @@ from cr_portal.services.task_1c_errors import task_1c_errors_report
 from cr_portal.services.task_1c_check import task_1c_check_report
 
 router = APIRouter()
+
+
+@router.get("/cr-start-managers")
+async def cr_start_managers(
+    session: AsyncSession = Depends(db_session),
+    _admin=Depends(admin_user),
+):
+    return await cr_start_manager_report(session)
+
+
+@router.get("/cr-start-managers/export")
+async def export_cr_start_managers(
+    session: AsyncSession = Depends(db_session),
+    _admin=Depends(admin_user),
+):
+    rows = await cr_start_manager_report(session)
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "CR Start по менеджерам"
+    sheet.append([
+        "Ответственный за внедрение", "Общее кол-во сделок", "Сумма всех сделок",
+        "Кол-во В работе", "Сумма В работе",
+        "Кол-во Коммерческое использование", "Сумма Коммерческое использование",
+        "Кол-во Отвал", "Сумма Отвал",
+    ])
+    for row in rows:
+        sheet.append([
+            row["implementation_responsible_name"], row["deals_count"], float(row["opportunity"]),
+            row["working_count"], float(row["working_opportunity"]),
+            row["commercial_count"], float(row["commercial_opportunity"]),
+            row["lost_count"], float(row["lost_opportunity"]),
+        ])
+    for cell in sheet[1]:
+        cell.font = Font(bold=True)
+    for column in sheet.columns:
+        sheet.column_dimensions[column[0].column_letter].width = min(
+            42, max(14, max(len(str(cell.value or "")) for cell in column) + 2)
+        )
+    sheet.freeze_panes = "A2"
+    payload = BytesIO()
+    workbook.save(payload)
+    payload.seek(0)
+    return StreamingResponse(
+        payload,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="cr_start_managers.xlsx"'},
+    )
 
 
 @router.get("/task-1c-check", response_model=Task1CCheckReport)
