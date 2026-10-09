@@ -9,9 +9,17 @@ export async function getDashboard(month?:string):Promise<DashboardSummary>{retu
 export async function getDepartmentDeals():Promise<Deal[]>{return (await api.get('/reports/department-deals')).data}
 export async function getSyncStatus():Promise<SyncStatus>{return (await api.get('/sync/deals/status')).data}
 export async function startDealsSync(full=false):Promise<SyncJob>{return (await api.post('/sync/deals',null,{params:{full}})).data}
+export async function startAllSync():Promise<SyncJob>{return (await api.post('/sync/all')).data}
 export async function startFullTasksSync():Promise<SyncJob>{return (await api.post('/sync/tasks/full')).data}
 export async function startRecentTasksSync():Promise<SyncJob>{return (await api.post('/sync/tasks/recent')).data}
 export async function getSyncJob(id:string):Promise<SyncJob>{return (await api.get(`/sync/jobs/${id}`)).data}
+export async function getSavedReports(){return (await api.get('/report-builder/reports')).data}
+export async function runSavedReport(id:string){return (await api.get(`/report-builder/reports/${id}/run`)).data}
+export async function getReportFields(source?:string){return (await api.get('/report-builder/fields',{params:{source}})).data}
+export async function refreshReportFields(){return (await api.post('/report-builder/fields/refresh')).data}
+export async function updateReportField(id:string,is_enabled:boolean){return (await api.put(`/report-builder/fields/${id}`,{is_enabled})).data}
+export async function createSavedReport(data:{title:string;source:string;visibility:string;config:unknown}){return (await api.post('/report-builder/reports',data)).data}
+export async function previewReport(data:{source:string;config:unknown}){return (await api.post('/report-builder/run',data)).data}
 export async function getKPI(month:string):Promise<KPISummary>{return (await api.get('/kpi/summary',{params:{month}})).data}
 export async function savePlan(month:string,plan_value:number){return (await api.put('/kpi/plan',{plan_value,comment:''},{params:{month}})).data}
 export async function runCalculation(month:string):Promise<Calculation[]>{return (await api.post('/calculations/run',null,{params:{month},timeout:120000})).data}

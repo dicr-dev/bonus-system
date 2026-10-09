@@ -4,10 +4,12 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from cr_portal.integrations.bitrix.client import BitrixClient
 from cr_portal.models.deal import Deal
+from cr_portal.models.reporting import DealStageHistory
 from cr_portal.repositories.deals import DealRepository
 from cr_portal.repositories.users import UserRepository
 from cr_portal.services.app_settings import BusinessSettings, get_business_settings
@@ -407,6 +409,7 @@ async def sync_deals(
     # для отчета сопоставления Сопровождение → Внедрение.
     #
     select_fields = [
+        "*",
         "id",
         "title",
         "categoryId",
@@ -863,4 +866,41 @@ async def sync_deals(
             )
 
     return total
+
+
+async def sync_deal_stage_history(session: AsyncSession, client: BitrixClient) -> int:
+    """Persist immutable Bitrix stage events for all configured deal funnels."""
+    business = await get_business_settings(session)
+    stages = {category_id: await get_stage_metadata(client, category_id) for category_id in funnels(business)}
+    deals = list((await session.execute(select(Deal).where(Deal.funnel.in_(tuple(funnels(business).values()))))).scalars())
+    stored = 0
+    for deal in deals:
+        items = await client.call_all("crm.stagehistory.list", {
+            "entityTypeId": 2,
+            "order": {"ID": "ASC"},
+            "filter": {"OWNER_ID": deal.bitrix_id},
+            "select": ["ID", "OWNER_ID", "CATEGORY_ID", "STAGE_ID", "STAGE_SEMANTIC_ID", "CREATED_TIME"],
+        })
+        for item in items:
+            event_id = _int(item.get("ID"))
+            occurred_at = _dt(item.get("CREATED_TIME"))
+            if not event_id or occurred_at is None:
+                continue
+            exists = await session.scalar(select(DealStageHistory.id).where(DealStageHistory.bitrix_event_id == event_id))
+            if exists is not None:
+                continue
+            category_id = _int(item.get("CATEGORY_ID")) or None
+            stage_id = str(item.get("STAGE_ID") or "")
+            session.add(DealStageHistory(
+                deal_id=deal.id,
+                bitrix_event_id=event_id,
+                category_id=category_id,
+                stage_id=stage_id,
+                stage_title=stages.get(category_id, {}).get(stage_id, {}).get("title"),
+                semantic=str(item.get("STAGE_SEMANTIC_ID") or "") or None,
+                occurred_at=occurred_at,
+            ))
+            stored += 1
+    await session.commit()
+    return stored
 

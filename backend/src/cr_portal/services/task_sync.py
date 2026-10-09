@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from cr_portal.integrations.bitrix.client import BitrixClient
 from cr_portal.models.task import BitrixTask, BitrixTaskElapsedItem
+from cr_portal.models.deal import Deal
 from cr_portal.models.user import User
 from cr_portal.services.app_settings import get_business_settings
 from cr_portal.services.employee_scope import employee_is_in_department
@@ -78,6 +79,70 @@ def _apply_task_snapshot(task: BitrixTask, payload: dict[str, Any], started_at: 
     task.deadline = parse_datetime(field_value(payload, "DEADLINE"))
     task.closed_time = parse_datetime(field_value(payload, "CLOSED_DATE"))
     task.synced_at = started_at
+
+
+REPORTING_TASK_FIELDS = [
+    "*", "ID", "TITLE", "DESCRIPTION", "RESPONSIBLE_ID", "CREATED_BY", "AUDITORS", "ACCOMPLICES",
+    "GROUP_ID", "STATUS", "PRIORITY", "CREATED_DATE", "DATE_START", "CHANGED_DATE", "DEADLINE",
+    "CLOSED_DATE", "START_DATE_PLAN", "END_DATE_PLAN", "TIME_ESTIMATE", "TIME_SPENT_IN_LOGS",
+    "UF_CRM_TASK", "TAGS", "MARK", "PARENT_ID", "STAGE_ID",
+]
+
+
+async def sync_reporting_tasks(session: AsyncSession, client: BitrixClient) -> int:
+    """Cache all tasks relevant to the implementation and 1C departments.
+
+    Bitrix does not support one portable filter for a set of CRM deal bindings,
+    therefore the role-based sets and the full CRM-linked set are fetched and
+    deduplicated locally.
+    """
+    people = [
+        user.bitrix_id
+        for user in (await session.execute(select(User).where(User.is_active.is_(True)))).scalars()
+        if employee_is_in_department(user, "Отдел внедрения")
+        or employee_is_in_department(user, "Разработка 1С")
+    ]
+    payloads: dict[int, dict[str, Any]] = {}
+    for bitrix_id in people:
+        for field in ("RESPONSIBLE_ID", "CREATED_BY", "AUDITOR"):
+            items = await client.call_all("tasks.task.list", {
+                "filter": {field: bitrix_id},
+                "select": REPORTING_TASK_FIELDS,
+                "order": {"ID": "ASC"},
+            })
+            for item in items:
+                task_id = _integer(field_value(item, "ID"))
+                if task_id is not None:
+                    payloads[task_id] = item
+
+    reporting_deal_ids = {str(item) for item in (await session.execute(select(Deal.bitrix_id))).scalars()}
+    if reporting_deal_ids:
+        for item in await client.call_all("tasks.task.list", {
+            "select": REPORTING_TASK_FIELDS,
+            "order": {"ID": "ASC"},
+        }):
+            if reporting_deal_ids.intersection(map(str, crm_deal_ids(item))):
+                task_id = _integer(field_value(item, "ID"))
+                if task_id is not None:
+                    payloads[task_id] = item
+
+    if not payloads:
+        return 0
+    existing = {
+        task.bitrix_id: task
+        for task in (await session.execute(
+            select(BitrixTask).where(BitrixTask.bitrix_id.in_(payloads))
+        )).scalars()
+    }
+    started_at = datetime.now(UTC)
+    for task_id, payload in payloads.items():
+        task = existing.get(task_id)
+        if task is None:
+            task = BitrixTask(bitrix_id=task_id, title="")
+            session.add(task)
+        _apply_task_snapshot(task, payload, started_at)
+    await session.commit()
+    return len(payloads)
 
 
 async def _relevant_task_ids(

@@ -12,9 +12,10 @@ from cr_portal.core.config import settings
 from cr_portal.db.session import async_session_factory
 from cr_portal.integrations.bitrix.client import BitrixClient
 from cr_portal.models.oauth import BitrixInstallation
-from cr_portal.services.bitrix_sync import sync_deals, sync_users
+from cr_portal.services.bitrix_sync import sync_deals, sync_deal_stage_history, sync_users
 from cr_portal.services.bonus import calculate_month
-from cr_portal.services.task_sync import sync_task_1c_errors, sync_tasks
+from cr_portal.services.task_sync import sync_reporting_tasks, sync_task_1c_errors, sync_tasks
+from cr_portal.services.report_builder import refresh_report_fields
 
 logger = logging.getLogger(__name__)
 
@@ -331,7 +332,28 @@ async def process_job(
                     progress=progress,
                 )
 
-            if job_type in {"tasks_full", "tasks_recent"}:
+            if job_type == "all":
+                await update_job(redis, job_id, current_funnel="users", progress=5)
+                users_count = await sync_users(session, client)
+                await update_job(redis, job_id, current_funnel="deals", progress=15, processed=users_count)
+                deals_count = await sync_deals(session, client, progress_callback=progress_callback)
+                await update_job(redis, job_id, current_funnel="stage_history", progress=70, processed=users_count + deals_count)
+                history_count = await sync_deal_stage_history(session, client)
+                await update_job(redis, job_id, current_funnel="tasks", progress=85, processed=users_count + deals_count + history_count)
+                tasks_count = await sync_reporting_tasks(session, client)
+                await sync_task_1c_errors(session, client)
+                await refresh_report_fields(session)
+                count = users_count + deals_count + history_count + tasks_count
+            elif job_type in {"tasks_full", "tasks_recent"}:
+                if job_type == "tasks_full":
+                    count = await sync_reporting_tasks(session, client)
+                    await sync_task_1c_errors(session, client)
+                    await refresh_report_fields(session)
+                    await update_job(
+                        redis, job_id, status="completed", current_funnel=None,
+                        progress=100, processed=count, finished_at=utc_now(),
+                    )
+                    return
                 local_today = datetime.now(ZoneInfo(settings.NIGHTLY_SYNC_TIMEZONE)).date()
                 task_kwargs = {
                     "timezone_name": settings.NIGHTLY_SYNC_TIMEZONE,

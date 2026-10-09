@@ -83,6 +83,16 @@ async def deals_sync(
     return job
 
 
+@router.post("/all")
+async def all_sync(_admin=Depends(admin_user)) -> dict:
+    redis: Redis = get_redis()
+    job_id = str(uuid4())
+    job = {"job_id": job_id, "type": "all", "full": True, "status": "queued", "progress": 0, "processed": 0, "current_funnel": "users", "created_at": utc_now(), "started_at": None, "finished_at": None, "error": None}
+    await redis.set(f"{JOB_PREFIX}{job_id}", json.dumps(job, ensure_ascii=False), ex=86400 * 7)
+    await redis.lpush(QUEUE_KEY, job_id)
+    return job
+
+
 @router.post("/tasks/full")
 async def full_tasks_sync(_admin=Depends(admin_user)) -> dict:
     redis: Redis = get_redis()

@@ -7,6 +7,7 @@ from cr_portal.models.kpi import CalculationIssue, KPIEvent, MonthlyPlan
 from cr_portal.models.oauth import BitrixInstallation
 from cr_portal.models.onboarding import OnboardingAssignment, OnboardingPlanSection, OnboardingPlanTask, OnboardingTask
 from cr_portal.models.task import BitrixTask, BitrixTaskElapsedItem
+from cr_portal.models.reporting import DealStageHistory, ReportField, SavedReport
 from cr_portal.models.user import User
 
 __all__ = [
@@ -26,6 +27,9 @@ __all__ = [
     "AppSetting",
     "BitrixTask",
     "BitrixTaskElapsedItem",
+    "DealStageHistory",
+    "ReportField",
+    "SavedReport",
     "OnboardingAssignment",
     "OnboardingTask",
     "OnboardingPlanSection",
