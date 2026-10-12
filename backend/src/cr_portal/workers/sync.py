@@ -342,13 +342,13 @@ async def process_job(
                 await update_job(redis, job_id, current_funnel="tasks", progress=85, processed=users_count + deals_count + history_count)
                 tasks_count = await sync_reporting_tasks(session, client)
                 await sync_task_1c_errors(session, client)
-                await refresh_report_fields(session)
+                await refresh_report_fields(session, client)
                 count = users_count + deals_count + history_count + tasks_count
             elif job_type in {"tasks_full", "tasks_recent"}:
                 if job_type == "tasks_full":
                     count = await sync_reporting_tasks(session, client)
                     await sync_task_1c_errors(session, client)
-                    await refresh_report_fields(session)
+                    await refresh_report_fields(session, client)
                     await update_job(
                         redis, job_id, status="completed", current_funnel=None,
                         progress=100, processed=count, finished_at=utc_now(),

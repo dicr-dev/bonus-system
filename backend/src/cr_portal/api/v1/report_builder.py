@@ -5,7 +5,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from cr_portal.api.deps import admin_user, current_user, db_session
+from cr_portal.api.deps import admin_user, bitrix_client, current_user, db_session
+from cr_portal.integrations.bitrix.client import BitrixClient
 from cr_portal.models.reporting import ReportField, SavedReport
 from cr_portal.models.user import User
 from cr_portal.services.employee_scope import employee_is_in_department
@@ -21,8 +22,8 @@ def _viewer(user: User) -> None:
         raise HTTPException(403, "Report access is limited to implementation department")
 
 @router.post("/fields/refresh")
-async def fields_refresh(session: AsyncSession = Depends(db_session), _admin=Depends(admin_user)):
-    return {"created": await refresh_report_fields(session)}
+async def fields_refresh(session: AsyncSession = Depends(db_session), client: BitrixClient = Depends(bitrix_client), _admin=Depends(admin_user)):
+    return {"created": await refresh_report_fields(session, client)}
 
 @router.get("/fields")
 async def fields(source: str | None = None, session: AsyncSession = Depends(db_session), _admin=Depends(admin_user)):

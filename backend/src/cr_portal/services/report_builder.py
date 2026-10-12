@@ -6,6 +6,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from cr_portal.integrations.bitrix.client import BitrixClient
 from cr_portal.models.deal import Deal
 from cr_portal.models.reporting import DealStageHistory, ReportField
 from cr_portal.models.task import BitrixTask
@@ -37,7 +38,14 @@ def _raw_row(item: Any, source: str) -> dict[str, Any]:
     return row
 
 
-async def refresh_report_fields(session: AsyncSession) -> int:
+def _field_key(code: str) -> str:
+    """Match Bitrix uppercase/underscore metadata to camelCase snapshot keys."""
+    return code.replace("_", "").casefold()
+
+
+async def refresh_report_fields(
+    session: AsyncSession, client: BitrixClient | None = None,
+) -> int:
     """Register stable fields and all keys currently present in local snapshots."""
     fields = {source: dict(values) for source, values in BASE_FIELDS.items()}
     for source, model in (("deals", Deal), ("tasks", BitrixTask)):
@@ -50,13 +58,40 @@ async def refresh_report_fields(session: AsyncSession) -> int:
                 continue
             if isinstance(payload, dict):
                 fields[source].update({f"raw.{key}": key for key in payload})
+    metadata_by_source: dict[str, dict[str, dict[str, Any]]] = {}
+    if client is not None:
+        for source, method, params in (
+            ("deals", "crm.item.fields", {"entityTypeId": 2}),
+            ("tasks", "tasks.task.getFields", {}),
+        ):
+            payload = await client.call(method, params)
+            metadata = payload.get("result", {}).get("fields", {})
+            if isinstance(metadata, dict):
+                metadata_by_source[source] = {
+                    _field_key(str(code)): value
+                    for code, value in metadata.items() if isinstance(value, dict)
+                }
     existing = {(item.entity_type, item.code): item for item in (await session.execute(select(ReportField))).scalars()}
     count = 0
     for source, items in fields.items():
         for code, title in items.items():
-            if (source, code) not in existing:
-                session.add(ReportField(entity_type=source, code=code, title=title))
+            metadata = metadata_by_source.get(source, {}).get(_field_key(code.removeprefix("raw.")), {}) if code.startswith("raw.") else {}
+            readable_title = next((
+                str(metadata[key]).strip()
+                for key in ("title", "listLabel", "formLabel", "name")
+                if isinstance(metadata.get(key), str) and metadata[key].strip()
+            ), None)
+            field_type = str(metadata.get("type") or "string")
+            field = existing.get((source, code))
+            if field is None:
+                session.add(ReportField(entity_type=source, code=code, title=readable_title or title, field_type=field_type))
                 count += 1
+            else:
+                # Keep enabled flags and saved report codes; update labels in place.
+                if readable_title or not code.startswith("raw."):
+                    field.title = readable_title or title
+                if metadata:
+                    field.field_type = field_type
     await session.commit()
     return count
 
