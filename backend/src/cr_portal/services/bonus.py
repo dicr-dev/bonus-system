@@ -150,7 +150,8 @@ def cr_start_counts_as_implementation(deal: Deal, business) -> bool:
     }
     if not configured:
         return False
-    value = raw_value(deal, business.field_module)
+    # Bitrix list fields contain enum IDs; synchronization resolves their labels.
+    value = getattr(deal, "module_name", None) or raw_value(deal, business.field_module)
     values = value if isinstance(value, list) else [value]
     return any(str(item).strip().casefold() in configured for item in values)
 
@@ -713,6 +714,9 @@ async def calculate_month(
     month: date,
     initiated_by_id: UUID | None = None,
     client=None,
+    *,
+    employee_ids: set[UUID] | None = None,
+    commit: bool = True,
 ):
     month = month_start(month)
     end = add_months(month, 1)
@@ -723,6 +727,8 @@ async def calculate_month(
 
     users_result = await session.execute(select(User))
     users = eligible_bonus_users(users_result.scalars().all())
+    if employee_ids is not None:
+        users = [user for user in users if user.id in employee_ids]
     user_ids = {user.id for user in users}
 
     contributions = defaultdict(list)
@@ -768,7 +774,14 @@ async def calculate_month(
         ):
             contributions[employee_id].append(contribution)
 
-    issues = await diagnose_month(session, month)
+    # A targeted correction must not replace other employees' diagnostics.
+    if employee_ids is None:
+        issues = await diagnose_month(session, month)
+    else:
+        issues = list((await session.execute(select(CalculationIssue).where(
+            CalculationIssue.month == month,
+            CalculationIssue.employee_id.in_(employee_ids),
+        ))).scalars())
 
     tech_result = await session.execute(
         select(Deal).where(
@@ -1376,7 +1389,8 @@ async def calculate_month(
 
         calculations.append(calculation)
 
-    await session.commit()
+    if commit:
+        await session.commit()
     return calculations
 
 
