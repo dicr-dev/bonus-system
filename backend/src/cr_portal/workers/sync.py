@@ -11,9 +11,11 @@ from sqlalchemy import select
 from cr_portal.core.config import settings
 from cr_portal.db.session import async_session_factory
 from cr_portal.integrations.bitrix.client import BitrixClient
+from cr_portal.integrations.bitrix.sync_connection import ensure_sync_access
 from cr_portal.models.oauth import BitrixInstallation
 from cr_portal.services.bitrix_sync import sync_deals, sync_deal_stage_history, sync_users
 from cr_portal.services.bonus import calculate_month
+from cr_portal.services.task_metadata_backfill import backfill_task_metadata
 from cr_portal.services.task_sync import sync_reporting_tasks, sync_task_1c_errors, sync_tasks
 from cr_portal.services.report_builder import refresh_report_fields
 
@@ -97,6 +99,7 @@ async def process_nightly_sync(redis: Redis) -> bool:
                 session=session,
                 installation=installation,
             )
+            await ensure_sync_access(client)
             users_count = await sync_users(session, client)
             deals_count = await sync_deals(
                 session,
@@ -192,6 +195,7 @@ async def process_daily_calculation(redis: Redis) -> bool:
                 session=session,
                 installation=installation,
             )
+            await ensure_sync_access(client)
             local_now = datetime.now(ZoneInfo(settings.NIGHTLY_SYNC_TIMEZONE))
             month = date(local_now.year, local_now.month, 1)
             calculations = await calculate_month(session, month, client=client)
@@ -318,6 +322,7 @@ async def process_job(
                 session=session,
                 installation=installation,
             )
+            await ensure_sync_access(client)
 
             async def progress_callback(
                 funnel: str,
@@ -332,7 +337,11 @@ async def process_job(
                     progress=progress,
                 )
 
-            if job_type == "all":
+            if job_type == "task_metadata":
+                metadata_result = await backfill_task_metadata(session, client, progress_callback)
+                count = metadata_result["restored"]
+                await update_job(redis, job_id, metadata_result=metadata_result)
+            elif job_type == "all":
                 await update_job(redis, job_id, current_funnel="users", progress=5)
                 users_count = await sync_users(session, client)
                 await update_job(redis, job_id, current_funnel="deals", progress=15, processed=users_count)

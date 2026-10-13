@@ -12,6 +12,9 @@ async def refresh_installation_token(
     session: AsyncSession,
     installation: BitrixInstallation,
 ) -> BitrixInstallation:
+    # Read the current credentials under a row lock: a stale worker must not
+    # overwrite a newly connected administrator's tokens during refresh.
+    await session.refresh(installation, with_for_update=True)
     if not installation.refresh_token:
         raise RuntimeError("Bitrix refresh_token is missing")
 

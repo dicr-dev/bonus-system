@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from cr_portal.db.session import get_db
 from cr_portal.integrations.bitrix.client import BitrixClient
+from cr_portal.integrations.bitrix.sync_connection import ensure_sync_access
 from cr_portal.models.oauth import BitrixInstallation
 from cr_portal.repositories.users import UserRepository
 
@@ -32,12 +33,17 @@ async def bitrix_client(
             detail="Bitrix24 installation not found",
         )
 
-    return BitrixClient(
+    client = BitrixClient(
         access_token=installation.access_token,
         client_endpoint=installation.client_endpoint,
         session=session,
         installation=installation,
     )
+    try:
+        await ensure_sync_access(client)
+    except RuntimeError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+    return client
 
 
 async def current_user(

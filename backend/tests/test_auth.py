@@ -62,6 +62,8 @@ class BitrixAuthTests(unittest.IsolatedAsyncioTestCase):
                     "UF_DEPARTMENT": [20],
                 }
             })
+            client_class.return_value.call_all = AsyncMock(return_value=[{"ID": 20, "NAME": "Отдел внедрения"}])
+            repository_class.return_value.by_bitrix_id = AsyncMock(return_value=None)
             repository_class.return_value.upsert = AsyncMock(return_value=employee)
 
             result = await _resolve_current_user(session, installation)
@@ -88,7 +90,7 @@ class BitrixAuthTests(unittest.IsolatedAsyncioTestCase):
         with (
             patch("cr_portal.api.v1.auth._read_request_data", AsyncMock(return_value={})),
             patch("cr_portal.api.v1.auth._exchange_authorization_code", AsyncMock(return_value={})),
-            patch("cr_portal.api.v1.auth._save_installation", AsyncMock(return_value=installation)),
+            patch("cr_portal.api.v1.auth._login_context", return_value=installation),
             patch("cr_portal.api.v1.auth._resolve_current_user", AsyncMock(return_value=employee)),
             patch("cr_portal.api.v1.auth._public_frontend_url", return_value="https://public.example.test/"),
         ):

@@ -1,4 +1,6 @@
 from datetime import UTC, datetime, timedelta
+import hmac
+import secrets
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -8,12 +10,14 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from cr_portal.api.deps import db_session
+from cr_portal.api.deps import admin_user, db_session
 from cr_portal.core.config import settings
 from cr_portal.integrations.bitrix.client import BitrixClient
+from cr_portal.integrations.bitrix.sync_connection import ensure_sync_access
 from cr_portal.models.oauth import BitrixInstallation
 from cr_portal.models.user import User
 from cr_portal.repositories.users import UserRepository
+from cr_portal.services.task_metadata_backfill import enqueue_task_metadata_backfill
 
 router = APIRouter()
 
@@ -57,15 +61,28 @@ async def login(request: Request) -> dict[str, object]:
 
 
 @router.get("/bitrix/login")
-async def bitrix_login() -> RedirectResponse:
+async def bitrix_login(request: Request) -> RedirectResponse:
+    return _start_oauth(request, sync=False)
+
+
+@router.get("/bitrix/sync-connect")
+async def bitrix_sync_connect(request: Request, _admin=Depends(admin_user)) -> RedirectResponse:
+    return _start_oauth(request, sync=True)
+
+
+def _start_oauth(request: Request, *, sync: bool) -> RedirectResponse:
     if not settings.BITRIX_CLIENT_ID or not settings.BITRIX_REDIRECT_URI:
         raise HTTPException(status_code=503, detail="Bitrix OAuth is not configured")
+    state = secrets.token_urlsafe(32)
+    request.session["bitrix_oauth_state"] = state
+    request.session["bitrix_oauth_sync"] = sync
     authorize_url = httpx.URL(
         f"{settings.BITRIX_BASE_URL.rstrip('/')}/oauth/authorize/",
         params={
             "client_id": settings.BITRIX_CLIENT_ID,
             "response_type": "code",
             "redirect_uri": settings.BITRIX_REDIRECT_URI,
+            "state": state,
         },
     )
     return RedirectResponse(str(authorize_url), status_code=302)
@@ -76,6 +93,11 @@ async def bitrix_callback(
     request: Request,
     session: AsyncSession = Depends(db_session),
 ) -> RedirectResponse:
+    expected_state = request.session.pop("bitrix_oauth_state", "")
+    received_state = request.query_params.get("state", "")
+    sync = request.session.pop("bitrix_oauth_sync", False)
+    if not expected_state or not hmac.compare_digest(expected_state, received_state):
+        raise HTTPException(status_code=400, detail="Invalid OAuth state; restart Bitrix login")
     code = request.query_params.get("code")
     if not code:
         raise HTTPException(status_code=400, detail="Bitrix authorization code is missing")
@@ -96,15 +118,17 @@ async def bitrix_callback(
     if data.get("error"):
         raise HTTPException(status_code=400, detail=data.get("error_description", data["error"]))
 
-    installation = await _save_installation(session, data)
+    installation = await _save_installation(session, data) if sync else _login_context(data)
     user = await _resolve_current_user(session, installation)
     request.session["user_id"] = str(user.id)
     request.session["bitrix_user_id"] = user.bitrix_id
-    request.session["bitrix_access_token"] = installation.access_token
-    request.session["bitrix_refresh_token"] = installation.refresh_token
-    request.session["bitrix_client_endpoint"] = installation.client_endpoint
+    _clear_session_tokens(request)
 
-    return RedirectResponse(_public_frontend_url(request), status_code=302)
+    destination = _public_frontend_url(request)
+    if sync:
+        job_id = await enqueue_task_metadata_backfill()
+        destination += f"sync?metadata_job={job_id}"
+    return RedirectResponse(destination, status_code=302)
 
 
 @router.get("/me")
@@ -235,10 +259,35 @@ async def _exchange_authorization_code(
     return {**data, **token_data}
 
 
+def _clear_session_tokens(request: Request) -> None:
+    for key in ("bitrix_access_token", "bitrix_refresh_token", "bitrix_client_endpoint"):
+        request.session.pop(key, None)
+
+
+def _login_context(data: dict[str, Any]) -> BitrixInstallation:
+    """Transient user credentials, never attached to the database session."""
+    if not data.get("access_token") or not data.get("member_id"):
+        raise HTTPException(status_code=400, detail="Bitrix OAuth credentials are missing")
+    domain = str(data.get("domain") or settings.BITRIX_BASE_URL).removeprefix("https://").removeprefix("http://").rstrip("/")
+    return BitrixInstallation(
+        member_id=data["member_id"], portal_domain=domain,
+        client_endpoint=data.get("client_endpoint") or f"https://{domain}/rest/",
+        access_token=data["access_token"], refresh_token=data.get("refresh_token") or "",
+        expires_at=datetime.now(UTC) + timedelta(hours=1),
+    )
+
+
 async def _save_installation(
     session: AsyncSession,
     data: dict[str, Any],
 ) -> BitrixInstallation:
+    context = _login_context(data)
+    try:
+        await ensure_sync_access(BitrixClient(
+            access_token=context.access_token, client_endpoint=context.client_endpoint,
+        ))
+    except RuntimeError as error:
+        raise HTTPException(status_code=403, detail=str(error)) from error
     access_token = data.get("access_token")
     refresh_token = data.get("refresh_token")
     member_id = data.get("member_id")
@@ -278,7 +327,7 @@ async def _save_installation(
     result = await session.execute(
         select(BitrixInstallation).where(
             BitrixInstallation.member_id == member_id
-        )
+        ).with_for_update()
     )
 
     installation = result.scalar_one_or_none()
@@ -424,10 +473,7 @@ async def bitrix_app(
     data = await _read_request_data(request)
     data = await _exchange_authorization_code(request, data)
 
-    installation = await _save_installation(
-        session,
-        data,
-    )
+    installation = _login_context(data)
 
     user = await _resolve_current_user(
         session,
@@ -435,15 +481,7 @@ async def bitrix_app(
     )
 
     request.session["bitrix_user_id"] = user.bitrix_id
-    request.session["bitrix_access_token"] = (
-        installation.access_token
-    )
-    request.session["bitrix_refresh_token"] = (
-        installation.refresh_token
-    )
-    request.session["bitrix_client_endpoint"] = (
-        installation.client_endpoint
-    )
+    _clear_session_tokens(request)
 
     return RedirectResponse(_public_frontend_url(request), status_code=302)
 
