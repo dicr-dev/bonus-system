@@ -81,6 +81,14 @@ def _apply_task_snapshot(task: BitrixTask, payload: dict[str, Any], started_at: 
     task.synced_at = started_at
 
 
+def _apply_task_sync_result(
+    task: BitrixTask, payload: dict[str, Any], started_at: datetime, *, available: bool,
+) -> None:
+    # A missing API card is not evidence that a cached title or CRM link vanished.
+    if available or not task.raw_json:
+        _apply_task_snapshot(task, payload, started_at)
+
+
 REPORTING_TASK_FIELDS = [
     "*", "ID", "TITLE", "DESCRIPTION", "RESPONSIBLE_ID", "CREATED_BY", "AUDITORS", "ACCOMPLICES",
     "GROUP_ID", "STATUS", "PRIORITY", "CREATED_DATE", "DATE_START", "CHANGED_DATE", "DEADLINE",
@@ -243,6 +251,7 @@ async def sync_tasks(
         include_auxiliary_tasks=include_auxiliary_tasks,
     )
     tasks = await tasks_by_id(client, task_ids, extra_select=extra_select)
+    available_task_ids = set(tasks)
 
     # Keep elapsed entries even if Bitrix no longer returns the task details.
     for task_id in task_ids:
@@ -264,7 +273,7 @@ async def sync_tasks(
         if task is None:
             task = BitrixTask(bitrix_id=numeric_id, title="")
             session.add(task)
-        _apply_task_snapshot(task, payload, started_at)
+        _apply_task_sync_result(task, payload, started_at, available=task_id in available_task_ids)
 
     await session.flush()
 

@@ -293,6 +293,29 @@ async def linked_implementation_deals(
 
     return list(result.scalars().all())
 
+def implementation_bonus_stopped(
+    implementation: Deal,
+    support_deals: list[Deal],
+    source_field: str,
+    period_end_exclusive: datetime,
+) -> bool:
+    """Stop recurring implementation bonuses in the month support was lost."""
+    for support in support_deals:
+        if support.status != "lost":
+            continue
+        if implementation.bitrix_id not in linked_deal_ids(support, source_field):
+            continue
+        if (
+            implementation.module_name and support.module_name
+            and implementation.module_name != support.module_name
+        ):
+            continue
+        closed_at = support.closed_time or support.updated_time
+        if closed_at is not None and closed_at < period_end_exclusive:
+            return True
+    return False
+
+
 def deal_active_at_period_end(
     deal: Deal,
     period_end_exclusive: datetime,
@@ -982,6 +1005,10 @@ async def calculate_month(
                 period_details,
             )
         )
+    lost_support_deals = list((await session.execute(
+        select(Deal).where(Deal.funnel == "support", Deal.status == "lost")
+    )).scalars()) if business.field_source_deal_id else []
+
     for employee_id, rows in eligible.items():
         initial_totals = defaultdict(lambda: Decimal("0"))
         for deal, _, initial_month, _ in rows:
@@ -990,6 +1017,11 @@ async def calculate_month(
             )
 
         for deal, bonus_type, initial_month, details in rows:
+            # Preserve the initial cohort's rate, but stop this client's payout.
+            if deal.funnel == "implementation" and implementation_bonus_stopped(
+                deal, lost_support_deals, business.field_source_deal_id, dt(end),
+            ):
+                continue
             base = Decimal(deal.monthly_amount or 0)
             rate = implementation_rate(
                 initial_totals[initial_month],
