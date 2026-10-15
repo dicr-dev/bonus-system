@@ -12,7 +12,7 @@ from cr_portal.core.config import settings
 from cr_portal.db.redis import get_redis
 from cr_portal.integrations.bitrix.client import BitrixClient
 from cr_portal.services.bitrix_sync import sync_users
-from cr_portal.services.sync_jobs import list_sync_jobs
+from cr_portal.services.sync_jobs import list_sync_jobs, with_job_activity
 from cr_portal.models.oauth import BitrixSyncConnection
 
 router = APIRouter()
@@ -135,7 +135,8 @@ async def recent_tasks_sync(_admin=Depends(admin_user)) -> dict:
 
 @router.get("/jobs")
 async def sync_jobs(_admin=Depends(admin_user)) -> list[dict]:
-    return await list_sync_jobs(get_redis())
+    redis = get_redis()
+    return await with_job_activity(redis, await list_sync_jobs(redis))
 
 
 @router.get("/jobs/{job_id}")
@@ -155,7 +156,7 @@ async def sync_job(
             detail="Sync job not found",
         )
 
-    return json.loads(raw)
+    return (await with_job_activity(redis, [json.loads(raw)]))[0]
 
 
 @router.get("/deals/status")

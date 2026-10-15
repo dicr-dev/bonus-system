@@ -1,8 +1,11 @@
+import asyncio
 import json
 from datetime import UTC, date, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any
 from zoneinfo import ZoneInfo
+
+import httpx
 
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -97,7 +100,7 @@ REPORTING_TASK_FIELDS = [
 ]
 
 
-async def sync_reporting_tasks(session: AsyncSession, client: BitrixClient) -> int:
+async def sync_reporting_tasks(session: AsyncSession, client: BitrixClient, *, progress_callback=None) -> int:
     """Cache all tasks relevant to the implementation and 1C departments.
 
     Bitrix does not support one portable filter for a set of CRM deal bindings,
@@ -105,52 +108,93 @@ async def sync_reporting_tasks(session: AsyncSession, client: BitrixClient) -> i
     deduplicated locally.
     """
     people = [
-        user.bitrix_id
+        user
         for user in (await session.execute(select(User).where(User.is_active.is_(True)))).scalars()
         if employee_is_in_department(user, "Отдел внедрения")
         or employee_is_in_department(user, "Разработка 1С")
     ]
-    payloads: dict[int, dict[str, Any]] = {}
-    for bitrix_id in people:
-        for field in ("RESPONSIBLE_ID", "CREATED_BY", "AUDITOR"):
-            items = await client.call_all("tasks.task.list", {
-                "filter": {field: bitrix_id},
-                "select": REPORTING_TASK_FIELDS,
-                "order": {"ID": "ASC"},
-            })
-            for item in items:
-                task_id = _integer(field_value(item, "ID"))
-                if task_id is not None:
-                    payloads[task_id] = item
-
     reporting_deal_ids = {str(item) for item in (await session.execute(select(Deal.bitrix_id))).scalars()}
+    queries = []
+    roles = {"RESPONSIBLE_ID": "Исполнитель", "CREATED_BY": "Постановщик", "AUDITOR": "Наблюдатель"}
+    for user in people:
+        for field in ("RESPONSIBLE_ID", "CREATED_BY", "AUDITOR"):
+            queries.append(({field: user.bitrix_id}, f"{roles[field]}: {user.full_name}", False))
     if reporting_deal_ids:
-        for item in await client.call_all("tasks.task.list", {
-            "select": REPORTING_TASK_FIELDS,
-            "order": {"ID": "ASC"},
-        }):
-            if reporting_deal_ids.intersection(map(str, crm_deal_ids(item))):
-                task_id = _integer(field_value(item, "ID"))
-                if task_id is not None:
-                    payloads[task_id] = item
+        queries.append(({}, "Проверка связи задач со сделками — просмотр всех задач", True))
 
-    if not payloads:
-        return 0
-    existing = {
-        task.bitrix_id: task
-        for task in (await session.execute(
-            select(BitrixTask).where(BitrixTask.bitrix_id.in_(payloads))
-        )).scalars()
-    }
-    started_at = datetime.now(UTC)
-    for task_id, payload in payloads.items():
-        task = existing.get(task_id)
-        if task is None:
-            task = BitrixTask(bitrix_id=task_id, title="")
-            session.add(task)
-        _apply_task_snapshot(task, payload, started_at)
-    await session.commit()
-    return len(payloads)
+    saved_ids: set[int] = set()
+    created_ids: set[int] = set()
+    stats = {"tasks_received": 0, "tasks_saved": 0, "tasks_created": 0, "task_pages": 0,
+             "task_queries_done": 0, "task_queries_total": len(queries), "last_page_at": None}
+
+    async def report(**values):
+        stats.update(values)
+        if progress_callback:
+            await progress_callback(dict(stats))
+
+    for query_index, (filters, source, crm_only) in enumerate(queries):
+        start = 0
+        query_received = 0
+        query_total = None
+        while True:
+            params = {"filter": filters, "select": REPORTING_TASK_FIELDS, "order": {"ID": "ASC"}, "start": start}
+            await report(task_source=source, task_request_state="requesting", task_query_received=query_received,
+                         task_query_total=query_total, task_queries_done=query_index,
+                         task_fraction=(query_index + (min(query_received / query_total, 0.99) if query_total else 0)) / max(len(queries), 1))
+            for attempt in range(3):
+                try:
+                    response = await client.call("tasks.task.list", params)
+                    break
+                except httpx.TransportError:
+                    if attempt == 2:
+                        raise
+                    await report(task_request_state="retrying")
+                    await asyncio.sleep(attempt + 1)
+            result = response.get("result", {})
+            page = result if isinstance(result, list) else result.get("tasks", result.get("items", []))
+            if not isinstance(page, list):
+                raise RuntimeError("Bitrix returned an invalid task page")
+            query_total = _integer(response.get("total", result.get("total") if isinstance(result, dict) else None))
+            query_received += len(page)
+            stats["tasks_received"] += len(page)
+            stats["task_pages"] += 1
+            stats["last_page_at"] = datetime.now(UTC).isoformat()
+            await report(task_request_state="saving", task_query_received=query_received, task_query_total=query_total)
+            payloads = {
+                task_id: item for item in page if isinstance(item, dict)
+                and (not crm_only or reporting_deal_ids.intersection(map(str, crm_deal_ids(item))))
+                and (task_id := _integer(field_value(item, "ID"))) is not None
+            }
+            if payloads:
+                existing = {task.bitrix_id: task for task in (await session.execute(
+                    select(BitrixTask).where(BitrixTask.bitrix_id.in_(payloads))
+                )).scalars()}
+                new_ids = set()
+                for task_id, payload in payloads.items():
+                    task = existing.get(task_id)
+                    if task is None:
+                        task = BitrixTask(bitrix_id=task_id, title="")
+                        session.add(task)
+                        new_ids.add(task_id)
+                    _apply_task_snapshot(task, payload, datetime.now(UTC))
+                await session.commit()
+                # Report only committed cards; a later failure cannot roll these back.
+                saved_ids.update(payloads)
+                created_ids.update(new_ids)
+            next_value = response.get("next", result.get("next") if isinstance(result, dict) else None)
+            complete = next_value is None
+            fraction = 1 if complete else min(query_received / query_total, 0.99) if query_total else 0
+            await report(tasks_saved=len(saved_ids), tasks_created=len(created_ids),
+                         task_queries_done=query_index + int(complete), task_request_state="saved",
+                         task_fraction=(query_index + fraction) / max(len(queries), 1))
+            if complete:
+                break
+            following = _integer(next_value)
+            if following is None or following <= start:
+                raise RuntimeError("Bitrix task pagination did not advance")
+            start = following
+    await report(task_request_state="completed", task_fraction=1)
+    return len(saved_ids)
 
 
 async def _relevant_task_ids(

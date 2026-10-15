@@ -7,15 +7,29 @@ const {Text,Title}=Typography
 const typeNames:Record<string,string>={all:'Все объекты',reporting_resume:'Дозагрузка истории, задач и полей',deals:'Сделки',tasks_full:'Задачи за весь срок',tasks_recent:'Задачи за 3 месяца',task_metadata:'Восстановление карточек задач'}
 const stageNames:Record<string,string>={users:'Пользователи',deals:'Сделки',stage_history:'История стадий сделок',tasks:'Задачи',task_1c_errors:'Проверка задач 1С',tech_integration:'Техинтеграция',implementation:'Внедрение',support:'Сопровождение',cr_start:'CR Start',report_fields:'Поля отчётов'}
 const statusNames={queued:'В очереди',running:'Выполняется',completed:'Завершена',failed:'Ошибка'}
+const requestNames:Record<string,string>={requesting:'Ожидание ответа Битрикса',retrying:'Повтор запроса после обрыва связи',saving:'Сохранение страницы в базу',saved:'Страница сохранена',completed:'Задачи загружены'}
 const dateTime=(value:string|null)=>value?new Intl.DateTimeFormat('ru-RU',{timeZone:'Europe/Moscow',dateStyle:'short',timeStyle:'medium'}).format(new Date(value)):'—'
 
 function JobCard({job}:{job:SyncJob}){
  const queued=job.status==='queued'
  const title=typeNames[job.type]??job.type
+ const noPages=job.status==='running'&&job.current_funnel==='tasks'&&job.last_page_at&&Date.now()-new Date(job.last_page_at).getTime()>120000
  return <Card size="small" title={<Space wrap><Text strong>{title}{job.type==='deals'?(job.full?' — полная':' — инкрементальная'):''}</Text><Tag color={job.status==='failed'?'error':job.status==='completed'?'success':queued?'default':'processing'}>{statusNames[job.status]}</Tag></Space>}>
   <Space direction="vertical" style={{width:'100%'}}>
    {!queued&&<Progress percent={job.progress} status={job.status==='failed'?'exception':job.status==='completed'?'success':'active'}/>}
    {queued?<Text>Ожидает освобождения worker. Загрузка ещё не началась.</Text>:<Text>Обработано: {job.processed}. Этап: {job.current_funnel?(stageNames[job.current_funnel]??job.current_funnel):job.status==='running'?'Подготовка':'—'}.</Text>}
+   {typeof job.tasks_received==='number'&&<Space direction="vertical" size={2}>
+    <Text>Получено карточек из Битрикса: {job.tasks_received.toLocaleString('ru-RU')} (включая повторы и проверку связей).</Text>
+    <Text>Сохранено уникальных задач: {(job.tasks_saved??0).toLocaleString('ru-RU')}; из них новых: {(job.tasks_created??0).toLocaleString('ru-RU')}.</Text>
+    <Text>Страниц получено: {job.task_pages??0}; выборок завершено: {job.task_queries_done??0} из {job.task_queries_total??0}.</Text>
+    {job.task_source&&<Text type="secondary">Источник: {job.task_source}</Text>}
+    {job.current_funnel==='tasks'&&<Text>{requestNames[job.task_request_state??'']??job.task_request_state}{job.task_query_total!=null?` · В текущей выборке: ${job.task_query_received??0} из ${job.task_query_total}`:''}</Text>}
+    {job.last_page_at&&<Text type="secondary">Последняя полученная страница: {dateTime(job.last_page_at)} (МСК).</Text>}
+   </Space>}
+   {job.status==='running'&&<Space wrap><Tag color={job.worker_alive===true?'success':job.worker_alive===false?'warning':'default'}>{job.worker_alive===true?'Worker отвечает':job.worker_alive===false?'Нет подтверждения активности worker':'Активность worker пока не подтверждена'}</Tag>{job.heartbeat_at&&<Text type="secondary">Сигнал: {dateTime(job.heartbeat_at)} (МСК)</Text>}</Space>}
+   {job.status==='running'&&job.worker_alive===false&&<Alert type="warning" showIcon message="Более 60 секунд нет сигнала от worker" description="Возможна остановка процесса или потеря связи. Это не означает, что задание завершено; не запускайте повторную загрузку без проверки."/>}
+   {noPages&&job.worker_alive===true&&<Alert type="warning" showIcon message="Worker отвечает, но более двух минут нет новых страниц задач" description="Проверьте текущее состояние запроса выше: ожидание Битрикса, повтор запроса или сохранение данных."/>}
+   {job.updated_at&&<Text type="secondary">Статус обновлён: {dateTime(job.updated_at)} (МСК)</Text>}
    <Text type="secondary">Создана: {dateTime(job.created_at)}; начало: {dateTime(job.started_at)}{job.finished_at?`; завершение: ${dateTime(job.finished_at)}`:''} (МСК)</Text>
    {job.error&&<Alert type="error" showIcon message={job.error}/>}
   </Space>

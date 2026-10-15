@@ -62,6 +62,7 @@ class RecoveryJobTests(unittest.IsolatedAsyncioTestCase):
         context.__aenter__.return_value = session
         with patch("cr_portal.workers.sync.async_session_factory", return_value=context), \
              patch("cr_portal.workers.sync.create_sync_client", AsyncMock()) as create_client, \
+             patch("cr_portal.workers.sync.job_heartbeat", AsyncMock()), \
              patch("cr_portal.workers.sync.sync_deal_stage_history", AsyncMock(return_value=2)) as history, \
              patch("cr_portal.workers.sync.sync_reporting_tasks", AsyncMock(return_value=3)) as tasks, \
              patch("cr_portal.workers.sync.sync_task_1c_errors", AsyncMock()) as types, \

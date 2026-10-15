@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+from contextlib import suppress
 from datetime import UTC, date, datetime, timedelta
 from uuid import uuid4
 from zoneinfo import ZoneInfo
@@ -15,6 +16,7 @@ from cr_portal.services.bonus import calculate_month
 from cr_portal.services.task_metadata_backfill import backfill_task_metadata
 from cr_portal.services.task_sync import sync_reporting_tasks, sync_task_1c_errors, sync_tasks
 from cr_portal.services.report_builder import refresh_report_fields
+from cr_portal.services.sync_jobs import HEARTBEAT_PREFIX
 
 logger = logging.getLogger(__name__)
 
@@ -217,6 +219,7 @@ async def update_job(
         data = {"job_id": job_id}
 
     data.update(values)
+    data["updated_at"] = utc_now()
 
     await redis.set(
         key,
@@ -227,6 +230,16 @@ async def update_job(
         ),
         ex=86400 * 7,
     )
+
+
+async def job_heartbeat(redis, job_id):
+    # A separate key avoids read/modify/write races with progress updates.
+    while True:
+        try:
+            await redis.set(HEARTBEAT_PREFIX + job_id, utc_now(), ex=86400 * 7)
+        except Exception:
+            logger.warning("Unable to update sync worker heartbeat for %s", job_id)
+        await asyncio.sleep(10)
 
 
 async def process_job(
@@ -257,6 +270,7 @@ async def process_job(
         processed=0,
         progress=0,
         error=None,
+        heartbeat_supported=True,
     )
 
     last_success = None
@@ -266,6 +280,7 @@ async def process_job(
             LAST_SUCCESS_KEY
         )
 
+    heartbeat = asyncio.create_task(job_heartbeat(redis, job_id))
     try:
         async with async_session_factory() as session:
             client = await create_sync_client(session)
@@ -283,6 +298,11 @@ async def process_job(
                     progress=progress,
                 )
 
+            async def task_progress(metrics):
+                start, end = {"all": (85, 93), "reporting_resume": (80, 89)}.get(job_type, (0, 89))
+                await update_job(redis, job_id, current_funnel="tasks", processed=metrics["tasks_saved"],
+                                 progress=start + int((end - start) * metrics["task_fraction"]), **metrics)
+
             if job_type == "task_metadata":
                 metadata_result = await backfill_task_metadata(session, client, progress_callback)
                 count = metadata_result["restored"]
@@ -296,7 +316,7 @@ async def process_job(
 
                 history_count = await sync_deal_stage_history(session, client, progress_callback=history_progress)
                 await update_job(redis, job_id, current_funnel="tasks", progress=80, processed=history_count)
-                tasks_count = await sync_reporting_tasks(session, client)
+                tasks_count = await sync_reporting_tasks(session, client, progress_callback=task_progress)
                 await update_job(redis, job_id, current_funnel="task_1c_errors", progress=90, processed=history_count + tasks_count)
                 await sync_task_1c_errors(session, client)
                 await update_job(redis, job_id, current_funnel="report_fields", progress=95)
@@ -310,14 +330,18 @@ async def process_job(
                 await update_job(redis, job_id, current_funnel="stage_history", progress=70, processed=users_count + deals_count)
                 history_count = await sync_deal_stage_history(session, client)
                 await update_job(redis, job_id, current_funnel="tasks", progress=85, processed=users_count + deals_count + history_count)
-                tasks_count = await sync_reporting_tasks(session, client)
+                tasks_count = await sync_reporting_tasks(session, client, progress_callback=task_progress)
+                await update_job(redis, job_id, current_funnel="task_1c_errors", progress=94)
                 await sync_task_1c_errors(session, client)
+                await update_job(redis, job_id, current_funnel="report_fields", progress=97)
                 await refresh_report_fields(session, client)
                 count = users_count + deals_count + history_count + tasks_count
             elif job_type in {"tasks_full", "tasks_recent"}:
                 if job_type == "tasks_full":
-                    count = await sync_reporting_tasks(session, client)
+                    count = await sync_reporting_tasks(session, client, progress_callback=task_progress)
+                    await update_job(redis, job_id, current_funnel="task_1c_errors", progress=93)
                     await sync_task_1c_errors(session, client)
+                    await update_job(redis, job_id, current_funnel="report_fields", progress=97)
                     await refresh_report_fields(session, client)
                     await update_job(
                         redis, job_id, status="completed", current_funnel=None,
@@ -387,6 +411,10 @@ async def process_job(
             error=str(exc),
             finished_at=utc_now(),
         )
+    finally:
+        heartbeat.cancel()
+        with suppress(asyncio.CancelledError):
+            await heartbeat
 
 
 async def worker() -> None:
