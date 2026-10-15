@@ -1,7 +1,10 @@
 import axios from 'axios'
+import type {EmployeeEfficiencyReport,EfficiencyFilters} from './efficiencyTypes'
 import type { AdminEmployeeMonthPlan,AppSettings,BitrixDealField,Calculation,CalculationDetail,CrStartManagerReportRow,CurrentUser,DashboardSummary,Deal,DealBonusOverride,DealBonusOverrideInput,DealGroupsReport,DealsInWorkReport,Employee,EmployeeMonthPlan,GiftInfoDeal,Issue,KPISummary,ManualBonusAdjustment,ManualBonusAdjustmentInput,OnboardingAssignment,OnboardingPlanSection,RuleConfig,RuleVersion,SupportAnalysisRow,SupportAutoMatchPreview,SyncJob,SyncStatus,Task1CCheckReport,Task1CErrorReport,TimeReport,WeeklyOvDeal } from './types'
 
 export const api=axios.create({baseURL:'/api/v1',withCredentials:true,timeout:30000})
+export async function getEmployeeEfficiency(params:EfficiencyFilters):Promise<EmployeeEfficiencyReport>{return (await api.get('/analytics/employee-efficiency',{params})).data}
+export function employeeEfficiencyExcelUrl(params:EfficiencyFilters){const query=new URLSearchParams(Object.entries(params).filter(([,value])=>value!==undefined).map(([key,value])=>[key,String(value)]));return `/api/v1/analytics/employee-efficiency/export?${query}`}
 export async function login(login:string,password:string){return (await api.post('/auth/login',{login,password})).data}
 export async function getCurrentUser():Promise<CurrentUser>{return (await api.get('/auth/me')).data}
 export async function logout(){return (await api.post('/auth/logout')).data}

@@ -10,6 +10,8 @@ import type { ColumnsType } from 'antd/es/table'
 import { useMutation,useQuery,useQueryClient } from '@tanstack/react-query'
 import { useEffect,useState } from 'react'
 import SettingsPage from './SettingsPage'
+import EmployeeEfficiencyPage from './EmployeeEfficiencyPage'
+import MonthlyRatingPage from './MonthlyRatingPage'
 import InstructionPage from './InstructionPage'
 import OnboardingPage from './OnboardingPage'
 import {BitrixLink,dealUrl,sourceUrl,taskUrl} from './BitrixLink'
@@ -27,7 +29,8 @@ import type {
 const {Header,Content,Sider}=Layout
 const {Title,Text}=Typography
 const PAGE_PATHS:Record<string,string>={
- dashboard:'/dashboard',kpi:'/kpi',analytics_deals:'/analytics/deals',analytics_work:'/analytics/deals-in-work',analytics_weekly_ov:'/analytics/weekly-ov',
+ monthly_rating:'/analytics/monthly-rating',
+ dashboard:'/dashboard',kpi:'/kpi',analytics_deals:'/analytics/deals',analytics_work:'/analytics/deals-in-work',analytics_weekly_ov:'/analytics/weekly-ov',employee_efficiency:'/analytics/employee-efficiency',
  analytics_support:'/business-partners/support-analysis',gift_info:'/business-partners/gift-info',bonus:'/bonuses',deals:'/deals',instruction:'/instruction',
  onboarding:'/onboarding',time_report:'/time-report',workplace:'/workplace',employee_month_plan:'/employee-month-plan',
  admin_employee_month_plan:'/admin/employee-month-plans',task_1c_check:'/service/task-1c-check',cr_start_managers_report:'/reports/cr-start-managers',saved_reports:'/reports/saved',report_builder:'/reports/builder',diagnostics:'/diagnostics',
@@ -914,7 +917,7 @@ export default function App(){
   if(window.location.pathname!==path)window.history.pushState(null,'',path)
   setPage(nextPage)
  }
- const content=({dashboard:<Dashboard isAdmin={isAdmin} userId={user.data.id}/>,analytics_deals:<DealAnalytics/>,analytics_work:<DealsInWork/>,analytics_weekly_ov:<WeeklyOvReport/>,analytics_support:<SupportAnalysis/>,gift_info:<GiftInfo/>,cr_start_managers_report:<CrStartManagersReport/>,saved_reports:<ReportBuilder isAdmin={false}/>,report_builder:<ReportBuilder isAdmin/>,kpi:<KPI/>,bonus:<Bonuses isAdmin={isAdmin} userId={user.data.id}/>,deals:<Deals isAdmin={isAdmin} userId={user.data.id}/>,instruction:<InstructionPage/>,onboarding:<OnboardingPage isAdmin={isAdmin}/>,time_report:<TimeSpentReport isAdmin={isAdmin}/>,workplace:<Workplace isAdmin={isAdmin} canUseTask1cErrors={canUseTask1cErrors}/>,employee_month_plan:<EmployeeMonthPlanPage/>,admin_employee_month_plan:<AdminEmployeeMonthPlanPage/>,task_1c_check:<Task1CCheck/>,diagnostics:<Diagnostics/>,bitrix_fields:<BitrixFields/>,rules:<Rules/>,settings:<SettingsPage/>,sync:<Sync/>}[effectivePage]??<Dashboard isAdmin={isAdmin} userId={user.data.id}/>)
+ const content=({monthly_rating:<MonthlyRatingPage/>,employee_efficiency:<EmployeeEfficiencyPage/>,dashboard:<Dashboard isAdmin={isAdmin} userId={user.data.id}/>,analytics_deals:<DealAnalytics/>,analytics_work:<DealsInWork/>,analytics_weekly_ov:<WeeklyOvReport/>,analytics_support:<SupportAnalysis/>,gift_info:<GiftInfo/>,cr_start_managers_report:<CrStartManagersReport/>,saved_reports:<ReportBuilder isAdmin={false}/>,report_builder:<ReportBuilder isAdmin/>,kpi:<KPI/>,bonus:<Bonuses isAdmin={isAdmin} userId={user.data.id}/>,deals:<Deals isAdmin={isAdmin} userId={user.data.id}/>,instruction:<InstructionPage/>,onboarding:<OnboardingPage isAdmin={isAdmin}/>,time_report:<TimeSpentReport isAdmin={isAdmin}/>,workplace:<Workplace isAdmin={isAdmin} canUseTask1cErrors={canUseTask1cErrors}/>,employee_month_plan:<EmployeeMonthPlanPage/>,admin_employee_month_plan:<AdminEmployeeMonthPlanPage/>,task_1c_check:<Task1CCheck/>,diagnostics:<Diagnostics/>,bitrix_fields:<BitrixFields/>,rules:<Rules/>,settings:<SettingsPage/>,sync:<Sync/>}[effectivePage]??<Dashboard isAdmin={isAdmin} userId={user.data.id}/>)
  const businessPartnersMenu={key:'business_partners',icon:<FundOutlined/>,label:'Бизнес партнеры',children:[{key:'analytics_support',label:'Анализ по менеджерам'},{key:'gift_info',label:'Информация для подарков'}]}
  const employeeMenu=isSupportEmployee?[businessPartnersMenu]:[
   {key:'dashboard',icon:<DashboardOutlined/>,label:'Главная'},
@@ -930,7 +933,7 @@ export default function App(){
  ]
  const adminMenu=[
   {key:'dashboard',icon:<DashboardOutlined/>,label:'Главная'},{key:'kpi',icon:<TrophyOutlined/>,label:'KPI отдела'},
-  {key:'analytics',icon:<FundOutlined/>,label:'Аналитика',children:[{key:'analytics_deals',label:'Аналитика по сделкам'},{key:'analytics_work',label:'Сделки в работе'},{key:'analytics_weekly_ov',label:'Еженедельный отчёт ОВ'}]},
+  {key:'analytics',icon:<FundOutlined/>,label:'Аналитика',children:[{key:'monthly_rating',label:'Рейтинг за месяц'},{key:'employee_efficiency',label:'Эффективность сотрудников'},{key:'analytics_deals',label:'Аналитика по сделкам'},{key:'analytics_work',label:'Сделки в работе'},{key:'analytics_weekly_ov',label:'Еженедельный отчёт ОВ'}]},
   {key:'reports',icon:<FundOutlined/>,label:'Отчеты',children:[{key:'cr_start_managers_report',label:'CR Start отчет по менеджерам'},{key:'report_builder',label:'Конструктор отчётов'}]},
   businessPartnersMenu,
   {key:'admin_employee_month_plan',icon:<CalendarOutlined/>,label:'Планы сотрудников'},

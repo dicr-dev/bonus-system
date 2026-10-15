@@ -1,4 +1,6 @@
 from fastapi import APIRouter
+from cr_portal.api.v1 import employee_efficiency
+from cr_portal.api.v1 import monthly_rating
 from cr_portal.api.v1 import analytics,auth,bonus,calculations,deals,diagnostics,distribution,employee_month_plan,export,health,kpi,onboarding,report_builder,reports,settings,sync,users
 router=APIRouter()
 router.include_router(health.router,tags=["Health"])
@@ -8,6 +10,8 @@ router.include_router(deals.router,prefix="/deals",tags=["Deals"])
 router.include_router(reports.router,prefix="/reports",tags=["Reports"])
 router.include_router(report_builder.router,prefix="/report-builder",tags=["Report builder"])
 router.include_router(analytics.router,prefix="/analytics",tags=["Analytics"])
+router.include_router(employee_efficiency.router,prefix="/analytics",tags=["Employee efficiency"])
+router.include_router(monthly_rating.router,prefix="/analytics",tags=["Monthly rating"])
 router.include_router(bonus.router,prefix="/bonus",tags=["Bonus legacy"])
 router.include_router(calculations.router,prefix="/calculations",tags=["Calculations"])
 router.include_router(kpi.router,prefix="/kpi",tags=["KPI"])
