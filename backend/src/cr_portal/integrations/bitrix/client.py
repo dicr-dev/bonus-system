@@ -4,7 +4,7 @@ import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from cr_portal.core.config import settings
-from cr_portal.models.oauth import BitrixInstallation
+from cr_portal.models.oauth import BitrixSyncConnection
 
 
 class BitrixClient:
@@ -14,8 +14,11 @@ class BitrixClient:
         client_endpoint: str | None = None,
         *,
         session: AsyncSession | None = None,
-        installation: BitrixInstallation | None = None,
+        installation: BitrixSyncConnection | None = None,
+        oauth_only: bool = False,
     ):
+        if installation is not None and not isinstance(installation, BitrixSyncConnection):
+            raise RuntimeError("Persistent Bitrix clients require a dedicated administrator connection")
         self.access_token = access_token
 
         self.client_endpoint = (
@@ -23,7 +26,7 @@ class BitrixClient:
             or settings.BITRIX_BASE_URL.rstrip("/") + "/rest/"
         ).rstrip("/") + "/"
 
-        self.webhook = settings.BITRIX_WEBHOOK_URL.rstrip("/")
+        self.webhook = "" if oauth_only or isinstance(installation, BitrixSyncConnection) else settings.BITRIX_WEBHOOK_URL.rstrip("/")
 
         self.session = session
         self.installation = installation

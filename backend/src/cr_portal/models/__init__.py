@@ -4,7 +4,7 @@ from cr_portal.models.deal import Deal
 from cr_portal.models.employee_month_plan import EmployeeMonthlyDealPlan
 from cr_portal.models.distribution import DistributionDecision
 from cr_portal.models.kpi import CalculationIssue, KPIEvent, MonthlyPlan
-from cr_portal.models.oauth import BitrixInstallation
+from cr_portal.models.oauth import BitrixInstallation, BitrixSyncConnection
 from cr_portal.models.onboarding import OnboardingAssignment, OnboardingPlanSection, OnboardingPlanTask, OnboardingTask
 from cr_portal.models.task import BitrixTask, BitrixTaskElapsedItem
 from cr_portal.models.reporting import DealStageHistory, ReportField, SavedReport
@@ -24,6 +24,7 @@ __all__ = [
     "CalculationIssue",
     "DistributionDecision",
     "BitrixInstallation",
+    "BitrixSyncConnection",
     "AppSetting",
     "BitrixTask",
     "BitrixTaskElapsedItem",

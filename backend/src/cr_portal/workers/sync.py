@@ -6,13 +6,10 @@ from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from redis.asyncio import Redis
-from sqlalchemy import select
 
 from cr_portal.core.config import settings
 from cr_portal.db.session import async_session_factory
-from cr_portal.integrations.bitrix.client import BitrixClient
-from cr_portal.integrations.bitrix.sync_connection import ensure_sync_access
-from cr_portal.models.oauth import BitrixInstallation
+from cr_portal.integrations.bitrix.sync_connection import create_sync_client
 from cr_portal.services.bitrix_sync import sync_deals, sync_deal_stage_history, sync_users
 from cr_portal.services.bonus import calculate_month
 from cr_portal.services.task_metadata_backfill import backfill_task_metadata
@@ -84,22 +81,7 @@ async def process_nightly_sync(redis: Redis) -> bool:
 
     try:
         async with async_session_factory() as session:
-            result = await session.execute(
-                select(BitrixInstallation)
-                .order_by(BitrixInstallation.created_at.desc())
-                .limit(1)
-            )
-            installation = result.scalar_one_or_none()
-            if installation is None:
-                raise RuntimeError("Bitrix24 installation not found")
-
-            client = BitrixClient(
-                access_token=installation.access_token,
-                client_endpoint=installation.client_endpoint,
-                session=session,
-                installation=installation,
-            )
-            await ensure_sync_access(client)
+            client = await create_sync_client(session)
             users_count = await sync_users(session, client)
             deals_count = await sync_deals(
                 session,
@@ -180,22 +162,7 @@ async def process_daily_calculation(redis: Redis) -> bool:
 
     try:
         async with async_session_factory() as session:
-            result = await session.execute(
-                select(BitrixInstallation)
-                .order_by(BitrixInstallation.created_at.desc())
-                .limit(1)
-            )
-            installation = result.scalar_one_or_none()
-            if installation is None:
-                raise RuntimeError("Bitrix24 installation not found")
-
-            client = BitrixClient(
-                access_token=installation.access_token,
-                client_endpoint=installation.client_endpoint,
-                session=session,
-                installation=installation,
-            )
-            await ensure_sync_access(client)
+            client = await create_sync_client(session)
             local_now = datetime.now(ZoneInfo(settings.NIGHTLY_SYNC_TIMEZONE))
             month = date(local_now.year, local_now.month, 1)
             calculations = await calculate_month(session, month, client=client)
@@ -301,28 +268,7 @@ async def process_job(
 
     try:
         async with async_session_factory() as session:
-            result = await session.execute(
-                select(BitrixInstallation)
-                .order_by(
-                    BitrixInstallation.created_at.desc()
-                )
-                .limit(1)
-            )
-
-            installation = result.scalar_one_or_none()
-
-            if installation is None:
-                raise RuntimeError(
-                    "Bitrix24 installation not found"
-                )
-
-            client = BitrixClient(
-                access_token=installation.access_token,
-                client_endpoint=installation.client_endpoint,
-                session=session,
-                installation=installation,
-            )
-            await ensure_sync_access(client)
+            client = await create_sync_client(session)
 
             async def progress_callback(
                 funnel: str,
@@ -341,6 +287,21 @@ async def process_job(
                 metadata_result = await backfill_task_metadata(session, client, progress_callback)
                 count = metadata_result["restored"]
                 await update_job(redis, job_id, metadata_result=metadata_result)
+            elif job_type == "reporting_resume":
+                await update_job(redis, job_id, current_funnel="stage_history", progress=0)
+
+                async def history_progress(done, total):
+                    await update_job(redis, job_id, current_funnel="stage_history",
+                                     processed=done, progress=int(done * 80 / max(total, 1)))
+
+                history_count = await sync_deal_stage_history(session, client, progress_callback=history_progress)
+                await update_job(redis, job_id, current_funnel="tasks", progress=80, processed=history_count)
+                tasks_count = await sync_reporting_tasks(session, client)
+                await update_job(redis, job_id, current_funnel="task_1c_errors", progress=90, processed=history_count + tasks_count)
+                await sync_task_1c_errors(session, client)
+                await update_job(redis, job_id, current_funnel="report_fields", progress=95)
+                await refresh_report_fields(session, client)
+                count = history_count + tasks_count
             elif job_type == "all":
                 await update_job(redis, job_id, current_funnel="users", progress=5)
                 users_count = await sync_users(session, client)

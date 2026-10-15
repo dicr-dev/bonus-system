@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, patch
 import httpx
 
 from cr_portal.integrations.bitrix.client import BitrixClient
+from cr_portal.models.oauth import BitrixSyncConnection
 from cr_portal.services.task_kpi import (
     in_month,
     overtime_hours,
@@ -29,9 +30,10 @@ class TaskTests(unittest.IsolatedAsyncioTestCase):
     async def test_refresh_uses_oauth_server(self):
         from cr_portal.core.config import settings
         from cr_portal.integrations.bitrix.oauth import refresh_installation_token
-        installation = SimpleNamespace(refresh_token="old-refresh", client_endpoint="https://example.test/rest/", portal_domain="example.test")
+        installation = BitrixSyncConnection(member_id="test-portal", admin_bitrix_user_id=1, refresh_token="old-refresh", client_endpoint="https://example.test/rest/", portal_domain="example.test")
         response = httpx.Response(200, json={"access_token": "new-access", "refresh_token": "new-refresh", "expires_in": 3600}, request=httpx.Request("GET", settings.BITRIX_OAUTH_TOKEN_URL))
-        with patch("cr_portal.integrations.bitrix.oauth.httpx.AsyncClient") as mocked:
+        with patch("cr_portal.integrations.bitrix.oauth.httpx.AsyncClient") as mocked, \
+             patch("cr_portal.integrations.bitrix.client.BitrixClient.call", AsyncMock(return_value={"result": {"ID": "1", "ADMIN": True}})):
             client = mocked.return_value.__aenter__.return_value
             client.get = AsyncMock(return_value=response)
             session = SimpleNamespace(commit=AsyncMock(), refresh=AsyncMock())

@@ -4,7 +4,7 @@ from datetime import date, datetime, time
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 
 from cr_portal.models.app_settings import AppSetting
 from cr_portal.models.deal import Deal
@@ -13,6 +13,7 @@ from cr_portal.models.user import User
 from cr_portal.services.employee_scope import employee_is_in_department
 from cr_portal.services.kpi import next_month
 from cr_portal.services.task_kpi import field_value
+from cr_portal.services.subscriptions import cr_start_subscription_in_month
 
 MOSCOW = ZoneInfo("Europe/Moscow")
 TYPE_LABEL = "Реализация интеграции"
@@ -82,7 +83,7 @@ def _is_integration_task(task, field, labels):
     )
 
 
-def build_monthly_rating(users, deals, tasks, elapsed, *, month, type_field, labels=None):
+def build_monthly_rating(users, deals, tasks, elapsed, *, month, type_field, labels=None, commercial_date_field=""):
     month, start, end = month_bounds(month)
     labels = labels or {}
     by_bitrix = {user.bitrix_id: user for user in users}
@@ -121,10 +122,13 @@ def build_monthly_rating(users, deals, tasks, elapsed, *, month, type_field, lab
     issues = []
     unattributed = 0
     for deal in deals:
-        if deal.status != "won" or not _in_period(deal.closed_time, start, end):
+        cr_start = deal.funnel == "cr_start" and cr_start_subscription_in_month(
+            deal, start.date(), commercial_date_field,
+        )
+        if not cr_start and (deal.status != "won" or not _in_period(deal.closed_time, start, end)):
             continue
-        detail = {"bitrix_id": deal.bitrix_id, "title": deal.title, "amount": str(deal.opportunity or 0)}
-        if deal.funnel == "implementation":
+        detail = {"bitrix_id": deal.bitrix_id, "title": deal.title, "amount": str(deal.opportunity or 0), "funnel": deal.funnel}
+        if deal.funnel == "implementation" or cr_start:
             if (person := implementers.get(deal.implementation_responsible_user_id)) is not None:
                 person["deal_count"] += 1
                 person["deal_amount"] += deal.opportunity or Decimal(0)
@@ -165,7 +169,7 @@ def build_monthly_rating(users, deals, tasks, elapsed, *, month, type_field, lab
     if unknown_type_count:
         warnings.append(f"Не распознаны значения типа у {unknown_type_count} задач. Обновите справочник.")
     if unattributed:
-        warnings.append(f"Успешных Внедрений вне рейтинга действующих сотрудников отдела: {unattributed}.")
+        warnings.append(f"Сделок на подписке вне рейтинга действующих сотрудников отдела: {unattributed}.")
     warnings.append("Данные берутся из локальной синхронизации. Полнота отчёта зависит от загрузки сделок, задач и записей времени за выбранный месяц.")
     development = sorted(developers.values(), key=lambda row: (-row["integration_count"], row["name"].casefold()))
     reliable = bool(labels) and not unknown_type_count
@@ -182,8 +186,9 @@ async def monthly_rating_report(session, business, month=None):
     month, start, end = month_bounds(month)
     users = (await session.execute(select(User))).scalars().all()
     deals = (await session.execute(select(Deal).where(
-        Deal.funnel.in_(["implementation", "tech_integration"]), Deal.status == "won",
-        Deal.closed_time >= start, Deal.closed_time < end,
+        or_(and_(Deal.funnel.in_(["implementation", "tech_integration"]), Deal.status == "won",
+                 Deal.closed_time >= start, Deal.closed_time < end),
+            and_(Deal.funnel == "cr_start", Deal.status == "in_progress")),
     ))).scalars().all()
     # No month restriction: tasks identify the integration's developer for deals closed this month.
     tasks = (await session.execute(select(BitrixTask))).scalars().all()
@@ -194,6 +199,7 @@ async def monthly_rating_report(session, business, month=None):
     metadata = _json(setting.value if setting else None, {})
     labels = metadata.get("labels", {}) if metadata.get("field") == business.task_1c_type_field else {}
     result = build_monthly_rating(users, deals, tasks, elapsed, month=month,
-                                  type_field=business.task_1c_type_field, labels=labels)
+                                  type_field=business.task_1c_type_field, labels=labels,
+                                  commercial_date_field=business.field_cr_start_commercial_use_date)
     result["type_metadata_loaded_at"] = metadata.get("loaded_at") if labels else None
     return result

@@ -75,19 +75,20 @@ async def subscription_deals_for_month(
     cr_start = [
         deal
         for deal in cr_start_result.scalars().all()
-        if (
-            commercial_use_date := raw_date(
-                deal,
-                business.field_cr_start_commercial_use_date,
-            )
-        )
-        and month <= commercial_use_date < following_month
+        if cr_start_subscription_in_month(deal, month, business.field_cr_start_commercial_use_date)
     ]
 
     return SubscriptionDeals(
         implementation=implementation,
         cr_start=cr_start,
     )
+
+
+def cr_start_subscription_in_month(deal, month: date, commercial_date_field: str) -> bool:
+    """Shared CR Start inclusion rule for dashboard and monthly employee rating."""
+    commercial_date = raw_date(deal, commercial_date_field)
+    return bool(deal.funnel == "cr_start" and deal.status == "in_progress"
+                and commercial_date and month <= commercial_date < _next_month(month))
 
 
 async def planned_subscription_deals_for_month(

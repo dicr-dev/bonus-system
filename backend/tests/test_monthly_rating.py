@@ -22,10 +22,11 @@ def user(bitrix_id=1, department="Отдел внедрения", active=True):
 
 
 def deal(owner=None, *, bitrix_id=100, amount="1000", funnel="implementation", status="won",
-         closed="2026-09-15T12:00:00+03:00", integration=True):
+         closed="2026-09-15T12:00:00+03:00", integration=True, commercial=None):
     return Obj(bitrix_id=bitrix_id, title=f"Сделка {bitrix_id}", opportunity=Decimal(amount),
                funnel=funnel, status=status, closed_time=datetime.fromisoformat(closed) if closed else None,
-               implementation_responsible_user_id=owner.id if owner else None, integration_1c=integration)
+               implementation_responsible_user_id=owner.id if owner else None, integration_1c=integration,
+               raw_json=json.dumps({"commercial_date": commercial}))
 
 
 def task(owner=2, *, bitrix_id=200, deals=(100,), status=5, closed="2026-09-15T12:00:00+03:00", value="42"):
@@ -36,10 +37,28 @@ def task(owner=2, *, bitrix_id=200, deals=(100,), status=5, closed="2026-09-15T1
 
 def report(users=(), deals=(), tasks=(), elapsed=(), **kwargs):
     return build_monthly_rating(users, deals, tasks, elapsed, month="2026-09",
-                                type_field="UF_TYPE_TASK_1C", labels=kwargs.get("labels", {"42": TYPE_LABEL, "43": "Другое"}))
+                                type_field="UF_TYPE_TASK_1C", labels=kwargs.get("labels", {"42": TYPE_LABEL, "43": "Другое"}),
+                                commercial_date_field="commercial_date")
 
 
 class MonthlyRatingTests(unittest.TestCase):
+    def test_cr_start_matches_dashboard_without_success_or_close_date(self):
+        owner = user()
+        deals = [deal(owner, funnel="cr_start", status="in_progress", closed=None, commercial="2026-09-01", amount="10"),
+                 deal(owner, bitrix_id=101, funnel="cr_start", status="in_progress", closed=None, commercial="2026-09-30", amount="20"),
+                 deal(owner, bitrix_id=102, amount="30")]
+        row = report([owner], deals)["implementation"][0]
+        self.assertEqual(row["deal_count"], 3)
+        self.assertEqual(Decimal(row["deal_amount"]), Decimal("60"))
+        self.assertEqual(sum(d["funnel"] == "cr_start" for d in row["deals"]), 2)
+
+    def test_cr_start_excludes_closed_lost_out_of_period_and_missing_date(self):
+        owner = user()
+        deals = [deal(owner, funnel="cr_start", status=status, commercial="2026-09-15") for status in ("won", "lost")]
+        deals += [deal(owner, funnel="cr_start", status="in_progress", commercial=value) for value in
+                  (None, "invalid", "2026-08-31", "2026-10-01")]
+        self.assertEqual(report([owner], deals)["implementation"][0]["deal_count"], 0)
+
     def test_all_active_employees_and_only_correct_department(self):
         a, b = user(), user(2)
         result = report([a, b, user(3, active=False), user(4, "Другой отдел"), user(5, "Разработка 1С")])

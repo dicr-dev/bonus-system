@@ -5,7 +5,7 @@ import {useState} from 'react'
 import {api} from './api'
 import {BitrixLink,dealUrl,taskUrl} from './BitrixLink'
 
-type RatingDeal={bitrix_id:number;title:string;amount:string}
+type RatingDeal={bitrix_id:number;title:string;amount:string;funnel:string}
 type ImplementationEmployee={id:string;name:string;deal_count:number;deal_amount:string;deals:RatingDeal[]}
 type Developer={id:string;name:string;task_count:number;integration_count:number|null;hours:string}
 type IntegrationTask={bitrix_id:number;title:string;responsible_bitrix_id:number|null;responsible_name:string;group_id:number|null}
@@ -16,6 +16,7 @@ const money=(value:string)=>new Intl.NumberFormat('ru-RU',{style:'currency',curr
 const currentMonth=()=>new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Moscow',year:'numeric',month:'2-digit'}).format(new Date()).slice(0,7)
 const dealColumns:ColumnsType<RatingDeal>=[
  {title:'Название сделки',dataIndex:'title',render:(title,row)=><BitrixLink href={dealUrl(row.bitrix_id)}>{title}</BitrixLink>},
+ {title:'Воронка',dataIndex:'funnel',render:value=>value==='cr_start'?'CR Start':value==='implementation'?'Внедрение':value},
  {title:'Сумма сделки',dataIndex:'amount',align:'right',render:money},
 ]
 const implementationColumns:ColumnsType<ImplementationEmployee>=[
@@ -53,7 +54,7 @@ export default function MonthlyRatingPage(){
   {metadata.isSuccess&&<Alert type="success" showIcon message="Справочник типов задач 1С обновлён"/>}
   {data?.warnings.map(warning=><Alert key={warning} type={data.integration_count_reliable?'info':'warning'} showIcon message={warning}/>)}
   <Card title="Отдел внедрения">
-   <Typography.Paragraph type="secondary">Успешно закрытые сделки воронки «Внедрение» за выбранный месяц, по текущему ответственному за внедрение. Сумма — поле «Сумма сделки».</Typography.Paragraph>
+   <Typography.Paragraph type="secondary">Успешно закрытые в выбранном месяце сделки «Внедрения» и открытые сделки CR Start с датой перехода в «Коммерческое использование» в этом месяце — как на главной странице. По текущему ответственному за внедрение. Сумма — поле «Сумма сделки».</Typography.Paragraph>
    <Table rowKey="id" columns={implementationColumns} dataSource={data?.implementation??[]} loading={report.isFetching} pagination={false} scroll={{x:800}} expandable={{rowExpandable:row=>row.deals.length>0,expandedRowRender:row=><Table size="small" rowKey="bitrix_id" columns={dealColumns} dataSource={row.deals} pagination={false}/>}}/>
   </Card>
   <Card title="Разработка 1С">

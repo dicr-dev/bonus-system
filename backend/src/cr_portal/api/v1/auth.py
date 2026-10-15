@@ -13,8 +13,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from cr_portal.api.deps import admin_user, db_session
 from cr_portal.core.config import settings
 from cr_portal.integrations.bitrix.client import BitrixClient
-from cr_portal.integrations.bitrix.sync_connection import ensure_sync_access
-from cr_portal.models.oauth import BitrixInstallation
+from cr_portal.integrations.bitrix.sync_connection import ensure_sync_access, validate_sync_endpoint
+from cr_portal.models.oauth import BitrixInstallation, BitrixSyncConnection
 from cr_portal.models.user import User
 from cr_portal.repositories.users import UserRepository
 from cr_portal.services.task_metadata_backfill import enqueue_task_metadata_backfill
@@ -118,7 +118,7 @@ async def bitrix_callback(
     if data.get("error"):
         raise HTTPException(status_code=400, detail=data.get("error_description", data["error"]))
 
-    installation = await _save_installation(session, data) if sync else _login_context(data)
+    installation = await _save_installation(session, data, allow_admin_change=True) if sync else _login_context(data)
     user = await _resolve_current_user(session, installation)
     request.session["user_id"] = str(user.id)
     request.session["bitrix_user_id"] = user.bitrix_id
@@ -280,17 +280,23 @@ def _login_context(data: dict[str, Any]) -> BitrixInstallation:
 async def _save_installation(
     session: AsyncSession,
     data: dict[str, Any],
-) -> BitrixInstallation:
+    *, allow_admin_change: bool = False,
+) -> BitrixSyncConnection:
     context = _login_context(data)
     try:
-        await ensure_sync_access(BitrixClient(
+        validate_sync_endpoint(context.client_endpoint)
+        profile = await ensure_sync_access(BitrixClient(
             access_token=context.access_token, client_endpoint=context.client_endpoint,
+            oauth_only=True,
         ))
     except RuntimeError as error:
         raise HTTPException(status_code=403, detail=str(error)) from error
     access_token = data.get("access_token")
     refresh_token = data.get("refresh_token")
     member_id = data.get("member_id")
+
+    if not refresh_token:
+        raise HTTPException(status_code=400, detail="Administrator OAuth refresh_token is required")
 
     if not access_token:
         raise HTTPException(
@@ -304,20 +310,8 @@ async def _save_installation(
             detail="Bitrix24 member_id is missing",
         )
 
-    domain = str(data.get("domain") or "").strip()
-
-    if not domain:
-        domain = (
-            settings.BITRIX_BASE_URL
-            .replace("https://", "")
-            .replace("http://", "")
-            .rstrip("/")
-        )
-
-    client_endpoint = str(data.get("client_endpoint") or "").strip()
-
-    if not client_endpoint:
-        client_endpoint = f"https://{domain}/rest/"
+    client_endpoint = context.client_endpoint
+    domain = urlsplit(client_endpoint).hostname
 
     try:
         expires_in = int(data.get("expires_in") or 3600)
@@ -325,20 +319,26 @@ async def _save_installation(
         expires_in = 3600
 
     result = await session.execute(
-        select(BitrixInstallation).where(
-            BitrixInstallation.member_id == member_id
-        ).with_for_update()
+        select(BitrixSyncConnection).where(
+            BitrixSyncConnection.member_id == member_id
+        ).with_for_update().execution_options(populate_existing=True)
     )
 
     installation = result.scalar_one_or_none()
 
+    if (installation is not None and installation.admin_bitrix_user_id != int(profile["ID"])
+            and not allow_admin_change):
+        raise HTTPException(status_code=409, detail="Администратор синхронизации уже закреплён. Для его смены используйте отдельное подключение синхронизации.")
+
     if installation is None:
-        installation = BitrixInstallation(
+        installation = BitrixSyncConnection(
             member_id=member_id,
             portal_domain=domain,
             client_endpoint=client_endpoint,
             access_token=access_token,
             refresh_token=refresh_token or "",
+            admin_bitrix_user_id=int(profile["ID"]),
+            verified_at=datetime.now(UTC),
             expires_at=datetime.now(UTC)
             + timedelta(seconds=expires_in),
         )
@@ -346,6 +346,8 @@ async def _save_installation(
         session.add(installation)
 
     else:
+        installation.admin_bitrix_user_id = int(profile["ID"])
+        installation.verified_at = datetime.now(UTC)
         installation.portal_domain = domain
         installation.client_endpoint = client_endpoint
         installation.access_token = access_token
@@ -366,11 +368,12 @@ async def _save_installation(
 
 async def _resolve_current_user(
     session: AsyncSession,
-    installation: BitrixInstallation,
+    installation: BitrixInstallation | BitrixSyncConnection,
 ):
     client = BitrixClient(
         access_token=installation.access_token,
         client_endpoint=installation.client_endpoint,
+        oauth_only=True,
     )
 
     response = await client.call("user.current")
@@ -440,6 +443,7 @@ async def bitrix_install(
     installation = await _save_installation(
         session,
         data,
+        allow_admin_change=True,
     )
 
     return HTMLResponse(
@@ -452,7 +456,8 @@ async def bitrix_install(
 </head>
 <body>
     <h2>CR Integration Portal</h2>
-    <p>Приложение успешно установлено.</p>
+    <p>Приложение успешно установлено. Административный доступ для синхронизации сохранён.</p>
+    <p>Администратор Битрикса: №{installation.admin_bitrix_user_id}</p>
     <p>Портал: {installation.portal_domain}</p>
 </body>
 </html>

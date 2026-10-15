@@ -4,6 +4,9 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
+import asyncio
+import httpx
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -868,26 +871,37 @@ async def sync_deals(
     return total
 
 
-async def sync_deal_stage_history(session: AsyncSession, client: BitrixClient) -> int:
+async def sync_deal_stage_history(session: AsyncSession, client: BitrixClient, *, progress_callback=None) -> int:
     """Persist immutable Bitrix stage events for all configured deal funnels."""
     business = await get_business_settings(session)
     stages = {category_id: await get_stage_metadata(client, category_id) for category_id in funnels(business)}
     deals = list((await session.execute(select(Deal).where(Deal.funnel.in_(tuple(funnels(business).values()))))).scalars())
     stored = 0
-    for deal in deals:
-        items = await client.call_all("crm.stagehistory.list", {
+    for index, deal in enumerate(deals):
+        params = {
             "entityTypeId": 2,
             "order": {"ID": "ASC"},
             "filter": {"OWNER_ID": deal.bitrix_id},
             "select": ["ID", "OWNER_ID", "CATEGORY_ID", "STAGE_ID", "STAGE_SEMANTIC_ID", "CREATED_TIME"],
-        })
+        }
+        for attempt in range(3):
+            try:
+                items = await client.call_all("crm.stagehistory.list", params)
+                break
+            except httpx.TransportError:
+                if attempt == 2:
+                    raise
+                await asyncio.sleep(attempt + 1)
+        event_ids = [_int(item.get("ID")) for item in items]
+        existing_ids = set((await session.execute(select(DealStageHistory.bitrix_event_id).where(
+            DealStageHistory.bitrix_event_id.in_(event_ids),
+        ))).scalars()) if event_ids else set()
         for item in items:
             event_id = _int(item.get("ID"))
             occurred_at = _dt(item.get("CREATED_TIME"))
             if not event_id or occurred_at is None:
                 continue
-            exists = await session.scalar(select(DealStageHistory.id).where(DealStageHistory.bitrix_event_id == event_id))
-            if exists is not None:
+            if event_id in existing_ids:
                 continue
             category_id = _int(item.get("CATEGORY_ID")) or None
             stage_id = str(item.get("STAGE_ID") or "")
@@ -901,6 +915,11 @@ async def sync_deal_stage_history(session: AsyncSession, client: BitrixClient) -
                 occurred_at=occurred_at,
             ))
             stored += 1
+            existing_ids.add(event_id)
+        # Repeated runs remain idempotent; later network failures cannot undo finished cards.
+        await session.commit()
+        if progress_callback:
+            await progress_callback(index + 1, len(deals))
     await session.commit()
     return stored
 

@@ -1,13 +1,11 @@
 from collections.abc import AsyncGenerator
 
 from fastapi import Depends, HTTPException, Request
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from cr_portal.db.session import get_db
 from cr_portal.integrations.bitrix.client import BitrixClient
-from cr_portal.integrations.bitrix.sync_connection import ensure_sync_access
-from cr_portal.models.oauth import BitrixInstallation
+from cr_portal.integrations.bitrix.sync_connection import create_sync_client
 from cr_portal.repositories.users import UserRepository
 
 
@@ -19,31 +17,10 @@ async def db_session() -> AsyncGenerator[AsyncSession, None]:
 async def bitrix_client(
     session: AsyncSession = Depends(db_session),
 ) -> BitrixClient:
-    result = await session.execute(
-        select(BitrixInstallation)
-        .order_by(BitrixInstallation.created_at.desc())
-        .limit(1)
-    )
-
-    installation = result.scalar_one_or_none()
-
-    if installation is None:
-        raise HTTPException(
-            status_code=503,
-            detail="Bitrix24 installation not found",
-        )
-
-    client = BitrixClient(
-        access_token=installation.access_token,
-        client_endpoint=installation.client_endpoint,
-        session=session,
-        installation=installation,
-    )
     try:
-        await ensure_sync_access(client)
+        return await create_sync_client(session)
     except RuntimeError as error:
         raise HTTPException(status_code=503, detail=str(error)) from error
-    return client
 
 
 async def current_user(

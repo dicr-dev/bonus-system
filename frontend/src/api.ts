@@ -16,6 +16,8 @@ export async function startAllSync():Promise<SyncJob>{return (await api.post('/s
 export async function startFullTasksSync():Promise<SyncJob>{return (await api.post('/sync/tasks/full')).data}
 export async function startRecentTasksSync():Promise<SyncJob>{return (await api.post('/sync/tasks/recent')).data}
 export async function getSyncJob(id:string):Promise<SyncJob>{return (await api.get(`/sync/jobs/${id}`)).data}
+export async function getSyncJobs():Promise<SyncJob[]>{return (await api.get('/sync/jobs')).data}
+export async function getSyncConnection():Promise<{configured:boolean;admin_bitrix_user_id:number|null;verified_at:string|null}>{return (await api.get('/sync/connection')).data}
 export async function getSavedReports(){return (await api.get('/report-builder/reports')).data}
 export async function runSavedReport(id:string){return (await api.get(`/report-builder/reports/${id}/run`)).data}
 export async function getReportFields(source?:string){return (await api.get('/report-builder/fields',{params:{source}})).data}
