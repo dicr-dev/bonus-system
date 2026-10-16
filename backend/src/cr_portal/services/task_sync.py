@@ -100,7 +100,7 @@ REPORTING_TASK_FIELDS = [
 ]
 
 
-async def sync_reporting_tasks(session: AsyncSession, client: BitrixClient, *, progress_callback=None) -> int:
+async def sync_reporting_tasks(session: AsyncSession, client: BitrixClient, *, progress_callback=None, resume=None) -> int:
     """Cache all tasks relevant to the implementation and 1C departments.
 
     Bitrix does not support one portable filter for a set of CRM deal bindings,
@@ -121,11 +121,19 @@ async def sync_reporting_tasks(session: AsyncSession, client: BitrixClient, *, p
             queries.append(({field: user.bitrix_id}, f"{roles[field]}: {user.full_name}", False))
     if reporting_deal_ids:
         queries.append(({}, "Проверка связи задач со сделками — просмотр всех задач", True))
+    resume_index = 0
+    resume_start = 0
+    if resume:
+        queries = resume["queries"]
+        resume_index, resume_start = int(resume["query_index"]), int(resume["start"])
+        if not 0 <= resume_index <= len(queries) or resume_start < 0:
+            raise ValueError("Invalid task resume checkpoint")
 
     saved_ids: set[int] = set()
     created_ids: set[int] = set()
     stats = {"tasks_received": 0, "tasks_saved": 0, "tasks_created": 0, "task_pages": 0,
-             "task_queries_done": 0, "task_queries_total": len(queries), "last_page_at": None}
+             "task_queries_done": resume_index, "task_queries_total": len(queries), "last_page_at": None,
+             "task_checkpoint": {"queries": queries, "query_index": resume_index, "start": resume_start}}
 
     async def report(**values):
         stats.update(values)
@@ -133,8 +141,10 @@ async def sync_reporting_tasks(session: AsyncSession, client: BitrixClient, *, p
             await progress_callback(dict(stats))
 
     for query_index, (filters, source, crm_only) in enumerate(queries):
-        start = 0
-        query_received = 0
+        if query_index < resume_index:
+            continue
+        start = resume_start if query_index == resume_index else 0
+        query_received = start
         query_total = None
         while True:
             params = {"filter": filters, "select": REPORTING_TASK_FIELDS, "order": {"ID": "ASC"}, "start": start}
@@ -172,6 +182,8 @@ async def sync_reporting_tasks(session: AsyncSession, client: BitrixClient, *, p
                 new_ids = set()
                 for task_id, payload in payloads.items():
                     task = existing.get(task_id)
+                    if resume and task is not None:
+                        continue
                     if task is None:
                         task = BitrixTask(bitrix_id=task_id, title="")
                         session.add(task)
@@ -179,19 +191,21 @@ async def sync_reporting_tasks(session: AsyncSession, client: BitrixClient, *, p
                     _apply_task_snapshot(task, payload, datetime.now(UTC))
                 await session.commit()
                 # Report only committed cards; a later failure cannot roll these back.
-                saved_ids.update(payloads)
+                saved_ids.update(new_ids if resume else payloads)
                 created_ids.update(new_ids)
             next_value = response.get("next", result.get("next") if isinstance(result, dict) else None)
             complete = next_value is None
+            following = _integer(next_value) if not complete else 0
+            if not complete and (following is None or following <= start):
+                raise RuntimeError("Bitrix task pagination did not advance")
             fraction = 1 if complete else min(query_received / query_total, 0.99) if query_total else 0
             await report(tasks_saved=len(saved_ids), tasks_created=len(created_ids),
                          task_queries_done=query_index + int(complete), task_request_state="saved",
+                         task_checkpoint={"queries": queries, "query_index": query_index + int(complete),
+                                          "start": following},
                          task_fraction=(query_index + fraction) / max(len(queries), 1))
             if complete:
                 break
-            following = _integer(next_value)
-            if following is None or following <= start:
-                raise RuntimeError("Bitrix task pagination did not advance")
             start = following
     await report(task_request_state="completed", task_fraction=1)
     return len(saved_ids)

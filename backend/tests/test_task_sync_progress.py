@@ -114,6 +114,35 @@ class TaskProgressTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(await sync_reporting_tasks(PageSession(), Obj(call=api)), 0)
         api.assert_not_awaited()
 
+    async def test_resume_skips_finished_queries_and_existing_cards(self):
+        session = PageSession(deals=[100])
+        session.rows[1] = BitrixTask(bitrix_id=1, title="Keep")
+        api = AsyncMock(return_value={"result": {"tasks": [
+            {"id": "1", "title": "Do not overwrite", "ufCrmTask": ["D_100"]},
+            {"id": "2", "title": "Missing", "ufCrmTask": ["D_100"]}]}})
+        checkpoint = {"queries": [[{"RESPONSIBLE_ID": 7}, "Completed", False], [{}, "CRM", True]],
+                      "query_index": 1, "start": 95200}
+        progress = AsyncMock()
+        count = await sync_reporting_tasks(session, Obj(call=api), resume=checkpoint, progress_callback=progress)
+        api.assert_awaited_once()
+        self.assertEqual(api.await_args.args[1]["start"], 95200)
+        self.assertEqual(api.await_args.args[1]["filter"], {})
+        self.assertEqual(session.rows[1].title, "Keep")
+        self.assertEqual(session.rows[2].title, "Missing")
+        self.assertEqual(count, 1)
+        self.assertEqual(progress.await_args.args[0]["task_checkpoint"]["query_index"], 2)
+
+    async def test_failed_page_keeps_last_committed_checkpoint(self):
+        session = PageSession(deals=[100])
+        checkpoint = {"queries": [[{}, "CRM", True]], "query_index": 0, "start": 100}
+        api = AsyncMock(side_effect=[{"result": {"tasks": []}, "next": 150},
+                                    *[httpx.ConnectError("DNS") for _ in range(3)]])
+        progress = AsyncMock()
+        with patch("cr_portal.services.task_sync.asyncio.sleep", AsyncMock()):
+            with self.assertRaises(httpx.ConnectError):
+                await sync_reporting_tasks(session, Obj(call=api), resume=checkpoint, progress_callback=progress)
+        self.assertEqual(progress.await_args.args[0]["task_checkpoint"]["start"], 150)
+
 
 class WorkerActivityTests(unittest.IsolatedAsyncioTestCase):
     async def test_fresh_stale_and_legacy_jobs_are_distinguished(self):
