@@ -1,0 +1,8 @@
+/* overflow-x:hidden on app-content otherwise creates a non-scrolling sticky
+   ancestor. Restrict this override to this report; wide tables scroll internally. */
+.app-content:has(.cr-start-analytics){overflow:visible}
+.cr-start-analytics{min-width:0}
+.cr-start-analytics .ant-tabs > .ant-tabs-nav{position:sticky;top:0;z-index:20;background:#f4f6f8}
+.cr-start-analytics .ant-collapse-content-active{overflow:visible}
+.cr-start-column-help{display:inline-flex;align-items:center;justify-content:center;margin-inline-start:6px;padding:2px;border:0;background:transparent;color:#687787;font-size:13px;cursor:help;vertical-align:middle}
+.cr-start-column-help:hover,.cr-start-column-help:focus-visible{color:#1677ff}
