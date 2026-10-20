@@ -14,6 +14,7 @@ import SyncPage from './SyncPage'
 import EmployeeEfficiencyPage from './EmployeeEfficiencyPage'
 import MonthlyRatingPage from './MonthlyRatingPage'
 import CrStartAnalyticsPage from './CrStartAnalyticsPage'
+import TrainingQualityPage,{DealTrainingPanel} from './TrainingQualityPage'
 import InstructionPage from './InstructionPage'
 import OnboardingPage from './OnboardingPage'
 import {BitrixLink,dealUrl,sourceUrl,taskUrl} from './BitrixLink'
@@ -31,6 +32,7 @@ import type {
 const {Header,Content,Sider}=Layout
 const {Title,Text}=Typography
 const PAGE_PATHS:Record<string,string>={
+ training_quality:'/analytics/training-quality',
  cr_start_analytics:'/analytics/cr-start',
  monthly_rating:'/analytics/monthly-rating',
  dashboard:'/dashboard',kpi:'/kpi',analytics_deals:'/analytics/deals',analytics_work:'/analytics/deals-in-work',analytics_weekly_ov:'/analytics/weekly-ov',employee_efficiency:'/analytics/employee-efficiency',
@@ -492,11 +494,13 @@ function Bonuses({isAdmin,userId}:{isAdmin:boolean;userId:string}){
 }
 
 function Deals({isAdmin,userId}:{isAdmin:boolean;userId:string}){
+ const [trainingDeal,setTrainingDeal]=useState<Deal|null>(null)
  const [search,setSearch]=useState('')
  const q=useQuery({queryKey:['deals',userId],queryFn:getDepartmentDeals})
  const cols:ColumnsType<Deal>=[{title:'ID',dataIndex:'bitrix_id',render:id=><BitrixLink href={dealUrl(id)}>{id}</BitrixLink>},{title:'Сделка',dataIndex:'title',render:(title,deal)=><BitrixLink href={dealUrl(deal.bitrix_id)}>{title}</BitrixLink>},{title:'Воронка',dataIndex:'funnel',render:funnel},{title:'Оплата/мес.',dataIndex:'monthly_amount',render:rub},{title:'Машин',dataIndex:'machines_count'},{title:'1С',dataIndex:'integration_1c',render:v=>v?<Tag color="green">Да</Tag>:<Tag>Нет</Tag>}]
+ if(isAdmin)cols.push({title:'Обучения',render:(_,deal)=><Button onClick={()=>setTrainingDeal(deal)}>Транскрибации и оценки</Button>})
  const deals=(q.data??[]).filter(deal=>`${deal.bitrix_id} ${deal.title} ${funnel(deal.funnel)}`.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()))
- return <Space direction="vertical" size={24} style={{width:'100%'}}><Title level={2}>{isAdmin?'Сделки':'Мои сделки'}</Title><Card><Input allowClear placeholder="Поиск по названию, ID или воронке" value={search} onChange={event=>setSearch(event.target.value)} style={{maxWidth:480,marginBottom:16}}/><Table rowKey="id" columns={cols} dataSource={deals} loading={q.isLoading} pagination={{pageSize:25}}/></Card></Space>
+ return <Space direction="vertical" size={24} style={{width:'100%'}}><Title level={2}>{isAdmin?'Сделки':'Мои сделки'}</Title><Card><Input allowClear placeholder="Поиск по названию, ID или воронке" value={search} onChange={event=>setSearch(event.target.value)} style={{maxWidth:480,marginBottom:16}}/><Table rowKey="id" columns={cols} dataSource={deals} loading={q.isLoading} pagination={{pageSize:25}}/></Card>{isAdmin&&trainingDeal&&<Modal open title={`Обучения: ${trainingDeal.title}`} footer={null} width={1100} onCancel={()=>setTrainingDeal(null)}><DealTrainingPanel key={trainingDeal.id} deal={trainingDeal}/></Modal>}</Space>
 }
 
 function Diagnostics(){
@@ -908,7 +912,7 @@ export default function App(){
   if(window.location.pathname!==path)window.history.pushState(null,'',path)
   setPage(nextPage)
  }
- const content=({cr_start_analytics:<CrStartAnalyticsPage/>,monthly_rating:<MonthlyRatingPage/>,employee_efficiency:<EmployeeEfficiencyPage/>,dashboard:<Dashboard isAdmin={isAdmin} userId={user.data.id}/>,analytics_deals:<DealAnalytics/>,analytics_work:<DealsInWork/>,analytics_weekly_ov:<WeeklyOvReport/>,analytics_support:<SupportAnalysis/>,gift_info:<GiftInfo/>,cr_start_managers_report:<CrStartManagersReport/>,saved_reports:<ReportBuilder isAdmin={false}/>,report_builder:<ReportBuilder isAdmin/>,kpi:<KPI/>,bonus:<Bonuses isAdmin={isAdmin} userId={user.data.id}/>,deals:<Deals isAdmin={isAdmin} userId={user.data.id}/>,instruction:<InstructionPage/>,onboarding:<OnboardingPage isAdmin={isAdmin}/>,time_report:<TimeSpentReport isAdmin={isAdmin}/>,workplace:<Workplace isAdmin={isAdmin} canUseTask1cErrors={canUseTask1cErrors}/>,employee_month_plan:<EmployeeMonthPlanPage/>,admin_employee_month_plan:<AdminEmployeeMonthPlanPage/>,task_1c_check:<Task1CCheck/>,diagnostics:<Diagnostics/>,bitrix_fields:<BitrixFields/>,rules:<Rules/>,settings:<SettingsPage/>,sync:<Sync/>}[effectivePage]??<Dashboard isAdmin={isAdmin} userId={user.data.id}/>)
+ const content=({training_quality:<TrainingQualityPage/>,cr_start_analytics:<CrStartAnalyticsPage/>,monthly_rating:<MonthlyRatingPage/>,employee_efficiency:<EmployeeEfficiencyPage/>,dashboard:<Dashboard isAdmin={isAdmin} userId={user.data.id}/>,analytics_deals:<DealAnalytics/>,analytics_work:<DealsInWork/>,analytics_weekly_ov:<WeeklyOvReport/>,analytics_support:<SupportAnalysis/>,gift_info:<GiftInfo/>,cr_start_managers_report:<CrStartManagersReport/>,saved_reports:<ReportBuilder isAdmin={false}/>,report_builder:<ReportBuilder isAdmin/>,kpi:<KPI/>,bonus:<Bonuses isAdmin={isAdmin} userId={user.data.id}/>,deals:<Deals isAdmin={isAdmin} userId={user.data.id}/>,instruction:<InstructionPage/>,onboarding:<OnboardingPage isAdmin={isAdmin}/>,time_report:<TimeSpentReport isAdmin={isAdmin}/>,workplace:<Workplace isAdmin={isAdmin} canUseTask1cErrors={canUseTask1cErrors}/>,employee_month_plan:<EmployeeMonthPlanPage/>,admin_employee_month_plan:<AdminEmployeeMonthPlanPage/>,task_1c_check:<Task1CCheck/>,diagnostics:<Diagnostics/>,bitrix_fields:<BitrixFields/>,rules:<Rules/>,settings:<SettingsPage/>,sync:<Sync/>}[effectivePage]??<Dashboard isAdmin={isAdmin} userId={user.data.id}/>)
  const businessPartnersMenu={key:'business_partners',icon:<FundOutlined/>,label:'Бизнес партнеры',children:[{key:'analytics_support',label:'Анализ по менеджерам'},{key:'gift_info',label:'Информация для подарков'}]}
  const employeeMenu=isSupportEmployee?[businessPartnersMenu]:[
   {key:'dashboard',icon:<DashboardOutlined/>,label:'Главная'},
@@ -924,7 +928,7 @@ export default function App(){
  ]
  const adminMenu=[
   {key:'dashboard',icon:<DashboardOutlined/>,label:'Главная'},{key:'kpi',icon:<TrophyOutlined/>,label:'KPI отдела'},
-  {key:'analytics',icon:<FundOutlined/>,label:'Аналитика',children:[{key:'cr_start_analytics',label:'CR Start — менеджеры'},{key:'monthly_rating',label:'Рейтинг за месяц'},{key:'employee_efficiency',label:'Эффективность сотрудников'},{key:'analytics_deals',label:'Аналитика по сделкам'},{key:'analytics_work',label:'Сделки в работе'},{key:'analytics_weekly_ov',label:'Еженедельный отчёт ОВ'}]},
+  {key:'analytics',icon:<FundOutlined/>,label:'Аналитика',children:[{key:'training_quality',label:'Качество обучений'},{key:'cr_start_analytics',label:'CR Start — менеджеры'},{key:'monthly_rating',label:'Рейтинг за месяц'},{key:'employee_efficiency',label:'Эффективность сотрудников'},{key:'analytics_deals',label:'Аналитика по сделкам'},{key:'analytics_work',label:'Сделки в работе'},{key:'analytics_weekly_ov',label:'Еженедельный отчёт ОВ'}]},
   {key:'reports',icon:<FundOutlined/>,label:'Отчеты',children:[{key:'cr_start_managers_report',label:'CR Start отчет по менеджерам'},{key:'report_builder',label:'Конструктор отчётов'}]},
   businessPartnersMenu,
   {key:'admin_employee_month_plan',icon:<CalendarOutlined/>,label:'Планы сотрудников'},
