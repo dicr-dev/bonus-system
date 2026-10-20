@@ -17,6 +17,10 @@ class BitrixTask(Base):
     status: Mapped[int | None] = mapped_column(Integer, nullable=True)
     crm_deal_ids_json: Mapped[str] = mapped_column(Text, default="[]")
     raw_json: Mapped[str] = mapped_column(Text, default="{}")
+    # False means the administrator API explicitly returned no card, not proof
+    # of deletion. None is unknown; retain snapshots and elapsed entries.
+    api_available: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    api_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     start_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
     updated_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

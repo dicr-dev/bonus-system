@@ -181,6 +181,27 @@ class AnalyticsTests(unittest.TestCase):
         self.assertIsNone(data["deals"][0]["hours"])
         self.assertEqual(data["deals"][0]["tasks"],[])
 
+    def test_unavailable_task_excludes_999_hours_and_preserves_audit_issue(self):
+        u=user()
+        d=deal(u)
+        missing=task(api_available=False)
+        orphan=elapsed(seconds=3596400)
+        data=build([d],[u],history(d),[missing],[orphan])
+        self.assertIsNone(data["totals"]["hours"])
+        self.assertIsNone(data["managers"][0]["author_hours"])
+        self.assertEqual(data["deals"][0]["tasks"],[])
+        self.assertEqual(data["task_availability"],{"unavailable_count":1,"excluded_hours":999})
+        self.assertEqual(data["issues"][0]["code"],"task_card_unavailable")
+        self.assertEqual(orphan.seconds,3596400)
+        self.assertEqual(len(workbook(data)["Ошибки связей"]["A"]),2)
+
+    def test_recovered_task_hours_return_and_unknown_tasks_are_not_silently_removed(self):
+        d=deal()
+        for available in (None,True):
+            data=build([d],events=history(d),tasks=[task(api_available=available)],logs=[elapsed(seconds=3600)])
+            self.assertEqual(data["totals"]["hours"],1)
+            self.assertEqual(data["task_availability"]["unavailable_count"],0)
+
     def test_no_logs_null_hours_zero_staff_and_missing_owner(self):
         u=user()
         d=deal(stage_title="Новая",stage_id="new",raw_json="{}")

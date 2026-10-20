@@ -266,12 +266,29 @@ def build_cr_start_analytics(deals, users, history, tasks, elapsed, commercial_f
 
     issues = []
     tasks_by_id = {}
+    unavailable_count = 0
+    excluded_seconds = 0
+    task_seconds = defaultdict(int)
+    seen_excluded = set()
+    for entry in elapsed:
+        if (entry.bitrix_id not in seen_excluded and entry.seconds is not None and entry.seconds >= 0
+                and entry.created_time and aware(entry.created_time) <= now):
+            seen_excluded.add(entry.bitrix_id)
+            task_seconds[entry.task_bitrix_id] += entry.seconds
     for task in tasks:
         ids = task_deal_ids(task)
         if ids is None:
             issues.append(dict(task_id=task.bitrix_id, title=task.title, reason="Некорректный список связей со сделками"))
             continue
         if not set(ids).intersection(selected):
+            continue
+        if getattr(task, "api_available", None) is False:
+            unavailable_count += 1
+            seconds = task_seconds[task.bitrix_id]
+            excluded_seconds += seconds
+            issues.append(dict(task_id=task.bitrix_id, title=task.title, code="task_card_unavailable",
+                               excluded_hours=number(seconds/3600),
+                               reason=f"Карточка задачи не возвращается API Битрикса. Исключено {number(seconds/3600):g} ч.; кэш и списания сохранены. Это может быть удаление или отсутствие доступа."))
             continue
         if len(ids) != 1:
             issues.append(dict(task_id=task.bitrix_id, title=task.title, reason="Несколько сделок: " + ", ".join(map(str, ids))))
@@ -379,6 +396,8 @@ def build_cr_start_analytics(deals, users, history, tasks, elapsed, commercial_f
                 "Удержание — использование именно на контрольную дату, с учётом возвратов; перерывы исключены из суммарного срока."]
     if excluded:
         warnings.append(f"Исключено сделок вне согласованных стадий: {excluded}")
+    if unavailable_count:
+        warnings.append(f"Исключено часов по недоступным карточкам задач: {number(excluded_seconds/3600):g}; задач: {unavailable_count}. История сохранена; подробности в ошибках качества данных.")
     return dict(as_of=iso(now), managers=sorted(managers, key=lambda r: (not r["active"], r["name"].casefold())), deals=rows,
                 totals=metrics(rows), modules=[dict(module=mod, **metrics([r for r in rows if r["module"]==mod])) for mod in MODULES],
                 monthly=[dict(month=month, **values) for month, values in sorted(monthly.items())],
@@ -386,7 +405,8 @@ def build_cr_start_analytics(deals, users, history, tasks, elapsed, commercial_f
                 losses=[dict(owner_id=key[0], owner_name=key[1], module=key[2], reason=key[3], after_commercial=key[4],
                              count=len(values), amount=str(sum((Decimal(r["amount"]) for r in values), Decimal(0))))
                         for key, values in reasons.items()], issues=issues, warnings=warnings,
-                excluded_count=excluded)
+                excluded_count=excluded,
+                task_availability=dict(unavailable_count=unavailable_count, excluded_hours=number(excluded_seconds/3600)))
 
 
 async def cr_start_analytics(session, business, *, employee_id=None, module=None, now=None):
@@ -396,7 +416,8 @@ async def cr_start_analytics(session, business, *, employee_id=None, module=None
     # All task bindings are text JSON; parse once locally rather than issuing N+1 queries.
     all_tasks = (await session.execute(select(BitrixTask).options(load_only(
         BitrixTask.bitrix_id, BitrixTask.title, BitrixTask.crm_deal_ids_json,
-        BitrixTask.status, BitrixTask.deadline, BitrixTask.closed_time)))).scalars().all()
+        BitrixTask.status, BitrixTask.deadline, BitrixTask.closed_time,
+        BitrixTask.api_available, BitrixTask.api_checked_at)))).scalars().all()
     ids = {d.bitrix_id for d in deals}
     tasks = [task for task in all_tasks if (links := task_deal_ids(task)) is None or ids.intersection(links)]
     elapsed = []

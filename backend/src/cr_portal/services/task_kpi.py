@@ -102,6 +102,7 @@ async def tasks_by_id(
     client,
     task_ids: list[str],
     extra_select: list[str] | None = None,
+    *, unavailable_ids: set[str] | None = None,
 ) -> dict[str, dict]:
     select = ["ID", "TITLE", "RESPONSIBLE_ID", "GROUP_ID", "UF_CRM_TASK"]
     for field in extra_select or []:
@@ -148,8 +149,13 @@ async def tasks_by_id(
             task = first.get("task", first) if first else None
         else:
             task = None
-        if isinstance(task, dict):
+        if isinstance(task, dict) and str(field_value(task, "ID")) == str(task_id):
             result[str(field_value(task, "ID"))] = task
+        elif unavailable_ids is not None and (payload == [] or (
+                isinstance(payload, dict) and "task" in payload and payload["task"] in (None, [], {}))):
+            # A successfully completed empty get is different from a timeout,
+            # transport error, malformed payload or a failed batch request.
+            unavailable_ids.add(str(task_id))
     return result
 
 

@@ -68,7 +68,15 @@ def _is_empty_task_field(value: Any) -> bool:
     return not str(value).strip()
 
 
-def _apply_task_snapshot(task: BitrixTask, payload: dict[str, Any], started_at: datetime) -> None:
+def _mark_task_availability(task: BitrixTask, available: bool, checked_at: datetime) -> None:
+    previous = task.api_checked_at
+    if previous is None or previous <= checked_at:
+        task.api_available = available
+        task.api_checked_at = checked_at
+
+
+def _apply_task_snapshot(task: BitrixTask, payload: dict[str, Any], started_at: datetime,
+                         *, api_available: bool | None = True) -> None:
     task.title = str(field_value(payload, "TITLE") or f"Задача #{task.bitrix_id}")
     task.responsible_bitrix_id = _integer(field_value(payload, "RESPONSIBLE_ID"))
     task.creator_bitrix_id = _integer(field_value(payload, "CREATED_BY"))
@@ -82,14 +90,19 @@ def _apply_task_snapshot(task: BitrixTask, payload: dict[str, Any], started_at: 
     task.deadline = parse_datetime(field_value(payload, "DEADLINE"))
     task.closed_time = parse_datetime(field_value(payload, "CLOSED_DATE"))
     task.synced_at = started_at
+    if api_available is not None:
+        _mark_task_availability(task, api_available, started_at)
 
 
 def _apply_task_sync_result(
     task: BitrixTask, payload: dict[str, Any], started_at: datetime, *, available: bool,
+    confirmed_unavailable: bool = False,
 ) -> None:
     # A missing API card is not evidence that a cached title or CRM link vanished.
     if available or not task.raw_json:
-        _apply_task_snapshot(task, payload, started_at)
+        _apply_task_snapshot(task, payload, started_at, api_available=True if available else None)
+    if confirmed_unavailable and not available:
+        _mark_task_availability(task, False, started_at)
 
 
 REPORTING_TASK_FIELDS = [
@@ -183,6 +196,7 @@ async def sync_reporting_tasks(session: AsyncSession, client: BitrixClient, *, p
                 for task_id, payload in payloads.items():
                     task = existing.get(task_id)
                     if resume and task is not None:
+                        _mark_task_availability(task, True, datetime.now(UTC))
                         continue
                     if task is None:
                         task = BitrixTask(bitrix_id=task_id, title="")
@@ -308,7 +322,8 @@ async def sync_tasks(
         elapsed_items,
         include_auxiliary_tasks=include_auxiliary_tasks,
     )
-    tasks = await tasks_by_id(client, task_ids, extra_select=extra_select)
+    unavailable_task_ids: set[str] = set()
+    tasks = await tasks_by_id(client, task_ids, extra_select=extra_select, unavailable_ids=unavailable_task_ids)
     available_task_ids = set(tasks)
 
     # Keep elapsed entries even if Bitrix no longer returns the task details.
@@ -331,7 +346,8 @@ async def sync_tasks(
         if task is None:
             task = BitrixTask(bitrix_id=numeric_id, title="")
             session.add(task)
-        _apply_task_sync_result(task, payload, started_at, available=task_id in available_task_ids)
+        _apply_task_sync_result(task, payload, started_at, available=task_id in available_task_ids,
+                                confirmed_unavailable=task_id in unavailable_task_ids)
 
     await session.flush()
 

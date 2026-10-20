@@ -113,7 +113,8 @@ def workbook(data):
     sheet("Когорты", data["cohorts"], [("month", "Месяц создания"), *METRICS])
     sheet("Причины отказов", data["losses"], [("owner_name", "Менеджер"), ("module", "Модуль"), ("reason", "Причина"),
                                            ("after_commercial", "После запуска"), ("count", "Сделок"), ("amount", "Сумма")])
-    sheet("Ошибки связей", data["issues"], [("task_id", "ID задачи"), ("title", "Задача"), ("reason", "Ошибка")])
+    sheet("Ошибки связей", data["issues"], [("task_id", "ID задачи"), ("title", "Задача"), ("reason", "Ошибка"),
+                                         ("excluded_hours", "Исключённые часы")])
     return book
 
 
