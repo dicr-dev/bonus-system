@@ -18,6 +18,7 @@ import CrStartAnalyticsPage from './CrStartAnalyticsPage'
 import TrainingQualityPage,{DealTrainingPanel} from './TrainingQualityPage'
 import InstructionPage from './InstructionPage'
 import OnboardingPage from './OnboardingPage'
+import FuelCardBindingPage from './FuelCardBindingPage'
 import {BitrixLink,dealUrl,sourceUrl,taskUrl} from './BitrixLink'
 import {
   createManualBonusAdjustment,crStartManagersExcelUrl,deleteDealBonusOverride,deleteManualBonusAdjustment,excelUrl,getCalculation,giftInfoExcelUrl,
@@ -40,7 +41,8 @@ const PAGE_PATHS:Record<string,string>={
  analytics_support:'/business-partners/support-analysis',gift_info:'/business-partners/gift-info',bonus:'/bonuses',deals:'/deals',instruction:'/instruction',
  onboarding:'/onboarding',time_report:'/time-report',workplace:'/workplace',employee_month_plan:'/employee-month-plan',
  admin_employee_month_plan:'/admin/employee-month-plans',task_1c_check:'/service/task-1c-check',cr_start_managers_report:'/reports/cr-start-managers',saved_reports:'/reports/saved',report_builder:'/reports/builder',diagnostics:'/diagnostics',
- bitrix_fields:'/settings/bitrix-fields',rules:'/settings/rules',settings:'/settings',sync:'/sync'
+ bitrix_fields:'/settings/bitrix-fields',rules:'/settings/rules',settings:'/settings',sync:'/sync',
+ fuel_card_bindings:'/logistics/fuel-card-bindings'
 }
 const PATH_PAGES=Object.fromEntries(Object.entries(PAGE_PATHS).map(([page,path])=>[path,page])) as Record<string,string>
 const pageFromPath=(pathname:string)=>PATH_PAGES[pathname.replace(/\/+$/,'')||'/']??'dashboard'
@@ -914,7 +916,7 @@ export default function App(){
   if(window.location.pathname!==path)window.history.pushState(null,'',path)
   setPage(nextPage)
  }
- const content=({training_quality:<TrainingQualityPage/>,cr_start_analytics:<CrStartAnalyticsPage/>,monthly_rating:<MonthlyRatingPage/>,employee_efficiency:<EmployeeEfficiencyPage/>,dashboard:<Dashboard isAdmin={isAdmin} userId={user.data.id}/>,analytics_deals:<DealAnalytics/>,analytics_work:<DealsInWork/>,analytics_weekly_ov:<WeeklyOvReport/>,analytics_support:<SupportAnalysis/>,gift_info:<GiftInfo/>,cr_start_managers_report:<CrStartManagersReport/>,saved_reports:<ReportBuilder isAdmin={false}/>,report_builder:<ReportBuilder isAdmin/>,kpi:<KPI/>,bonus:<Bonuses isAdmin={isAdmin} userId={user.data.id}/>,deals:<Deals isAdmin={isAdmin} userId={user.data.id}/>,instruction:<InstructionPage/>,onboarding:<OnboardingPage isAdmin={isAdmin}/>,time_report:<TimeSpentReport isAdmin={isAdmin}/>,workplace:<Workplace isAdmin={isAdmin} canUseTask1cErrors={canUseTask1cErrors}/>,employee_month_plan:<EmployeeMonthPlanPage/>,admin_employee_month_plan:<AdminEmployeeMonthPlanPage/>,task_1c_check:<Task1CCheck/>,diagnostics:<Diagnostics/>,bitrix_fields:<BitrixFields/>,rules:<Rules/>,settings:<SettingsPage/>,sync:<Sync/>}[effectivePage]??<Dashboard isAdmin={isAdmin} userId={user.data.id}/>)
+ const content=({training_quality:<TrainingQualityPage/>,cr_start_analytics:<CrStartAnalyticsPage/>,monthly_rating:<MonthlyRatingPage/>,employee_efficiency:<EmployeeEfficiencyPage/>,dashboard:<Dashboard isAdmin={isAdmin} userId={user.data.id}/>,analytics_deals:<DealAnalytics/>,analytics_work:<DealsInWork/>,analytics_weekly_ov:<WeeklyOvReport/>,analytics_support:<SupportAnalysis/>,gift_info:<GiftInfo/>,cr_start_managers_report:<CrStartManagersReport/>,saved_reports:<ReportBuilder isAdmin={false}/>,report_builder:<ReportBuilder isAdmin/>,kpi:<KPI/>,bonus:<Bonuses isAdmin={isAdmin} userId={user.data.id}/>,deals:<Deals isAdmin={isAdmin} userId={user.data.id}/>,instruction:<InstructionPage/>,onboarding:<OnboardingPage isAdmin={isAdmin}/>,time_report:<TimeSpentReport isAdmin={isAdmin}/>,workplace:<Workplace isAdmin={isAdmin} canUseTask1cErrors={canUseTask1cErrors}/>,employee_month_plan:<EmployeeMonthPlanPage/>,admin_employee_month_plan:<AdminEmployeeMonthPlanPage/>,task_1c_check:<Task1CCheck/>,diagnostics:<Diagnostics/>,bitrix_fields:<BitrixFields/>,rules:<Rules/>,settings:<SettingsPage/>,sync:<Sync/>,fuel_card_bindings:<FuelCardBindingPage/>}[effectivePage]??<Dashboard isAdmin={isAdmin} userId={user.data.id}/>)
  const businessPartnersMenu={key:'business_partners',icon:<FundOutlined/>,label:'Бизнес партнеры',children:[{key:'analytics_support',label:'Анализ по менеджерам'},{key:'gift_info',label:'Информация для подарков'}]}
  const weeklyOvMenu=canUseWeeklyOv?[{key:'analytics',icon:<FundOutlined/>,label:'Аналитика',children:[{key:'analytics_weekly_ov',label:'Еженедельный отчёт ОВ'}]}]:[]
  const employeeMenu=isSupportEmployee?[businessPartnersMenu,...weeklyOvMenu]:[
@@ -935,6 +937,7 @@ export default function App(){
   {key:'analytics',icon:<FundOutlined/>,label:'Аналитика',children:[{key:'training_quality',label:'Качество обучений'},{key:'cr_start_analytics',label:'CR Start — менеджеры'},{key:'monthly_rating',label:'Рейтинг за месяц'},{key:'employee_efficiency',label:'Эффективность сотрудников'},{key:'analytics_deals',label:'Аналитика по сделкам'},{key:'analytics_work',label:'Сделки в работе'},{key:'analytics_weekly_ov',label:'Еженедельный отчёт ОВ'}]},
   {key:'reports',icon:<FundOutlined/>,label:'Отчеты',children:[{key:'cr_start_managers_report',label:'CR Start отчет по менеджерам'},{key:'report_builder',label:'Конструктор отчётов'}]},
   businessPartnersMenu,
+  {key:'logistics',icon:<DatabaseOutlined/>,label:'CR Логистика',children:[{key:'fuel_card_bindings',label:'Привязка топливных карт'}]},
   {key:'admin_employee_month_plan',icon:<CalendarOutlined/>,label:'Планы сотрудников'},
   ...(canUseWorkplace?[{key:'workplace',icon:<DesktopOutlined/>,label:'АРМ'}]:[]),
   ...(canUseEmployeeMonthPlan?[{key:'employee_month_plan',icon:<CalendarOutlined/>,label:'План на месяц'}]:[]),

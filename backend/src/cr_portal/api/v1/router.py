@@ -3,6 +3,7 @@ from cr_portal.api.v1 import cr_start_analytics
 from cr_portal.api.v1 import employee_efficiency
 from cr_portal.api.v1 import monthly_rating
 from cr_portal.api.v1 import training
+from cr_portal.api.v1 import fuel_cards
 from cr_portal.api.v1 import analytics,auth,bonus,calculations,deals,diagnostics,distribution,employee_month_plan,export,health,kpi,onboarding,report_builder,reports,settings,sync,users
 router=APIRouter()
 router.include_router(health.router,tags=["Health"])
@@ -16,6 +17,7 @@ router.include_router(cr_start_analytics.router,prefix="/analytics",tags=["CR St
 router.include_router(employee_efficiency.router,prefix="/analytics",tags=["Employee efficiency"])
 router.include_router(monthly_rating.router,prefix="/analytics",tags=["Monthly rating"])
 router.include_router(training.router,prefix="/training",tags=["Training quality"])
+router.include_router(fuel_cards.router,prefix="/logistics/fuel-cards",tags=["Logistics fuel cards"])
 router.include_router(bonus.router,prefix="/bonus",tags=["Bonus legacy"])
 router.include_router(calculations.router,prefix="/calculations",tags=["Calculations"])
 router.include_router(kpi.router,prefix="/kpi",tags=["KPI"])

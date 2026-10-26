@@ -8,6 +8,8 @@ export function employeeEfficiencyExcelUrl(params:EfficiencyFilters){const query
 export async function login(login:string,password:string){return (await api.post('/auth/login',{login,password})).data}
 export async function getCurrentUser():Promise<CurrentUser>{return (await api.get('/auth/me')).data}
 export async function logout(){return (await api.post('/auth/logout')).data}
+export async function previewFuelCardBindings(importFile:File){const data=new FormData();data.append('import_file',importFile);return (await api.post('/logistics/fuel-cards/preview',data)).data}
+export async function applyFuelCardBindings(importFile:File,token:string,selectedKeys:string[],confirmed:boolean){const data=new FormData();data.append('import_file',importFile);data.append('token',token);data.append('selected_keys',JSON.stringify(selectedKeys));data.append('confirmed',String(confirmed));return (await api.post('/logistics/fuel-cards/apply',data,{timeout:120000})).data}
 export async function getDashboard(month?:string):Promise<DashboardSummary>{return (await api.get('/reports/dashboard',{params:month?{month}:undefined})).data}
 export async function getDepartmentDeals():Promise<Deal[]>{return (await api.get('/reports/department-deals')).data}
 export async function getSyncStatus():Promise<SyncStatus>{return (await api.get('/sync/deals/status')).data}
