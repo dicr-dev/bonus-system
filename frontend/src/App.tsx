@@ -10,6 +10,7 @@ import type { ColumnsType } from 'antd/es/table'
 import { useMutation,useQuery,useQueryClient } from '@tanstack/react-query'
 import { useEffect,useState } from 'react'
 import {canViewWeeklyOv} from './weeklyOvAccess'
+import {bitrixLoginUrl} from './authReturnTo'
 import SettingsPage from './SettingsPage'
 import SyncPage from './SyncPage'
 import EmployeeEfficiencyPage from './EmployeeEfficiencyPage'
@@ -877,7 +878,7 @@ function Login({onSuccess}:{onSuccess:()=>void}){
    <Form.Item name="password" label="Пароль" rules={[{required:true}]}><Input.Password autoComplete="current-password"/></Form.Item>
    {mutation.isError&&<Alert type="error" message="Неверный логин или пароль" showIcon/>}
   <Button type="primary" htmlType="submit" loading={mutation.isPending} block>Войти</Button>
-  <Button href="/api/v1/auth/bitrix/login" block style={{marginTop:12}}>Войти через Bitrix24</Button>
+  <Button href={bitrixLoginUrl(window.location)} block style={{marginTop:12}}>Войти через Bitrix24</Button>
   </Form>
  </Card></Layout>
 }

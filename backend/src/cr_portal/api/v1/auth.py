@@ -2,7 +2,7 @@ from datetime import UTC, datetime, timedelta
 import hmac
 import secrets
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -20,6 +20,28 @@ from cr_portal.repositories.users import UserRepository
 from cr_portal.services.task_metadata_backfill import enqueue_task_metadata_backfill
 
 router = APIRouter()
+
+
+def _safe_return_path(value: object) -> str:
+    """A UI deep link, never an absolute URL or an API/auth redirect."""
+    if not isinstance(value, str) or not value or len(value) > 2048:
+        return "/"
+    decoded = value
+    for _ in range(5):
+        if (not decoded.startswith("/") or decoded.startswith("//") or "\\" in decoded
+                or any(ord(c) < 32 or ord(c) == 127 for c in decoded)):
+            return "/"
+        try:
+            target = urlsplit(decoded)
+        except ValueError:
+            return "/"
+        if target.scheme or target.netloc or target.path.startswith("/api/"):
+            return "/"
+        next_value = unquote(decoded)
+        if next_value == decoded:
+            return value
+        decoded = next_value
+    return "/"
 
 
 def _public_frontend_url(request: Request) -> str:
@@ -76,6 +98,9 @@ def _start_oauth(request: Request, *, sync: bool) -> RedirectResponse:
     state = secrets.token_urlsafe(32)
     request.session["bitrix_oauth_state"] = state
     request.session["bitrix_oauth_sync"] = sync
+    request.session["bitrix_oauth_return_to"] = (
+        "/" if sync else _safe_return_path(request.query_params.get("return_to"))
+    )
     authorize_url = httpx.URL(
         f"{settings.BITRIX_BASE_URL.rstrip('/')}/oauth/authorize/",
         params={
@@ -96,6 +121,7 @@ async def bitrix_callback(
     expected_state = request.session.pop("bitrix_oauth_state", "")
     received_state = request.query_params.get("state", "")
     sync = request.session.pop("bitrix_oauth_sync", False)
+    return_to = _safe_return_path(request.session.pop("bitrix_oauth_return_to", "/"))
     if not expected_state or not hmac.compare_digest(expected_state, received_state):
         raise HTTPException(status_code=400, detail="Invalid OAuth state; restart Bitrix login")
     code = request.query_params.get("code")
@@ -128,6 +154,8 @@ async def bitrix_callback(
     if sync:
         job_id = await enqueue_task_metadata_backfill()
         destination += f"sync?metadata_job={job_id}"
+    else:
+        destination += return_to.lstrip("/")
     return RedirectResponse(destination, status_code=302)
 
 
