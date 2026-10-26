@@ -1,0 +1,48 @@
+diff --git a/backend/src/cr_portal/api/v1/analytics.py b/backend/src/cr_portal/api/v1/analytics.py
+index eab93a3..5e3b5ae 100644
+--- a/backend/src/cr_portal/api/v1/analytics.py
++++ b/backend/src/cr_portal/api/v1/analytics.py
+@@ -34,2 +34,8 @@ async def business_partners_user(user=Depends(current_user)):
+ 
++async def weekly_ov_user(user=Depends(current_user)):
++    if not user.is_admin and not employee_is_in_department(user, "Отдел внедрения"):
++        raise HTTPException(status_code=403, detail="Implementation department access required")
++    return user
++
++
+ def _source_deal_value(bitrix_id: int | None) -> list[str]:
+@@ -73,3 +79,3 @@ async def weekly_ov(
+     date_from: date = Query(...), date_to: date = Query(...),
+-    session: AsyncSession = Depends(db_session), _admin=Depends(admin_user),
++    session: AsyncSession = Depends(db_session), _user=Depends(weekly_ov_user),
+ ):
+@@ -82,3 +88,3 @@ async def export_weekly_ov(
+     date_from: date = Query(...), date_to: date = Query(...),
+-    session: AsyncSession = Depends(db_session), _admin=Depends(admin_user),
++    session: AsyncSession = Depends(db_session), _user=Depends(weekly_ov_user),
+ ):
+diff --git a/frontend/src/App.tsx b/frontend/src/App.tsx
+index dc2a03c..54792fa 100644
+--- a/frontend/src/App.tsx
++++ b/frontend/src/App.tsx
+@@ -11,2 +11,3 @@ import { useMutation,useQuery,useQueryClient } from '@tanstack/react-query'
+ import { useEffect,useState } from 'react'
++import {canViewWeeklyOv} from './weeklyOvAccess'
+ import SettingsPage from './SettingsPage'
+@@ -898,4 +899,5 @@ export default function App(){
+  const canUseBusinessPartners=isAdmin||departments.includes('Отдел сопровождения')
++ const canUseWeeklyOv=canViewWeeklyOv({is_admin:isAdmin,department_name:user.data?.department_name})
+  const isSupportEmployee=!isAdmin&&departments.includes('Отдел сопровождения')
+- const employeePages=isSupportEmployee?['analytics_support','gift_info']:['dashboard','bonus','deals','instruction','onboarding','time_report','saved_reports',...(canUseWorkplace?['workplace']:[]),...(canUseEmployeeMonthPlan?['employee_month_plan']:[]),...(canUseBusinessPartners?['analytics_support','gift_info']:[])]
++ const employeePages=[...(isSupportEmployee?['analytics_support','gift_info']:['dashboard','bonus','deals','instruction','onboarding','time_report','saved_reports',...(canUseWorkplace?['workplace']:[]),...(canUseEmployeeMonthPlan?['employee_month_plan']:[]),...(canUseBusinessPartners?['analytics_support','gift_info']:[])]),...(canUseWeeklyOv?['analytics_weekly_ov']:[])]
+  const fallbackPage=isSupportEmployee?'analytics_support':'dashboard'
+@@ -916,3 +918,4 @@ export default function App(){
+  const businessPartnersMenu={key:'business_partners',icon:<FundOutlined/>,label:'Бизнес партнеры',children:[{key:'analytics_support',label:'Анализ по менеджерам'},{key:'gift_info',label:'Информация для подарков'}]}
+- const employeeMenu=isSupportEmployee?[businessPartnersMenu]:[
++ const weeklyOvMenu=canUseWeeklyOv?[{key:'analytics',icon:<FundOutlined/>,label:'Аналитика',children:[{key:'analytics_weekly_ov',label:'Еженедельный отчёт ОВ'}]}]:[]
++ const employeeMenu=isSupportEmployee?[businessPartnersMenu,...weeklyOvMenu]:[
+   {key:'dashboard',icon:<DashboardOutlined/>,label:'Главная'},
+@@ -924,2 +927,3 @@ export default function App(){
+   {key:'saved_reports',icon:<FundOutlined/>,label:'Отчёты'},
++  ...weeklyOvMenu,
+   {key:'deals',icon:<DatabaseOutlined/>,label:'Мои сделки'},

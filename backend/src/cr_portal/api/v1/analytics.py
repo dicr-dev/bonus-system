@@ -32,6 +32,12 @@ async def business_partners_user(user=Depends(current_user)):
     return user
 
 
+async def weekly_ov_user(user=Depends(current_user)):
+    if not user.is_admin and not employee_is_in_department(user, "Отдел внедрения"):
+        raise HTTPException(status_code=403, detail="Implementation department access required")
+    return user
+
+
 def _source_deal_value(bitrix_id: int | None) -> list[str]:
     """The configured Bitrix CRM field is multiple and stores deals as D_<id>."""
     return [f"D_{bitrix_id}"] if bitrix_id is not None else []
@@ -71,7 +77,7 @@ def _weekly_ov_dates(date_from: date, date_to: date) -> tuple[date, date]:
 @router.get("/weekly-ov")
 async def weekly_ov(
     date_from: date = Query(...), date_to: date = Query(...),
-    session: AsyncSession = Depends(db_session), _admin=Depends(admin_user),
+    session: AsyncSession = Depends(db_session), _user=Depends(weekly_ov_user),
 ):
     date_from, date_to = _weekly_ov_dates(date_from, date_to)
     return await weekly_ov_report(session, date_from, date_to)
@@ -80,7 +86,7 @@ async def weekly_ov(
 @router.get("/weekly-ov/export")
 async def export_weekly_ov(
     date_from: date = Query(...), date_to: date = Query(...),
-    session: AsyncSession = Depends(db_session), _admin=Depends(admin_user),
+    session: AsyncSession = Depends(db_session), _user=Depends(weekly_ov_user),
 ):
     date_from, date_to = _weekly_ov_dates(date_from, date_to)
     rows = await weekly_ov_report(session, date_from, date_to)

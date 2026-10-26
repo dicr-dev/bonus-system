@@ -9,6 +9,7 @@ import {
 import type { ColumnsType } from 'antd/es/table'
 import { useMutation,useQuery,useQueryClient } from '@tanstack/react-query'
 import { useEffect,useState } from 'react'
+import {canViewWeeklyOv} from './weeklyOvAccess'
 import SettingsPage from './SettingsPage'
 import SyncPage from './SyncPage'
 import EmployeeEfficiencyPage from './EmployeeEfficiencyPage'
@@ -896,8 +897,9 @@ export default function App(){
  const canUseTask1cErrors=isAdmin||departments.includes('Отдел внедрения')
  const canUseEmployeeMonthPlan=departments.includes('Отдел внедрения')
  const canUseBusinessPartners=isAdmin||departments.includes('Отдел сопровождения')
+ const canUseWeeklyOv=canViewWeeklyOv({is_admin:isAdmin,department_name:user.data?.department_name})
  const isSupportEmployee=!isAdmin&&departments.includes('Отдел сопровождения')
- const employeePages=isSupportEmployee?['analytics_support','gift_info']:['dashboard','bonus','deals','instruction','onboarding','time_report','saved_reports',...(canUseWorkplace?['workplace']:[]),...(canUseEmployeeMonthPlan?['employee_month_plan']:[]),...(canUseBusinessPartners?['analytics_support','gift_info']:[])]
+ const employeePages=[...(isSupportEmployee?['analytics_support','gift_info']:['dashboard','bonus','deals','instruction','onboarding','time_report','saved_reports',...(canUseWorkplace?['workplace']:[]),...(canUseEmployeeMonthPlan?['employee_month_plan']:[]),...(canUseBusinessPartners?['analytics_support','gift_info']:[])]),...(canUseWeeklyOv?['analytics_weekly_ov']:[])]
  const fallbackPage=isSupportEmployee?'analytics_support':'dashboard'
  const effectivePage=user.data&&((!isAdmin&&!employeePages.includes(page))||(!canUseWorkplace&&page==='workplace')||(!canUseEmployeeMonthPlan&&page==='employee_month_plan')||(!canUseBusinessPartners&&['analytics_support','gift_info'].includes(page)))?fallbackPage:page
  useEffect(()=>{
@@ -914,7 +916,8 @@ export default function App(){
  }
  const content=({training_quality:<TrainingQualityPage/>,cr_start_analytics:<CrStartAnalyticsPage/>,monthly_rating:<MonthlyRatingPage/>,employee_efficiency:<EmployeeEfficiencyPage/>,dashboard:<Dashboard isAdmin={isAdmin} userId={user.data.id}/>,analytics_deals:<DealAnalytics/>,analytics_work:<DealsInWork/>,analytics_weekly_ov:<WeeklyOvReport/>,analytics_support:<SupportAnalysis/>,gift_info:<GiftInfo/>,cr_start_managers_report:<CrStartManagersReport/>,saved_reports:<ReportBuilder isAdmin={false}/>,report_builder:<ReportBuilder isAdmin/>,kpi:<KPI/>,bonus:<Bonuses isAdmin={isAdmin} userId={user.data.id}/>,deals:<Deals isAdmin={isAdmin} userId={user.data.id}/>,instruction:<InstructionPage/>,onboarding:<OnboardingPage isAdmin={isAdmin}/>,time_report:<TimeSpentReport isAdmin={isAdmin}/>,workplace:<Workplace isAdmin={isAdmin} canUseTask1cErrors={canUseTask1cErrors}/>,employee_month_plan:<EmployeeMonthPlanPage/>,admin_employee_month_plan:<AdminEmployeeMonthPlanPage/>,task_1c_check:<Task1CCheck/>,diagnostics:<Diagnostics/>,bitrix_fields:<BitrixFields/>,rules:<Rules/>,settings:<SettingsPage/>,sync:<Sync/>}[effectivePage]??<Dashboard isAdmin={isAdmin} userId={user.data.id}/>)
  const businessPartnersMenu={key:'business_partners',icon:<FundOutlined/>,label:'Бизнес партнеры',children:[{key:'analytics_support',label:'Анализ по менеджерам'},{key:'gift_info',label:'Информация для подарков'}]}
- const employeeMenu=isSupportEmployee?[businessPartnersMenu]:[
+ const weeklyOvMenu=canUseWeeklyOv?[{key:'analytics',icon:<FundOutlined/>,label:'Аналитика',children:[{key:'analytics_weekly_ov',label:'Еженедельный отчёт ОВ'}]}]:[]
+ const employeeMenu=isSupportEmployee?[businessPartnersMenu,...weeklyOvMenu]:[
   {key:'dashboard',icon:<DashboardOutlined/>,label:'Главная'},
   ...(canUseWorkplace?[{key:'workplace',icon:<DesktopOutlined/>,label:'АРМ'}]:[]),
   ...(canUseEmployeeMonthPlan?[{key:'employee_month_plan',icon:<CalendarOutlined/>,label:'План на месяц'}]:[]),
@@ -922,6 +925,7 @@ export default function App(){
   {key:'bonus',icon:<FundOutlined/>,label:'Моя премия'},
   {key:'time_report',icon:<TrophyOutlined/>,label:'Отчёт по затраченному времени'},
   {key:'saved_reports',icon:<FundOutlined/>,label:'Отчёты'},
+  ...weeklyOvMenu,
   {key:'deals',icon:<DatabaseOutlined/>,label:'Мои сделки'},
   {key:'instruction',icon:<BookOutlined/>,label:'Инструкция'},
   {key:'onboarding',icon:<CheckCircleOutlined/>,label:'Адаптация'}
