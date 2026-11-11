@@ -25,6 +25,8 @@ from cr_portal.services.cr_start_manager_report import cr_start_manager_report
 from cr_portal.services.employee_scope import employee_is_in_kpi_department
 from cr_portal.services.subscriptions import subscription_deals_for_month
 from cr_portal.services.time_report import time_spent_report
+from cr_portal.services.time_report_export import time_report_excel
+from cr_portal.core.config import settings as core_settings
 from cr_portal.services.task_1c_errors import task_1c_errors_report
 from cr_portal.services.task_1c_check import task_1c_check_report
 
@@ -145,6 +147,31 @@ async def time_spent(
         )
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
+
+
+@router.get("/time-spent/export")
+async def export_time_spent(
+    date_from: date = Query(...),
+    date_to: date = Query(...),
+    departments: list[str] = Query(default=[]),
+    employee_ids: list[UUID] = Query(default=[]),
+    funnels: list[str] = Query(default=[]),
+    user=Depends(current_user),
+    session: AsyncSession = Depends(db_session),
+):
+    report = await time_spent(
+        date_from=date_from, date_to=date_to, departments=departments,
+        employee_ids=employee_ids, funnels=funnels, user=user, session=session,
+    )
+    try:
+        content = time_report_excel(TimeReport.model_validate(report), core_settings.BITRIX_BASE_URL)
+    except ValueError as error:
+        raise HTTPException(422, str(error)) from error
+    return StreamingResponse(
+        BytesIO(content), media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="time_spent_{date_from}_{date_to}.xlsx"',
+                 "Cache-Control": "no-store"},
+    )
 
 
 @router.get("/workplace-time", response_model=TimeReport)

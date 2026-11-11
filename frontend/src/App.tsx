@@ -10,6 +10,7 @@ import type { ColumnsType } from 'antd/es/table'
 import { useMutation,useQuery,useQueryClient } from '@tanstack/react-query'
 import { useEffect,useState } from 'react'
 import {canViewWeeklyOv} from './weeklyOvAccess'
+import {exportTimeReport} from './api'
 import SettingsPage from './SettingsPage'
 import SyncPage from './SyncPage'
 import EmployeeEfficiencyPage from './EmployeeEfficiencyPage'
@@ -541,6 +542,7 @@ function TimeSpentReport({isAdmin}:{isAdmin:boolean}){
  const [dateFrom,setDateFrom]=useState(firstDay);const [dateTo,setDateTo]=useState(today)
  const [departments,setDepartments]=useState<string[]>([]);const [employeeIds,setEmployeeIds]=useState<string[]>([]);const [funnels,setFunnels]=useState<string[]>([])
  const [selected,setSelected]=useState<{employee:TimeReportEmployee;day:TimeReportDay}|null>(null)
+ const download=useMutation({mutationFn:(params:Parameters<typeof exportTimeReport>[0])=>exportTimeReport(params),onSuccess:(blob,params)=>{const url=URL.createObjectURL(blob);const link=document.createElement('a');link.href=url;link.download=`time_spent_${params.date_from}_${params.date_to}.xlsx`;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000)},onError:()=>message.error('Не удалось выгрузить отчёт. Проверьте период и повторите попытку.')})
  const employees=useQuery({queryKey:['employees'],queryFn:getEmployees,enabled:isAdmin})
  const report=useQuery({queryKey:['time-report',dateFrom,dateTo,departments,employeeIds,funnels],queryFn:()=>getTimeReport({date_from:dateFrom,date_to:dateTo,departments,employee_ids:employeeIds,funnels}),enabled:Boolean(dateFrom&&dateTo)})
  const data=report.data
@@ -554,7 +556,7 @@ function TimeSpentReport({isAdmin}:{isAdmin:boolean}){
   {title:'Время',dataIndex:'seconds',render:duration,align:'right'}
  ]
  return <Space direction="vertical" size={24} style={{width:'100%'}}>
-  <Title level={2}>Отчёт по затраченному времени</Title>
+  <Row justify="space-between" align="middle"><Title level={2}>Отчёт по затраченному времени</Title><Button icon={<DownloadOutlined/>} loading={download.isPending} disabled={!dateFrom||!dateTo||dateFrom>dateTo} onClick={()=>download.mutate({date_from:dateFrom,date_to:dateTo,departments,employee_ids:employeeIds,funnels})}>Выгрузить в Excel</Button></Row>
   <Card><Row gutter={[16,0]}>
    {isAdmin&&<><Col xs={24} md={8}><Text>Отдел</Text><Select mode="multiple" allowClear value={departments} onChange={setDepartments} style={{width:'100%'}} options={[{value:'Отдел внедрения',label:'Отдел внедрения'},{value:'Разработка 1С',label:'Разработка 1С'}]}/></Col>
    <Col xs={24} md={8}><Text>Сотрудники</Text><Select mode="multiple" allowClear value={employeeIds} onChange={setEmployeeIds} style={{width:'100%'}} options={(employees.data??[]).filter(employee=>employee.is_active&&['Отдел внедрения','Разработка 1С'].some(department=>employee.department_name?.includes(department))).map(employee=>({value:employee.id,label:employee.full_name}))}/></Col></>}

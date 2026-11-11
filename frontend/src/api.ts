@@ -48,6 +48,7 @@ export async function getAppSettings():Promise<AppSettings>{return (await api.ge
 export async function saveAppSettings(data:AppSettings):Promise<AppSettings>{return (await api.put('/settings/app',data)).data}
 export async function getBitrixDealFields():Promise<BitrixDealField[]>{return (await api.get('/settings/bitrix-deal-fields')).data}
 export async function getTimeReport(params:{date_from:string;date_to:string;departments:string[];employee_ids:string[];funnels:string[]}):Promise<TimeReport>{return (await api.get('/reports/time-spent',{params,paramsSerializer:{indexes:null}})).data}
+export async function exportTimeReport(params:{date_from:string;date_to:string;departments:string[];employee_ids:string[];funnels:string[]}):Promise<Blob>{return (await api.get('/reports/time-spent/export',{params,paramsSerializer:{indexes:null},responseType:'blob',timeout:120000})).data}
 export async function getWorkplaceTime():Promise<TimeReport>{return (await api.get('/reports/workplace-time')).data}
 export async function getWorkplaceTask1cErrors(employeeId?:string):Promise<Task1CErrorReport>{return (await api.get('/reports/workplace-task-1c-errors',{params:employeeId?{employee_id:employeeId}:{}})).data}
 export async function getTask1cCheck():Promise<Task1CCheckReport>{return (await api.get('/reports/task-1c-check')).data}
