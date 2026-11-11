@@ -1,0 +1,62 @@
+diff --git a/backend/src/cr_portal/api/v1/reports.py b/backend/src/cr_portal/api/v1/reports.py
+index 7c0031b..e64b814 100644
+--- a/backend/src/cr_portal/api/v1/reports.py
++++ b/backend/src/cr_portal/api/v1/reports.py
+@@ -27,2 +27,4 @@ from cr_portal.services.subscriptions import subscription_deals_for_month
+ from cr_portal.services.time_report import time_spent_report
++from cr_portal.services.time_report_export import time_report_excel
++from cr_portal.core.config import settings as core_settings
+ from cr_portal.services.task_1c_errors import task_1c_errors_report
+@@ -149,2 +151,27 @@ async def time_spent(
+ 
++@router.get("/time-spent/export")
++async def export_time_spent(
++    date_from: date = Query(...),
++    date_to: date = Query(...),
++    departments: list[str] = Query(default=[]),
++    employee_ids: list[UUID] = Query(default=[]),
++    funnels: list[str] = Query(default=[]),
++    user=Depends(current_user),
++    session: AsyncSession = Depends(db_session),
++):
++    report = await time_spent(
++        date_from=date_from, date_to=date_to, departments=departments,
++        employee_ids=employee_ids, funnels=funnels, user=user, session=session,
++    )
++    try:
++        content = time_report_excel(TimeReport.model_validate(report), core_settings.BITRIX_BASE_URL)
++    except ValueError as error:
++        raise HTTPException(422, str(error)) from error
++    return StreamingResponse(
++        BytesIO(content), media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
++        headers={"Content-Disposition": f'attachment; filename="time_spent_{date_from}_{date_to}.xlsx"',
++                 "Cache-Control": "no-store"},
++    )
++
++
+ @router.get("/workplace-time", response_model=TimeReport)
+diff --git a/frontend/src/App.tsx b/frontend/src/App.tsx
+index e6624db..1d82851 100644
+--- a/frontend/src/App.tsx
++++ b/frontend/src/App.tsx
+@@ -12,2 +12,3 @@ import { useEffect,useState } from 'react'
+ import {canViewWeeklyOv} from './weeklyOvAccess'
++import {exportTimeReport} from './api'
+ import SettingsPage from './SettingsPage'
+@@ -543,2 +544,3 @@ function TimeSpentReport({isAdmin}:{isAdmin:boolean}){
+  const [selected,setSelected]=useState<{employee:TimeReportEmployee;day:TimeReportDay}|null>(null)
++ const download=useMutation({mutationFn:(params:Parameters<typeof exportTimeReport>[0])=>exportTimeReport(params),onSuccess:(blob,params)=>{const url=URL.createObjectURL(blob);const link=document.createElement('a');link.href=url;link.download=`time_spent_${params.date_from}_${params.date_to}.xlsx`;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000)},onError:()=>message.error('Не удалось выгрузить отчёт. Проверьте период и повторите попытку.')})
+  const employees=useQuery({queryKey:['employees'],queryFn:getEmployees,enabled:isAdmin})
+@@ -556,3 +558,3 @@ function TimeSpentReport({isAdmin}:{isAdmin:boolean}){
+  return <Space direction="vertical" size={24} style={{width:'100%'}}>
+-  <Title level={2}>Отчёт по затраченному времени</Title>
++  <Row justify="space-between" align="middle"><Title level={2}>Отчёт по затраченному времени</Title><Button icon={<DownloadOutlined/>} loading={download.isPending} disabled={!dateFrom||!dateTo||dateFrom>dateTo} onClick={()=>download.mutate({date_from:dateFrom,date_to:dateTo,departments,employee_ids:employeeIds,funnels})}>Выгрузить в Excel</Button></Row>
+   <Card><Row gutter={[16,0]}>
+diff --git a/frontend/src/api.ts b/frontend/src/api.ts
+index ff0229f..dbd6cd4 100644
+--- a/frontend/src/api.ts
++++ b/frontend/src/api.ts
+@@ -50,2 +50,3 @@ export async function getBitrixDealFields():Promise<BitrixDealField[]>{return (a
+ export async function getTimeReport(params:{date_from:string;date_to:string;departments:string[];employee_ids:string[];funnels:string[]}):Promise<TimeReport>{return (await api.get('/reports/time-spent',{params,paramsSerializer:{indexes:null}})).data}
++export async function exportTimeReport(params:{date_from:string;date_to:string;departments:string[];employee_ids:string[];funnels:string[]}):Promise<Blob>{return (await api.get('/reports/time-spent/export',{params,paramsSerializer:{indexes:null},responseType:'blob',timeout:120000})).data}
+ export async function getWorkplaceTime():Promise<TimeReport>{return (await api.get('/reports/workplace-time')).data}
