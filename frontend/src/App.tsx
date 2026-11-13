@@ -952,6 +952,7 @@ export default function App(){
  const canUseWorkplace=isAdmin||['Отдел внедрения','Разработка 1С'].some(department=>departments.includes(department))
  const canUseTasks1c=isAdmin||['Отдел внедрения','Разработка 1С'].some(department=>departments.includes(department))
  const canUseTask1cErrors=isAdmin||departments.includes('Отдел внедрения')
+ const is1cEmployee=!isAdmin&&departments.includes('Разработка 1С')
  const canUseEmployeeMonthPlan=departments.includes('Отдел внедрения')
  const canUseBusinessPartners=isAdmin||departments.includes('Отдел сопровождения')
  const canUseWeeklyOv=canViewWeeklyOv({is_admin:isAdmin,department_name:user.data?.department_name})
@@ -979,14 +980,16 @@ export default function App(){
   ...(canUseWorkplace?[{key:'workplace',icon:<DesktopOutlined/>,label:'АРМ'}]:[]),
   ...(canUseEmployeeMonthPlan?[{key:'employee_month_plan',icon:<CalendarOutlined/>,label:'План на месяц'}]:[]),
   ...(canUseBusinessPartners?[businessPartnersMenu]:[]),
-  {key:'bonus',icon:<FundOutlined/>,label:'Моя премия'},
+  ...(!is1cEmployee?[{key:'bonus',icon:<FundOutlined/>,label:'Моя премия'}]:[]),
   {key:'time_report',icon:<TrophyOutlined/>,label:'Отчёт по затраченному времени'},
   ...(canUseTasks1c?[{key:'tasks_1c',icon:<FundOutlined/>,label:'Задачи по 1С'}]:[]),
   {key:'saved_reports',icon:<FundOutlined/>,label:'Отчёты'},
   ...weeklyOvMenu,
-  {key:'deals',icon:<DatabaseOutlined/>,label:'Мои сделки'},
-  {key:'instruction',icon:<BookOutlined/>,label:'Инструкция'},
-  {key:'onboarding',icon:<CheckCircleOutlined/>,label:'Адаптация'}
+  ...(!is1cEmployee?[
+   {key:'deals',icon:<DatabaseOutlined/>,label:'Мои сделки'},
+   {key:'instruction',icon:<BookOutlined/>,label:'Инструкция'},
+   {key:'onboarding',icon:<CheckCircleOutlined/>,label:'Адаптация'}
+  ]:[])
  ]
  const adminMenu=[
   {key:'dashboard',icon:<DashboardOutlined/>,label:'Главная'},{key:'kpi',icon:<TrophyOutlined/>,label:'KPI отдела'},
