@@ -6,13 +6,12 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 import httpx
-
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from cr_portal.integrations.bitrix.client import BitrixClient
-from cr_portal.models.task import BitrixTask, BitrixTaskElapsedItem
 from cr_portal.models.deal import Deal
+from cr_portal.models.task import BitrixTask, BitrixTaskElapsedItem
 from cr_portal.models.user import User
 from cr_portal.services.app_settings import get_business_settings
 from cr_portal.services.employee_scope import employee_is_in_department
@@ -223,6 +222,48 @@ async def sync_reporting_tasks(session: AsyncSession, client: BitrixClient, *, p
             start = following
     await report(task_request_state="completed", task_fraction=1)
     return len(saved_ids)
+
+
+async def sync_task_1c_report_tasks(
+    session: AsyncSession, client: BitrixClient, *, changed_since: datetime | None
+) -> int:
+    """Refresh changed tasks for the explicitly configured 1C report users."""
+    business = await get_business_settings(session)
+    selected_ids = business.task_1c_report_user_ids
+    if not selected_ids:
+        return 0
+    users = (await session.execute(select(User).where(User.id.in_(selected_ids)))).scalars().all()
+    updated = 0
+    for user in users:
+        filters = {"RESPONSIBLE_ID": user.bitrix_id}
+        if changed_since is not None:
+            filters[">=CHANGED_DATE"] = (
+                changed_since.astimezone(ZoneInfo("Europe/Moscow")).isoformat()
+            )
+        rows = await client.call_all("tasks.task.list", {
+            "filter": filters,
+            "select": REPORTING_TASK_FIELDS,
+            "order": {"ID": "ASC"},
+        })
+        payloads = {
+            task_id: row for row in rows if isinstance(row, dict)
+            and (task_id := _integer(field_value(row, "ID"))) is not None
+        }
+        if not payloads:
+            continue
+        existing = {task.bitrix_id: task for task in (await session.execute(
+            select(BitrixTask).where(BitrixTask.bitrix_id.in_(payloads))
+        )).scalars()}
+        refreshed_at = datetime.now(UTC)
+        for task_id, payload in payloads.items():
+            task = existing.get(task_id)
+            if task is None:
+                task = BitrixTask(bitrix_id=task_id, title="")
+                session.add(task)
+            _apply_task_snapshot(task, payload, refreshed_at)
+        await session.commit()
+        updated += len(payloads)
+    return updated
 
 
 async def _relevant_task_ids(

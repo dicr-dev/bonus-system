@@ -2,7 +2,7 @@ import unittest
 from datetime import UTC, date, datetime
 
 from cr_portal.services.task_sync import task_sync_window
-from cr_portal.workers.sync import daily_calculation_due, nightly_sync_due
+from cr_portal.workers.sync import daily_calculation_due, nightly_sync_due, task_1c_report_sync_due
 
 
 class NightlySyncTests(unittest.TestCase):
@@ -100,6 +100,12 @@ class NightlySyncTests(unittest.TestCase):
                 timezone_name="Europe/Moscow",
             )
         )
+
+    def test_task_1c_report_sync_runs_every_thirty_minutes(self):
+        now = datetime(2026, 9, 8, 8, 0, tzinfo=UTC)
+        self.assertTrue(task_1c_report_sync_due(now, last_success=None))
+        self.assertFalse(task_1c_report_sync_due(now, last_success="2026-09-08T07:31:00+00:00"))
+        self.assertTrue(task_1c_report_sync_due(now, last_success="2026-09-08T07:30:00+00:00"))
 
 
 if __name__ == "__main__":

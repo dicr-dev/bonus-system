@@ -1,8 +1,10 @@
-from pydantic import BaseModel, Field
 from typing import Literal
+
+from pydantic import BaseModel, Field
 
 
 class AppSettingsPayload(BaseModel):
+    task_1c_report_user_ids: list[str] = Field(default_factory=list)
     task_training_yes_value: str = ""
     task_training_date_field: Literal["CLOSED_DATE", "DEADLINE"] = "DEADLINE"
     overtime_project_id: int | None = Field(default=None, gt=0)

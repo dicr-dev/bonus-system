@@ -2,7 +2,7 @@ import {Button,Card,Col,Form,Input,InputNumber,Row,Select,Space,Tabs,Typography,
 import {useMutation,useQuery,useQueryClient} from '@tanstack/react-query'
 import {useEffect,useMemo} from 'react'
 
-import {createRule,getAppSettings,getRules,saveAppSettings} from './api'
+import {createRule,getAppSettings,getEmployees,getRules,saveAppSettings} from './api'
 import type {AppSettings,RuleConfig} from './types'
 
 const {Title,Text}=Typography
@@ -26,6 +26,7 @@ function BitrixSettings(){
  const [form]=Form.useForm<any>()
  const qc=useQueryClient()
  const q=useQuery({queryKey:['app-settings'],queryFn:getAppSettings})
+ const employees=useQuery({queryKey:['employees'],queryFn:getEmployees})
  useEffect(()=>{if(q.data)form.setFieldsValue({...q.data,cr_start_boolean_fields_text:q.data.cr_start_boolean_fields.join(', '),cr_start_implementation_modules_text:q.data.cr_start_implementation_modules.join(', ')})},[q.data,form])
  const save=useMutation({
   mutationFn:(v:AppSettings)=>saveAppSettings(v),
@@ -74,6 +75,7 @@ function BitrixSettings(){
    <Row gutter={16}>
     <Col xs={24} md={12}><Form.Item name="task_training_bonus_field" label="Поле задачи «Бонус за обучение»"><Input placeholder="UF_TASK_BONUS"/></Form.Item></Col>
     <Col xs={24} md={12}><Form.Item name="task_1c_type_field" label="Поле задачи «Тип задачи 1С»"><Input placeholder="UF_TYPE_TASK_1C"/></Form.Item></Col>
+    <Col xs={24} md={12}><Form.Item name="task_1c_report_user_ids" label="Разработчики в отчёте «Задачи по 1С»" extra="В отчёт попадут задачи, где выбранный сотрудник — исполнитель."><Select mode="multiple" loading={employees.isLoading} options={(employees.data??[]).map(employee=>({value:employee.id,label:`${employee.full_name}${employee.is_active?'':' (неактивен)'}`}))}/></Form.Item></Col>
     <Col xs={24} md={12}><Form.Item name="task_1c_errors_project_id" label="ID проекта «Задачи по 1С»"><InputNumber min={1} style={{width:'100%'}}/></Form.Item></Col>
     <Col xs={24} md={12}><Form.Item name="task_training_yes_value" label="Значение «Да» (ID элемента списка)"><Input placeholder="783"/></Form.Item></Col>
     <Col xs={24} md={12}><Form.Item name="task_training_date_field" label="Месяц обучения определяется по"><Select options={[{value:'CLOSED_DATE',label:'Дате завершения'},{value:'DEADLINE',label:'Крайнему сроку'}]}/></Form.Item></Col>

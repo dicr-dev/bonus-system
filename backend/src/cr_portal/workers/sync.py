@@ -11,12 +11,19 @@ from redis.asyncio import Redis
 from cr_portal.core.config import settings
 from cr_portal.db.session import async_session_factory
 from cr_portal.integrations.bitrix.sync_connection import create_sync_client
-from cr_portal.services.bitrix_sync import sync_deals, sync_deal_stage_history, sync_users
+from cr_portal.services.app_settings import get_business_settings
+from cr_portal.services.bitrix_sync import sync_deal_stage_history, sync_deals, sync_users
 from cr_portal.services.bonus import calculate_month
-from cr_portal.services.task_metadata_backfill import backfill_task_metadata
-from cr_portal.services.task_sync import sync_reporting_tasks, sync_task_1c_errors, sync_tasks
+from cr_portal.services.monthly_rating import refresh_type_metadata
 from cr_portal.services.report_builder import refresh_report_fields
 from cr_portal.services.sync_jobs import HEARTBEAT_PREFIX
+from cr_portal.services.task_metadata_backfill import backfill_task_metadata
+from cr_portal.services.task_sync import (
+    sync_reporting_tasks,
+    sync_task_1c_errors,
+    sync_task_1c_report_tasks,
+    sync_tasks,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +40,11 @@ DAILY_CALCULATION_LAST_SUCCESS_KEY = "cr_portal:calculations:daily:last_success"
 DAILY_CALCULATION_LAST_ERROR_KEY = "cr_portal:calculations:daily:last_error"
 DAILY_CALCULATION_LAST_RESULT_KEY = "cr_portal:calculations:daily:last_result"
 DAILY_CALCULATION_LOCK_KEY = "cr_portal:calculations:daily:lock"
+TASK_1C_REPORT_LAST_ATTEMPT_KEY = "cr_portal:sync:task_1c_report:last_attempt"
+TASK_1C_REPORT_LAST_SUCCESS_KEY = "cr_portal:sync:task_1c_report:last_success"
+TASK_1C_REPORT_LAST_ERROR_KEY = "cr_portal:sync:task_1c_report:last_error"
+TASK_1C_REPORT_LOCK_KEY = "cr_portal:sync:task_1c_report:lock"
+TASK_1C_REPORT_INTERVAL_SECONDS = 30 * 60
 
 
 def utc_now() -> str:
@@ -132,6 +144,55 @@ async def run_nightly_if_due(redis: Redis) -> None:
         timezone_name=settings.NIGHTLY_SYNC_TIMEZONE,
     ):
         await process_nightly_sync(redis)
+
+
+def task_1c_report_sync_due(now: datetime, *, last_success: str | None) -> bool:
+    success = parse_timestamp(last_success)
+    return (
+        success is None
+        or (now.astimezone(UTC) - success).total_seconds() >= TASK_1C_REPORT_INTERVAL_SECONDS
+    )
+
+
+async def process_task_1c_report_sync(redis: Redis) -> bool:
+    lock_token = str(uuid4())
+    acquired = await redis.set(TASK_1C_REPORT_LOCK_KEY, lock_token, nx=True, ex=25 * 60)
+    if not acquired:
+        return False
+    started_at = datetime.now(UTC)
+    last_success = parse_timestamp(await redis.get(TASK_1C_REPORT_LAST_SUCCESS_KEY))
+    await redis.set(TASK_1C_REPORT_LAST_ATTEMPT_KEY, started_at.isoformat())
+    await redis.delete(TASK_1C_REPORT_LAST_ERROR_KEY)
+    try:
+        async with async_session_factory() as session:
+            client = await create_sync_client(session)
+            # First run loads all configured developers. Later runs use a short
+            # overlap so an update made at the boundary is not missed.
+            await sync_task_1c_report_tasks(
+                session, client,
+                changed_since=last_success - timedelta(minutes=5) if last_success else None,
+            )
+            business = await get_business_settings(session)
+            try:
+                await refresh_type_metadata(session, client, business.task_1c_type_field)
+            except ValueError as exc:
+                logger.warning("Unable to refresh task 1C type labels: %s", exc)
+        await redis.set(TASK_1C_REPORT_LAST_SUCCESS_KEY, utc_now())
+        return True
+    except Exception as exc:
+        logger.exception("30-minute 1C task refresh failed")
+        await redis.set(TASK_1C_REPORT_LAST_ERROR_KEY, str(exc))
+        return False
+    finally:
+        if await redis.get(TASK_1C_REPORT_LOCK_KEY) == lock_token:
+            await redis.delete(TASK_1C_REPORT_LOCK_KEY)
+
+
+async def run_task_1c_report_sync_if_due(redis: Redis) -> None:
+    if task_1c_report_sync_due(
+        datetime.now(UTC), last_success=await redis.get(TASK_1C_REPORT_LAST_SUCCESS_KEY)
+    ):
+        await process_task_1c_report_sync(redis)
 
 
 def daily_calculation_due(
@@ -425,7 +486,7 @@ async def worker() -> None:
     )
 
     logger.info(
-        "Synchronization worker started; nightly sync at %02d:00 and daily calculation at %02d:00 %s",
+        "Synchronization worker started; nightly sync at %02d:00, 1C task refresh every 30 minutes and daily calculation at %02d:00 %s",
         settings.NIGHTLY_SYNC_HOUR,
         settings.DAILY_CALCULATION_HOUR,
         settings.NIGHTLY_SYNC_TIMEZONE,
@@ -434,6 +495,7 @@ async def worker() -> None:
     try:
         while True:
             await run_nightly_if_due(redis)
+            await run_task_1c_report_sync_if_due(redis)
             await run_daily_calculation_if_due(redis)
 
             result = await redis.brpop(

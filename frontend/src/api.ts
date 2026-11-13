@@ -1,6 +1,6 @@
 import axios from 'axios'
 import type {EmployeeEfficiencyReport,EfficiencyFilters} from './efficiencyTypes'
-import type { AdminEmployeeMonthPlan,AppSettings,BitrixDealField,Calculation,CalculationDetail,CrStartManagerReportRow,CurrentUser,DashboardSummary,Deal,DealBonusOverride,DealBonusOverrideInput,DealGroupsReport,DealsInWorkReport,Employee,EmployeeMonthPlan,GiftInfoDeal,Issue,KPISummary,ManualBonusAdjustment,ManualBonusAdjustmentInput,OnboardingAssignment,OnboardingPlanSection,RuleConfig,RuleVersion,SupportAnalysisRow,SupportAutoMatchPreview,SyncJob,SyncStatus,Task1CCheckReport,Task1CErrorReport,TimeReport,WeeklyOvDeal } from './types'
+import type { AdminEmployeeMonthPlan,AppSettings,BitrixDealField,Calculation,CalculationDetail,CrStartManagerReportRow,CurrentUser,DashboardSummary,Deal,DealBonusOverride,DealBonusOverrideInput,DealGroupsReport,DealsInWorkReport,Employee,EmployeeMonthPlan,GiftInfoDeal,Issue,KPISummary,ManualBonusAdjustment,ManualBonusAdjustmentInput,OnboardingAssignment,OnboardingPlanSection,RuleConfig,RuleVersion,SupportAnalysisRow,SupportAutoMatchPreview,SyncJob,SyncStatus,Task1CCheckReport,Task1CErrorReport,Task1CReport,TimeReport,WeeklyOvDeal } from './types'
 
 export const api=axios.create({baseURL:'/api/v1',withCredentials:true,timeout:30000})
 export async function getEmployeeEfficiency(params:EfficiencyFilters):Promise<EmployeeEfficiencyReport>{return (await api.get('/analytics/employee-efficiency',{params})).data}
@@ -52,6 +52,7 @@ export async function exportTimeReport(params:{date_from:string;date_to:string;d
 export async function getWorkplaceTime():Promise<TimeReport>{return (await api.get('/reports/workplace-time')).data}
 export async function getWorkplaceTask1cErrors(employeeId?:string):Promise<Task1CErrorReport>{return (await api.get('/reports/workplace-task-1c-errors',{params:employeeId?{employee_id:employeeId}:{}})).data}
 export async function getTask1cCheck():Promise<Task1CCheckReport>{return (await api.get('/reports/task-1c-check')).data}
+export async function getTasks1c():Promise<Task1CReport>{return (await api.get('/reports/tasks-1c')).data}
 export async function getCrStartManagersReport():Promise<CrStartManagerReportRow[]>{return (await api.get('/reports/cr-start-managers')).data}
 export function crStartManagersExcelUrl(){return '/api/v1/reports/cr-start-managers/export'}
 export async function exportTask1cCheck(taskBitrixIds:number[]):Promise<Blob>{return (await api.post('/reports/task-1c-check/export',{task_bitrix_ids:taskBitrixIds},{responseType:'blob'})).data}

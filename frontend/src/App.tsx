@@ -24,12 +24,12 @@ import {BitrixLink,dealUrl,sourceUrl,taskUrl} from './BitrixLink'
 import {
   createManualBonusAdjustment,crStartManagersExcelUrl,deleteDealBonusOverride,deleteManualBonusAdjustment,excelUrl,getCalculation,giftInfoExcelUrl,
   getBitrixDealFields,getCalculations,getCurrentUser,getDashboard,getDealBonusOverrides,getDepartmentDeals,getDiagnostics,
-  addEmployeeMonthPlanDeal,autoMatchSupportLinks,createSavedReport,exportTask1cCheck,getAdminEmployeeMonthPlan,getCrStartManagersReport,getEmployeeMonthPlan,getEmployees,getGiftInfo,getKPI,getManualBonusAdjustments,getReportFields,getRules,getSavedReports,getSyncJob,getSyncStatus,getTask1cCheck,getTimeReport,getWorkplaceTask1cErrors,getWorkplaceTime,getDealGroups,getDealsInWork,getSupportAnalysis,getSupportAutoMatchPreview,getWeeklyOv,login,logout,previewReport,refreshReportFields,removeEmployeeMonthPlanDeal,runCalculation,runSavedReport,saveDealLink,startAllSync,updateReportField,weeklyOvExcelUrl,
+  addEmployeeMonthPlanDeal,autoMatchSupportLinks,createSavedReport,exportTask1cCheck,getAdminEmployeeMonthPlan,getCrStartManagersReport,getEmployeeMonthPlan,getEmployees,getGiftInfo,getKPI,getManualBonusAdjustments,getReportFields,getRules,getSavedReports,getSyncJob,getSyncStatus,getTask1cCheck,getTasks1c,getTimeReport,getWorkplaceTask1cErrors,getWorkplaceTime,getDealGroups,getDealsInWork,getSupportAnalysis,getSupportAutoMatchPreview,getWeeklyOv,login,logout,previewReport,refreshReportFields,removeEmployeeMonthPlanDeal,runCalculation,runSavedReport,saveDealLink,startAllSync,updateReportField,weeklyOvExcelUrl,
   runDiagnostics,saveDealBonusOverride,savePlan,startDealsSync,startFullTasksSync,startRecentTasksSync,updateManualBonusAdjustment
 } from './api'
 import type {
   BitrixDealField,Calculation,CalculationDetail,Deal,DealBonusOverride,DealBonusOverrideInput,FunnelSummary,Issue,KPIDeal,
-  AdminEmployeeMonthPlanDeal,AnalyticsDeal,CrStartManagerDeal,CrStartManagerReportRow,DealGroup,DealGroupIssue,DealInWork,EmployeeMonthPlanDeal,GiftInfoDeal,KPIPlannedDeal,KPIPartialSubscriptionDeal,ManualBonusAdjustment,ManualBonusAdjustmentInput,ResponsibleSummary,RuleVersion,SupportAnalysisRow,SupportAutoMatchPreview,SyncJob,Task1CCheckItem,Task1CError,TimeReportDay,TimeReportEmployee,TimeReportTask,WeeklyOvDeal
+  AdminEmployeeMonthPlanDeal,AnalyticsDeal,CrStartManagerDeal,CrStartManagerReportRow,DealGroup,DealGroupIssue,DealInWork,EmployeeMonthPlanDeal,GiftInfoDeal,KPIPlannedDeal,KPIPartialSubscriptionDeal,ManualBonusAdjustment,ManualBonusAdjustmentInput,ResponsibleSummary,RuleVersion,SupportAnalysisRow,SupportAutoMatchPreview,SyncJob,Task1CCheckItem,Task1CError,Task1CReportItem,TimeReportDay,TimeReportEmployee,TimeReportTask,WeeklyOvDeal
 } from './types'
 
 const {Header,Content,Sider}=Layout
@@ -41,7 +41,7 @@ const PAGE_PATHS:Record<string,string>={
  dashboard:'/dashboard',kpi:'/kpi',analytics_deals:'/analytics/deals',analytics_work:'/analytics/deals-in-work',analytics_weekly_ov:'/analytics/weekly-ov',employee_efficiency:'/analytics/employee-efficiency',
  analytics_support:'/business-partners/support-analysis',gift_info:'/business-partners/gift-info',bonus:'/bonuses',deals:'/deals',instruction:'/instruction',
  onboarding:'/onboarding',time_report:'/time-report',workplace:'/workplace',employee_month_plan:'/employee-month-plan',
- admin_employee_month_plan:'/admin/employee-month-plans',task_1c_check:'/service/task-1c-check',cr_start_managers_report:'/reports/cr-start-managers',saved_reports:'/reports/saved',report_builder:'/reports/builder',diagnostics:'/diagnostics',
+ admin_employee_month_plan:'/admin/employee-month-plans',task_1c_check:'/service/task-1c-check',tasks_1c:'/reports/tasks-1c',cr_start_managers_report:'/reports/cr-start-managers',saved_reports:'/reports/saved',report_builder:'/reports/builder',diagnostics:'/diagnostics',
  bitrix_fields:'/settings/bitrix-fields',rules:'/settings/rules',settings:'/settings',sync:'/sync',
  fuel_card_bindings:'/logistics/fuel-card-bindings'
 }
@@ -606,6 +606,58 @@ function Workplace({isAdmin,canUseTask1cErrors}:{isAdmin:boolean;canUseTask1cErr
  </Space>
 }
 
+function Tasks1CReport(){
+ const report=useQuery({queryKey:['tasks-1c'],queryFn:getTasks1c})
+ const [filters,setFilters]=useState(()=>{try{return JSON.parse(localStorage.getItem('tasks-1c-filters')||'{}')}catch{return {}}})
+ const updateFilters=(value:Record<string,unknown>)=>setFilters((current:Record<string,unknown>)=>({...current,...value}))
+ useEffect(()=>{localStorage.setItem('tasks-1c-filters',JSON.stringify(filters))},[filters])
+ const statuses:Record<number,string>={2:'Ждёт выполнения',3:'Выполняется',4:'Ждёт контроля',5:'Завершена'}
+ const dateInRange=(value:string|null,from:string,to:string)=>{const date=value?.slice(0,10)||'';return (!from||date>=from)&&(!to||date<=to)}
+ const users=[...new Set((report.data?.tasks??[]).flatMap(row=>[row.creator_name,row.responsible_name]).filter(Boolean) as string[])].sort((a,b)=>a.localeCompare(b,'ru'))
+ const tasks=(report.data?.tasks??[]).filter(row=>
+  (!filters.title||row.title.toLocaleLowerCase('ru-RU').includes(String(filters.title).toLocaleLowerCase('ru-RU')))&&
+  (!(filters.creator as string[]|undefined)?.length||(filters.creator as string[]).includes(row.creator_name||''))&&
+  (!(filters.responsible as string[]|undefined)?.length||(filters.responsible as string[]).includes(row.responsible_name||''))&&
+  (filters.status===undefined||row.status===filters.status)&&(!filters.type||(row.task_1c_type||'').toLocaleLowerCase('ru-RU').includes(String(filters.type).toLocaleLowerCase('ru-RU')))&&
+  dateInRange(row.created_time,String(filters.createdFrom||''),String(filters.createdTo||''))&&dateInRange(row.deadline,String(filters.deadlineFrom||''),String(filters.deadlineTo||''))
+ )
+ const groupedTasks=Object.entries(tasks.reduce<Record<string,Task1CReportItem[]>>((groups,task)=>{
+  const key=task.responsible_name||'Не указан'
+  ;(groups[key]??=[]).push(task)
+  return groups
+ },{})).sort(([first],[second])=>first.localeCompare(second,'ru'))
+ const columns:ColumnsType<Task1CReportItem>=[
+  {title:'Название',dataIndex:'title',width:340,render:(value,row)=><BitrixLink href={taskUrl(row.task_bitrix_id,row.group_id,row.responsible_bitrix_id)}>{value}</BitrixLink>},
+  {title:'Постановщик',dataIndex:'creator_name',width:210,render:value=>value||'—'},
+  {title:'Исполнитель',dataIndex:'responsible_name',width:210,render:value=>value||'—'},
+  {title:'Дата создания',dataIndex:'created_time',width:145,render:value=>value?shortDate(value):'—'},
+  {title:'Статус',dataIndex:'status',width:170,render:value=>statuses[value]||'—'},
+  {title:'Крайний срок',dataIndex:'deadline',width:145,render:value=>value?shortDate(value):'—'},
+  {title:'Тип задачи 1С',dataIndex:'task_1c_type',width:220,render:value=>value||'—'}
+ ]
+ return <Space direction="vertical" size={24} style={{width:'100%'}}>
+  <Title level={2}>Задачи по 1С</Title>
+  <Card title="Аналитика по разработчикам"><Table rowKey="user_id" pagination={false} dataSource={report.data?.developers??[]} loading={report.isLoading} scroll={{x:850}} columns={[
+   {title:'Разработчик',dataIndex:'full_name',width:240},{title:'Надо сделать',dataIndex:'todo',align:'center'},{title:'В работе',dataIndex:'in_progress',align:'center'},{title:'Ждёт контроля',dataIndex:'awaiting_review',align:'center'},{title:'Выполнено',dataIndex:'completed',align:'center'}
+  ]}/></Card>
+  <Card title={`Задачи (${tasks.length})`}><Row gutter={[12,12]}>
+   <Col xs={24} md={8}><Input placeholder="Название" value={String(filters.title||'')} onChange={e=>updateFilters({title:e.target.value})}/></Col>
+   <Col xs={24} md={8}><Select mode="multiple" allowClear placeholder="Постановщик" value={filters.creator as string[]||[]} onChange={creator=>updateFilters({creator})} style={{width:'100%'}} options={users.map(value=>({value,label:value}))}/></Col>
+   <Col xs={24} md={8}><Select mode="multiple" allowClear placeholder="Исполнитель" value={filters.responsible as string[]||[]} onChange={responsible=>updateFilters({responsible})} style={{width:'100%'}} options={users.map(value=>({value,label:value}))}/></Col>
+   <Col xs={24} md={6}><Select allowClear placeholder="Статус" value={filters.status as number|undefined} onChange={status=>updateFilters({status})} style={{width:'100%'}} options={Object.entries(statuses).map(([value,label])=>({value:Number(value),label}))}/></Col><Col xs={24} md={6}><Input placeholder="Тип задачи 1С" value={String(filters.type||'')} onChange={e=>updateFilters({type:e.target.value})}/></Col>
+   <Col xs={12} md={6}><Text type="secondary">Дата создания: с</Text><Input type="date" value={String(filters.createdFrom||'')} onChange={e=>updateFilters({createdFrom:e.target.value})}/></Col><Col xs={12} md={6}><Text type="secondary">Дата создания: по</Text><Input type="date" value={String(filters.createdTo||'')} onChange={e=>updateFilters({createdTo:e.target.value})}/></Col>
+   <Col xs={12} md={6}><Text type="secondary">Крайний срок: с</Text><Input type="date" value={String(filters.deadlineFrom||'')} onChange={e=>updateFilters({deadlineFrom:e.target.value})}/></Col><Col xs={12} md={6}><Text type="secondary">Крайний срок: по</Text><Input type="date" value={String(filters.deadlineTo||'')} onChange={e=>updateFilters({deadlineTo:e.target.value})}/></Col>
+  </Row><Collapse style={{marginTop:16}} items={groupedTasks.map(([responsible,responsibleTasks])=>({
+   key:responsible,label:<Space><Text strong>{responsible}</Text><Text type="secondary">{responsibleTasks.length} шт.</Text></Space>,
+   children:<Collapse items={Object.entries(responsibleTasks.reduce<Record<string,Task1CReportItem[]>>((groups,task)=>{
+    const key=statuses[task.status??0]||'Прочие'
+    ;(groups[key]??=[]).push(task)
+    return groups
+   },{})).map(([statusName,statusTasks])=>({key:statusName,label:<Space><Text strong>{statusName}</Text><Text type="secondary">{statusTasks.length} шт.</Text></Space>,children:<Table rowKey="task_bitrix_id" columns={columns} dataSource={statusTasks} pagination={false} scroll={{x:1440}}/>}))}/>
+  }))}/></Card>
+ </Space>
+}
+
 function Task1CCheck(){
  const report=useQuery({queryKey:['task-1c-check'],queryFn:getTask1cCheck})
  const [page,setPage]=useState({current:1,pageSize:25})
@@ -898,12 +950,13 @@ export default function App(){
  const departments=user.data?.department_name?.split(';').map(value=>value.trim())??[]
  const isAdmin=user.data?.is_admin??false
  const canUseWorkplace=isAdmin||['Отдел внедрения','Разработка 1С'].some(department=>departments.includes(department))
+ const canUseTasks1c=isAdmin||['Отдел внедрения','Разработка 1С'].some(department=>departments.includes(department))
  const canUseTask1cErrors=isAdmin||departments.includes('Отдел внедрения')
  const canUseEmployeeMonthPlan=departments.includes('Отдел внедрения')
  const canUseBusinessPartners=isAdmin||departments.includes('Отдел сопровождения')
  const canUseWeeklyOv=canViewWeeklyOv({is_admin:isAdmin,department_name:user.data?.department_name})
  const isSupportEmployee=!isAdmin&&departments.includes('Отдел сопровождения')
- const employeePages=[...(isSupportEmployee?['analytics_support','gift_info']:['dashboard','bonus','deals','instruction','onboarding','time_report','saved_reports',...(canUseWorkplace?['workplace']:[]),...(canUseEmployeeMonthPlan?['employee_month_plan']:[]),...(canUseBusinessPartners?['analytics_support','gift_info']:[])]),...(canUseWeeklyOv?['analytics_weekly_ov']:[])]
+ const employeePages=[...(isSupportEmployee?['analytics_support','gift_info']:['dashboard','bonus','deals','instruction','onboarding','time_report','saved_reports',...(canUseWorkplace?['workplace']:[]),...(canUseEmployeeMonthPlan?['employee_month_plan']:[]),...(canUseBusinessPartners?['analytics_support','gift_info']:[])]),...(canUseTasks1c?['tasks_1c']:[]),...(canUseWeeklyOv?['analytics_weekly_ov']:[])]
  const fallbackPage=isSupportEmployee?'analytics_support':'dashboard'
  const effectivePage=user.data&&((!isAdmin&&!employeePages.includes(page))||(!canUseWorkplace&&page==='workplace')||(!canUseEmployeeMonthPlan&&page==='employee_month_plan')||(!canUseBusinessPartners&&['analytics_support','gift_info'].includes(page)))?fallbackPage:page
  useEffect(()=>{
@@ -918,16 +971,17 @@ export default function App(){
   if(window.location.pathname!==path)window.history.pushState(null,'',path)
   setPage(nextPage)
  }
- const content=({training_quality:<TrainingQualityPage/>,cr_start_analytics:<CrStartAnalyticsPage/>,monthly_rating:<MonthlyRatingPage/>,employee_efficiency:<EmployeeEfficiencyPage/>,dashboard:<Dashboard isAdmin={isAdmin} userId={user.data.id}/>,analytics_deals:<DealAnalytics/>,analytics_work:<DealsInWork/>,analytics_weekly_ov:<WeeklyOvReport/>,analytics_support:<SupportAnalysis/>,gift_info:<GiftInfo/>,cr_start_managers_report:<CrStartManagersReport/>,saved_reports:<ReportBuilder isAdmin={false}/>,report_builder:<ReportBuilder isAdmin/>,kpi:<KPI/>,bonus:<Bonuses isAdmin={isAdmin} userId={user.data.id}/>,deals:<Deals isAdmin={isAdmin} userId={user.data.id}/>,instruction:<InstructionPage/>,onboarding:<OnboardingPage isAdmin={isAdmin}/>,time_report:<TimeSpentReport isAdmin={isAdmin}/>,workplace:<Workplace isAdmin={isAdmin} canUseTask1cErrors={canUseTask1cErrors}/>,employee_month_plan:<EmployeeMonthPlanPage/>,admin_employee_month_plan:<AdminEmployeeMonthPlanPage/>,task_1c_check:<Task1CCheck/>,diagnostics:<Diagnostics/>,bitrix_fields:<BitrixFields/>,rules:<Rules/>,settings:<SettingsPage/>,sync:<Sync/>,fuel_card_bindings:<FuelCardBindingPage/>}[effectivePage]??<Dashboard isAdmin={isAdmin} userId={user.data.id}/>)
+ const content=({training_quality:<TrainingQualityPage/>,cr_start_analytics:<CrStartAnalyticsPage/>,monthly_rating:<MonthlyRatingPage/>,employee_efficiency:<EmployeeEfficiencyPage/>,dashboard:<Dashboard isAdmin={isAdmin} userId={user.data.id}/>,analytics_deals:<DealAnalytics/>,analytics_work:<DealsInWork/>,analytics_weekly_ov:<WeeklyOvReport/>,analytics_support:<SupportAnalysis/>,gift_info:<GiftInfo/>,cr_start_managers_report:<CrStartManagersReport/>,saved_reports:<ReportBuilder isAdmin={false}/>,report_builder:<ReportBuilder isAdmin/>,kpi:<KPI/>,bonus:<Bonuses isAdmin={isAdmin} userId={user.data.id}/>,deals:<Deals isAdmin={isAdmin} userId={user.data.id}/>,instruction:<InstructionPage/>,onboarding:<OnboardingPage isAdmin={isAdmin}/>,time_report:<TimeSpentReport isAdmin={isAdmin}/>,workplace:<Workplace isAdmin={isAdmin} canUseTask1cErrors={canUseTask1cErrors}/>,tasks_1c:<Tasks1CReport/>,employee_month_plan:<EmployeeMonthPlanPage/>,admin_employee_month_plan:<AdminEmployeeMonthPlanPage/>,task_1c_check:<Task1CCheck/>,diagnostics:<Diagnostics/>,bitrix_fields:<BitrixFields/>,rules:<Rules/>,settings:<SettingsPage/>,sync:<Sync/>,fuel_card_bindings:<FuelCardBindingPage/>}[effectivePage]??<Dashboard isAdmin={isAdmin} userId={user.data.id}/>)
  const businessPartnersMenu={key:'business_partners',icon:<FundOutlined/>,label:'Бизнес партнеры',children:[{key:'analytics_support',label:'Анализ по менеджерам'},{key:'gift_info',label:'Информация для подарков'}]}
  const weeklyOvMenu=canUseWeeklyOv?[{key:'analytics',icon:<FundOutlined/>,label:'Аналитика',children:[{key:'analytics_weekly_ov',label:'Еженедельный отчёт ОВ'}]}]:[]
- const employeeMenu=isSupportEmployee?[businessPartnersMenu,...weeklyOvMenu]:[
+ const employeeMenu=isSupportEmployee?[businessPartnersMenu,...(canUseTasks1c?[{key:'tasks_1c',icon:<FundOutlined/>,label:'Задачи по 1С'}]:[]),...weeklyOvMenu]:[
   {key:'dashboard',icon:<DashboardOutlined/>,label:'Главная'},
   ...(canUseWorkplace?[{key:'workplace',icon:<DesktopOutlined/>,label:'АРМ'}]:[]),
   ...(canUseEmployeeMonthPlan?[{key:'employee_month_plan',icon:<CalendarOutlined/>,label:'План на месяц'}]:[]),
   ...(canUseBusinessPartners?[businessPartnersMenu]:[]),
   {key:'bonus',icon:<FundOutlined/>,label:'Моя премия'},
   {key:'time_report',icon:<TrophyOutlined/>,label:'Отчёт по затраченному времени'},
+  ...(canUseTasks1c?[{key:'tasks_1c',icon:<FundOutlined/>,label:'Задачи по 1С'}]:[]),
   {key:'saved_reports',icon:<FundOutlined/>,label:'Отчёты'},
   ...weeklyOvMenu,
   {key:'deals',icon:<DatabaseOutlined/>,label:'Мои сделки'},
@@ -944,7 +998,7 @@ export default function App(){
   ...(canUseWorkplace?[{key:'workplace',icon:<DesktopOutlined/>,label:'АРМ'}]:[]),
   ...(canUseEmployeeMonthPlan?[{key:'employee_month_plan',icon:<CalendarOutlined/>,label:'План на месяц'}]:[]),
   {key:'bonus',icon:<FundOutlined/>,label:'Расчет премий'},{key:'deals',icon:<DatabaseOutlined/>,label:'Сделки'},
-  {key:'instruction',icon:<BookOutlined/>,label:'Инструкция'},{key:'onboarding',icon:<CheckCircleOutlined/>,label:'Адаптация'},{key:'time_report',icon:<TrophyOutlined/>,label:'Отчёт по затраченному времени'},
+  {key:'instruction',icon:<BookOutlined/>,label:'Инструкция'},{key:'onboarding',icon:<CheckCircleOutlined/>,label:'Адаптация'},{key:'time_report',icon:<TrophyOutlined/>,label:'Отчёт по затраченному времени'},{key:'tasks_1c',icon:<FundOutlined/>,label:'Задачи по 1С'},
   {key:'diagnostics',icon:<ExclamationCircleOutlined/>,label:'Диагностика'},{key:'bitrix_fields',icon:<DatabaseOutlined/>,label:'Поля Bitrix'},{key:'rules',icon:<SettingOutlined/>,label:'Правила'},
   {key:'service',icon:<SettingOutlined/>,label:'Служебные',children:[{key:'task_1c_check',label:'Проверка задач 1С'}]},
   {key:'settings',icon:<SettingOutlined/>,label:'\u041d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0438'},

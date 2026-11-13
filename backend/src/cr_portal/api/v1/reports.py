@@ -1,6 +1,6 @@
 from datetime import UTC, date, datetime, timedelta
-from io import BytesIO
 from decimal import Decimal
+from io import BytesIO
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
@@ -12,25 +12,46 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from cr_portal.api.deps import admin_user, current_user, db_session
+from cr_portal.core.config import settings as core_settings
 from cr_portal.models.deal import Deal
 from cr_portal.models.user import User
 from cr_portal.repositories.deals import DealRepository
 from cr_portal.schemas.dashboard import DashboardSummary, FunnelSummary, ResponsibleSummary
 from cr_portal.schemas.deals import DealResponse
-from cr_portal.schemas.time_report import TimeReport
-from cr_portal.schemas.task_1c_errors import Task1CErrorReport
 from cr_portal.schemas.task_1c_check import Task1CCheckExportRequest, Task1CCheckReport
+from cr_portal.schemas.task_1c_errors import Task1CErrorReport
+from cr_portal.schemas.task_1c_report import Task1CReport
+from cr_portal.schemas.time_report import TimeReport
 from cr_portal.services.app_settings import get_business_settings
 from cr_portal.services.cr_start_manager_report import cr_start_manager_report
-from cr_portal.services.employee_scope import employee_is_in_kpi_department
+from cr_portal.services.employee_scope import (
+    employee_is_in_department,
+    employee_is_in_kpi_department,
+)
 from cr_portal.services.subscriptions import subscription_deals_for_month
+from cr_portal.services.task_1c_check import task_1c_check_report
+from cr_portal.services.task_1c_errors import task_1c_errors_report
+from cr_portal.services.task_1c_report import task_1c_report
 from cr_portal.services.time_report import time_spent_report
 from cr_portal.services.time_report_export import time_report_excel
-from cr_portal.core.config import settings as core_settings
-from cr_portal.services.task_1c_errors import task_1c_errors_report
-from cr_portal.services.task_1c_check import task_1c_check_report
 
 router = APIRouter()
+
+
+async def task_1c_report_user(user=Depends(current_user)):
+    permitted_departments = ("Отдел внедрения", "Разработка 1С")
+    allowed = any(employee_is_in_department(user, name) for name in permitted_departments)
+    if not user.is_admin and not allowed:
+        raise HTTPException(status_code=403, detail="Task 1C report access required")
+    return user
+
+
+@router.get("/tasks-1c", response_model=Task1CReport)
+async def tasks_1c(
+    session: AsyncSession = Depends(db_session),
+    _user=Depends(task_1c_report_user),
+):
+    return await task_1c_report(session)
 
 
 @router.get("/cr-start-managers")

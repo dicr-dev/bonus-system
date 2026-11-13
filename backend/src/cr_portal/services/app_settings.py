@@ -5,10 +5,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from cr_portal.core.config import settings
 from cr_portal.models.app_settings import AppSetting
+from cr_portal.models.user import User
 
 
 @dataclass(slots=True)
 class BusinessSettings:
+    task_1c_report_user_ids: list[str]
     tech_integration_category_id: int | None
     implementation_category_id: int | None
     cr_start_category_id: int | None
@@ -51,6 +53,7 @@ class BusinessSettings:
 
 
 KEYS = {
+    "task_1c_report_user_ids": "BITRIX_TASK_1C_REPORT_USER_IDS",
     "task_training_yes_value": "BITRIX_TASK_TRAINING_YES_VALUE",
     "task_training_date_field": "BITRIX_TASK_TRAINING_DATE_FIELD",
     "overtime_project_id": "BITRIX_OVERTIME_PROJECT_ID",
@@ -124,12 +127,30 @@ def _to_int(value: str) -> int | None:
 async def ensure_app_settings(session: AsyncSession) -> dict[str, str]:
     rows = (await session.execute(select(AppSetting))).scalars().all()
     values = {row.key: row.value for row in rows}
+    report_users_key = KEYS["task_1c_report_user_ids"]
+    report_users_were_configured = report_users_key in values
 
-    for _, env_name in KEYS.items():
+    for env_name in KEYS.values():
         if env_name not in values:
             value = _env_default(env_name)
             session.add(AppSetting(key=env_name, value=value))
             values[env_name] = value
+
+    # Seed the initially agreed 1C developers once.  Subsequent edits are made
+    # solely by an administrator in settings and are never overwritten.
+    if not report_users_were_configured:
+        initial_names = {"Сергей Егорин", "Аниса Хасанова", "Руслан Имаев", "Николай Каштанов"}
+        initial_ids = [
+            str(user.id)
+            for user in (await session.execute(select(User))).scalars()
+            if user.full_name.strip() in initial_names
+        ]
+        if initial_ids:
+            value = ",".join(initial_ids)
+            row = await session.get(AppSetting, report_users_key)
+            if row is not None:
+                row.value = value
+            values[report_users_key] = value
 
     await session.flush()
     return values
@@ -142,6 +163,9 @@ async def get_business_settings(session: AsyncSession) -> BusinessSettings:
         return values.get(KEYS[field], "").strip()
 
     return BusinessSettings(
+        task_1c_report_user_ids=[
+            item.strip() for item in value("task_1c_report_user_ids").split(",") if item.strip()
+        ],
         task_training_yes_value=value("task_training_yes_value"),
         task_training_date_field=value("task_training_date_field") or "DEADLINE",
         overtime_project_id=_to_int(value("overtime_project_id")),
@@ -204,7 +228,7 @@ async def save_app_settings(session: AsyncSession, data: dict) -> BusinessSettin
             continue
 
         raw = data[field]
-        if field in {"cr_start_boolean_fields", "cr_start_implementation_modules"}:
+        if field in {"cr_start_boolean_fields", "cr_start_implementation_modules", "task_1c_report_user_ids"}:
             raw = ",".join(raw or []) if isinstance(raw, list) else str(raw or "")
         elif raw is None:
             raw = ""
