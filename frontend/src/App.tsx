@@ -10,7 +10,7 @@ import type { ColumnsType } from 'antd/es/table'
 import { useMutation,useQuery,useQueryClient } from '@tanstack/react-query'
 import { useEffect,useState } from 'react'
 import {canViewWeeklyOv} from './weeklyOvAccess'
-import {exportTimeReport} from './api'
+import {exportTimeReport,api} from './api'
 import SettingsPage from './SettingsPage'
 import SyncPage from './SyncPage'
 import EmployeeEfficiencyPage from './EmployeeEfficiencyPage'
@@ -878,8 +878,14 @@ function EmployeeMonthPlanPage(){
 }
 
 function AdminEmployeeMonthPlanPage(){
+ const [filtered,setFiltered]=useState<AdminEmployeeMonthPlanDeal[]|null>(null)
  const plan=useQuery({queryKey:['admin-employee-month-plan'],queryFn:getAdminEmployeeMonthPlan})
  const data=plan.data?.planned_deals??[]
+ useEffect(()=>setFiltered(null),[plan.data])
+ const visible=filtered??data
+ const sum=visible.reduce((total,row)=>total+Number(row.opportunity||0),0)
+ const integration=visible.reduce((total,row)=>total+Number(row.integration_amount||0),0)
+ const download=useMutation({mutationFn:()=>api.post('/employee-month-plan/admin/export',{keys:visible.map(row=>`${row.employee_id}-${row.id}`)},{responseType:'blob',timeout:120000}),onSuccess:response=>{const url=URL.createObjectURL(response.data);const a=document.createElement('a');a.href=url;a.download='employee_plans.xlsx';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)},onError:()=>message.error('Не удалось выгрузить планы сотрудников')})
  const filters=(field:keyof AdminEmployeeMonthPlanDeal)=>({filters:[...new Set(data.map(row=>String(row[field]??'—')))].sort((a,b)=>a.localeCompare(b,'ru')).map(value=>({text:value,value})),onFilter:(value:unknown,row:AdminEmployeeMonthPlanDeal)=>String(row[field]??'—')===String(value)})
  const columns:ColumnsType<AdminEmployeeMonthPlanDeal>=[
   {title:'Сотрудник',dataIndex:'employee_name',fixed:'left',sorter:(a,b)=>a.employee_name.localeCompare(b.employee_name,'ru'),...filters('employee_name')},
@@ -904,8 +910,8 @@ function AdminEmployeeMonthPlanPage(){
   {title:'Идентификатор компании в КР',dataIndex:'cr_company_id',sorter:(a,b)=>(a.cr_company_id||'').localeCompare(b.cr_company_id||''),...filters('cr_company_id'),render:value=>value||'—'}
  ]
  return <Space direction="vertical" size={24} style={{width:'100%'}}>
-  <Title level={2}>Планы сотрудников</Title>
-  <Card title={`План на ${plan.data?monthName(plan.data.month):'текущий месяц'}`}><Text type="secondary">Сортировка и фильтры доступны в заголовках каждого столбца.</Text><Table style={{marginTop:16}} rowKey={row=>`${row.employee_id}-${row.id}`} columns={columns} dataSource={data} loading={plan.isLoading} pagination={{pageSize:25}} scroll={{x:4400}}/></Card>
+  <Row justify="space-between" align="middle"><Title level={2}>Планы сотрудников</Title><Button icon={<DownloadOutlined/>} loading={download.isPending} disabled={!plan.data||plan.isFetching||plan.isError} onClick={()=>download.mutate()}>Выгрузить в Excel</Button></Row>
+  <Card title={`План на ${plan.data?monthName(plan.data.month):'текущий месяц'}`}><Space wrap><Text>Сумма: <Text strong>{rub(sum)}</Text></Text><Text>Сумма за интеграцию: <Text strong>{rub(integration)}</Text></Text><Text type="secondary">Итоги и Excel — по всем отфильтрованным строкам, не только текущей странице.</Text></Space><Table style={{marginTop:16}} rowKey={row=>`${row.employee_id}-${row.id}`} columns={columns} dataSource={data} loading={plan.isLoading} onChange={(_pagination,_filters,_sorter,extra)=>setFiltered(extra.currentDataSource)} pagination={{pageSize:25}} scroll={{x:4400}} summary={()=> <Table.Summary><Table.Summary.Row><Table.Summary.Cell index={0} colSpan={6}><Text strong>Итого</Text></Table.Summary.Cell><Table.Summary.Cell index={6} align="right">{rub(sum)}</Table.Summary.Cell><Table.Summary.Cell index={7} colSpan={8}/><Table.Summary.Cell index={15} align="right">{rub(integration)}</Table.Summary.Cell><Table.Summary.Cell index={16} colSpan={4}/></Table.Summary.Row></Table.Summary>}/></Card>
  </Space>
 }
 

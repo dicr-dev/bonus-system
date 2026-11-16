@@ -2,6 +2,10 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
+from io import BytesIO
+from pydantic import BaseModel, Field
+from fastapi.responses import StreamingResponse
+from cr_portal.services.employee_plan_export import employee_plan_excel
 
 from cr_portal.api.deps import admin_user, current_user, db_session
 from cr_portal.schemas.employee_month_plan import AdminEmployeeMonthPlan, EmployeeMonthPlan, EmployeeMonthPlanAdd
@@ -13,6 +17,17 @@ from cr_portal.services.employee_month_plan import (
 )
 
 router = APIRouter()
+
+
+class PlanExportInput(BaseModel):
+    keys: list[str] | None = Field(default=None, max_length=10000)
+
+
+@router.post('/admin/export')
+async def export_admin_plan(data: PlanExportInput, _admin=Depends(admin_user), session=Depends(db_session)):
+    plan=AdminEmployeeMonthPlan.model_validate(await admin_employee_month_plan(session))
+    content=employee_plan_excel(plan,data.keys)
+    return StreamingResponse(BytesIO(content),media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',headers={'Content-Disposition':f'attachment; filename="employee_plans_{plan.month}.xlsx"','Cache-Control':'no-store'})
 
 
 @router.get("/admin", response_model=AdminEmployeeMonthPlan)
