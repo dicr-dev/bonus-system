@@ -107,12 +107,26 @@ def usage_timeline(deal, history, first_date, now):
             transitions = [e for e in events if aware(e.occurred_at) >= first
                            and (aware(e.occurred_at).astimezone(MOSCOW).date() > first.date()
                                 or _stage_group(e.stage_title) in ("commercial", "lost"))]
-    for event in transitions:
+    def returns_to_commercial_before_loss(future_events):
+        for later in future_events:
+            later_group = _stage_group(later.stage_title)
+            if later_group == "commercial":
+                return True
+            if later_group == "lost":
+                return False
+        return False
+
+    for index, event in enumerate(transitions):
         when, group = aware(event.occurred_at), _stage_group(event.stage_title)
         if group == "commercial":
             if start is None:
                 start = when
         elif start is not None:
+            # A temporary return to a working stage can be produced by an
+            # erroneous/manual Bitrix move. If the deal returns to commercial
+            # use before any loss, preserve one continuous usage period.
+            if group == "working" and returns_to_commercial_before_loss(transitions[index + 1:]):
+                continue
             periods.append({"start": start, "end": when, "end_group": group,
                             "reason": event.stage_title})
             if group == "lost":

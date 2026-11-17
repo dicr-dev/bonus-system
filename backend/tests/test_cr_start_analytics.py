@@ -72,6 +72,18 @@ class AnalyticsTests(unittest.TestCase):
         self.assertEqual(data["totals"]["commercial_count"],1)
         self.assertEqual(row["stage_days"],30)
 
+    def test_transient_working_stage_between_commercial_stages_keeps_usage_continuous(self):
+        d=deal(stage_id="commercial",stage_title="Коммерческое использование")
+        events=[event(d,"2026-01-01","new","Новая",1),
+                event(d,"2026-01-02","commercial","Коммерческое использование",2),
+                event(d,"2026-02-02","working","Начали работать",3),
+                event(d,"2026-02-03","commercial","Неделя до продления подписки",4)]
+        row=build([d],events=events)["deals"][0]
+        self.assertTrue(row["history_reliable"])
+        self.assertEqual(len(row["periods"]),1)
+        self.assertEqual(row["usage_days"],120)
+        self.assertTrue(row["retention"]["1"])
+
     def test_lost_after_is_not_erased_from_historical_conversion(self):
         u=user()
         d=deal(u,stage_id="lost",stage_title="Слишком дорого")
