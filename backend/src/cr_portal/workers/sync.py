@@ -104,6 +104,7 @@ async def process_nightly_sync(redis: Redis) -> bool:
                 client,
                 updated_after=await redis.get(LAST_SUCCESS_KEY),
             )
+            stage_history_count = await sync_deal_stage_history(session, client)
             business = await get_business_settings(session)
             training_videos_count = await discover_training_videos(session, business.field_training_video)
             deal_finished_at = utc_now()
@@ -120,6 +121,7 @@ async def process_nightly_sync(redis: Redis) -> bool:
         nightly_result = {
             "users": users_count,
             "deals": deals_count,
+            "stage_history": stage_history_count,
             "training_videos_found": training_videos_count,
             **task_result,
             **task_1c_error_result,

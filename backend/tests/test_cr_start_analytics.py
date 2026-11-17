@@ -13,6 +13,7 @@ from openpyxl import load_workbook
 from cr_portal.api.deps import current_user, db_session
 from cr_portal.api.v1.cr_start_analytics import router, workbook
 from cr_portal.services.cr_start_analytics import build_cr_start_analytics, module_name
+from cr_portal.services.cr_start_manager_report import _stage_group
 
 
 def dt(value):
@@ -27,7 +28,7 @@ def deal(owner=None, **values):
     return Obj(**(dict(id=uuid4(), bitrix_id=100, funnel="cr_start", category_id=4,
                       implementation_responsible_user_id=owner.id if owner else None,
                       title="Company", stage_title="Период оплачен", stage_id="paid", module_name="Логистика",
-                      opportunity=1000, company_bitrix_id=42, company_name="Company",
+                      opportunity=1000, machines_count=0, company_bitrix_id=42, company_name="Company",
                       created_time=dt("2026-01-01T00:00:00"), raw_json=json.dumps({"START": "2026-01-02"})) | values))
 
 
@@ -54,10 +55,13 @@ def elapsed(id=1, task_id=10, author=1, when="2026-01-01T12:00:00", seconds=3600
 
 
 def build(deals, users=(), events=(), tasks=(), logs=(), **kw):
-    return build_cr_start_analytics(deals, users, events, tasks, logs, "START", now=dt("2026-05-02T00:00:00"), **kw)
+    return build_cr_start_analytics(deals, users, events, tasks, logs, "START", first_training_field="FIRST_TRAINING", now=dt("2026-05-02T00:00:00"), **kw)
 
 
 class AnalyticsTests(unittest.TestCase):
+    def test_partner_portal_is_not_a_commercial_stage(self):
+        self.assertIsNone(_stage_group("Партнерский ЛК"))
+
     def test_reconnections_exclude_break_and_commercial_stage_changes(self):
         u=user()
         d=deal(u)
@@ -95,6 +99,23 @@ class AnalyticsTests(unittest.TestCase):
         self.assertEqual(data["totals"]["conversion"],100)
         self.assertEqual(data["deals"][0]["usage_days"],31)
 
+    def test_ov_conversion_and_machine_groups_use_first_training_and_current_owner(self):
+        u=user()
+        deals=[
+            deal(u,bitrix_id=100,machines_count=1,raw_json=json.dumps({"START":"2026-01-02","FIRST_TRAINING":"2026-01-03"})),
+            deal(u,bitrix_id=101,machines_count=2),
+            deal(u,bitrix_id=102,machines_count=3,raw_json=json.dumps({"START":"2026-01-02","FIRST_TRAINING":"2026-01-03"})),
+            deal(u,bitrix_id=103,machines_count=4,raw_json=json.dumps({"START":"2026-01-02","FIRST_TRAINING":"2026-01-03"})),
+            deal(u,bitrix_id=104,machines_count=6),
+        ]
+        manager=build(deals,[u])["managers"][0]
+        self.assertEqual((manager["ov_count"],manager["ov_conversion"]),(3,60))
+        groups={row["machine_group"]:row for row in manager["machine_groups"]}
+        self.assertEqual((groups["1"]["deals_count"],groups["1"]["ov_count"],groups["1"]["ov_conversion"]),(1,1,100))
+        self.assertEqual((groups["2–3"]["deals_count"],groups["2–3"]["ov_count"],groups["2–3"]["ov_conversion"]),(2,1,50))
+        self.assertEqual((groups["4–5"]["deals_count"],groups["4–5"]["ov_count"],groups["4–5"]["ov_conversion"]),(1,1,100))
+        self.assertEqual((groups["6–10"]["deals_count"],groups["6–10"]["ov_count"],groups["6–10"]["ov_conversion"]),(1,0,0))
+
     def test_lost_before_date_comes_from_entry_into_loss_group_not_reason_edits(self):
         d=deal(stage_id="lost2",stage_title="Перестали отвечать",raw_json="{}")
         events=[event(d,"2026-01-01","new","Новая",1),event(d,"2026-01-04","lost","Слишком дорого",2),
@@ -127,6 +148,20 @@ class AnalyticsTests(unittest.TestCase):
         self.assertFalse(row["history_reliable"])
         self.assertIsNone(row["usage_days"])
 
+    def test_stage_id_mismatch_inside_commercial_or_working_group_is_not_an_error(self):
+        commercial=deal(stage_id="paid-current",stage_title="Период оплачен")
+        commercial_events=[event(commercial,"2026-01-01","new","Новая",1),
+                           event(commercial,"2026-01-02","commercial-old","Коммерческое использование",2)]
+        commercial_row=build([commercial],events=commercial_events)["deals"][0]
+        self.assertTrue(commercial_row["history_reliable"])
+        self.assertNotIn("Последняя стадия истории не совпадает с карточкой",commercial_row["warnings"])
+
+        working=deal(stage_id="working-current",stage_title="В работе",raw_json="{}")
+        working_events=[event(working,"2026-01-01","new","Новая",1),
+                        event(working,"2026-01-02","working-old","Начали работать",2)]
+        working_row=build([working],events=working_events)["deals"][0]
+        self.assertNotIn("Последняя стадия истории не совпадает с карточкой",working_row["warnings"])
+
     def test_same_day_loss_after_launch_is_a_real_period_boundary(self):
         d=deal(stage_id="lost",stage_title="Слишком дорого")
         events=history(d)[:2]
@@ -147,11 +182,33 @@ class AnalyticsTests(unittest.TestCase):
         self.assertFalse(row["history_reliable"])
         self.assertIsNone(row["usage_days"])
 
-    def test_late_history_and_future_start_have_no_usage_estimate(self):
+    def test_late_history_uses_commercial_start_and_future_start_has_no_usage_estimate(self):
         d=deal()
-        self.assertIsNone(build([d],events=history(d)[2:])["deals"][0]["usage_days"])
+        row=build([d],events=history(d)[2:])["deals"][0]
+        self.assertTrue(row["history_reliable"])
+        self.assertEqual(row["usage_days"],92)
         d.raw_json=json.dumps({"START":"2027-01-01"})
         self.assertIsNone(build([d],events=history(d))["deals"][0]["first_commercial_at"])
+
+    def test_field_date_remains_commercial_start_when_history_has_an_earlier_commercial_stage(self):
+        d=deal(raw_json=json.dumps({"START":"2026-01-03"}))
+        events=[event(d,"2026-01-01","new","Новая",1),
+                event(d,"2026-01-02","commercial","Коммерческое использование",2),
+                event(d,"2026-01-04","paid","Период оплачен",3)]
+        row=build([d],events=events)["deals"][0]
+        self.assertTrue(row["history_reliable"])
+        self.assertTrue(row["first_commercial_at"].startswith("2026-01-03"))
+        self.assertNotIn("В истории есть коммерческое использование раньше даты в поле",row["warnings"])
+
+    def test_commercial_start_before_creation_uses_creation_date(self):
+        d=deal(created_time=dt("2026-01-05T10:00:00"),raw_json=json.dumps({"START":"2026-01-01"}))
+        events=[event(d,"2026-01-05","new","Новая",1),
+                event(d,"2026-01-06","commercial","Коммерческое использование",2),
+                event(d,"2026-01-07","paid","Период оплачен",3)]
+        row=build([d],events=events)["deals"][0]
+        self.assertTrue(row["first_commercial_at"].startswith("2026-01-05"))
+        self.assertTrue(row["history_reliable"])
+        self.assertEqual(row["launch_days"],0)
 
     def test_duplicates_are_not_excluded_from_conversion_and_companies_are_unique(self):
         first=deal()

@@ -20,6 +20,7 @@ from cr_portal.services.employee_scope import employee_is_in_department
 
 MOSCOW = ZoneInfo("Europe/Moscow")
 MODULES = ("Логистика", "Топливный модуль", "Эксплуатация")
+MACHINE_GROUPS = (("1", 1, 1), ("2–3", 2, 3), ("4–5", 4, 5), ("6–10", 6, 10))
 
 
 def aware(value):
@@ -68,21 +69,20 @@ def usage_timeline(deal, history, first_date, now):
     current = _stage_group(deal.stage_title)
     if not events:
         warnings.append("Нет загруженной истории стадий")
-    if first and (first > now or (created and first.date() < created.astimezone(MOSCOW).date())):
-        warnings.append("Дата начала использования противоречит дате создания или находится в будущем")
+    if first and first > now:
+        warnings.append("Дата начала использования находится в будущем")
         first = None
+    elif first and created and first.date() < created.astimezone(MOSCOW).date():
+        first = datetime.combine(created.astimezone(MOSCOW).date(), time.min, MOSCOW)
     reached = first is not None or any(_stage_group(e.stage_title) == "commercial" for e in events)
     if reached and not first:
         warnings.append("Не заполнена корректная дата начала коммерческого использования")
     if current == "commercial" and not reached:
         warnings.append("Коммерческая стадия без даты начала и истории запуска")
         reached = True
-    if first and events and aware(events[0].occurred_at).astimezone(MOSCOW).date() > first.date():
-        warnings.append("История начинается позже даты первого использования")
-    if first and any(_stage_group(e.stage_title) == "commercial"
-                     and aware(e.occurred_at).astimezone(MOSCOW).date() < first.date() for e in events):
-        warnings.append("В истории есть коммерческое использование раньше даты в поле")
-    if events and events[-1].stage_id != deal.stage_id:
+    history_group = _stage_group(events[-1].stage_title) if events else None
+    if (events and events[-1].stage_id != deal.stage_id
+            and not (current in ("commercial", "working") and history_group == current)):
         warnings.append("Последняя стадия истории не совпадает с карточкой")
 
     periods = []
@@ -196,6 +196,8 @@ def metrics(rows):
         result[name + "_count"] = len(selected)
         result[name + "_amount"] = str(sum((Decimal(r["amount"]) for r in selected), Decimal(0)))
     result["conversion"] = number(100 * result["ever_commercial_count"] / len(rows)) if rows else None
+    result["ov_count"] = sum(row["first_training_at"] is not None for row in rows)
+    result["ov_conversion"] = number(100 * result["ov_count"] / len(rows)) if rows else None
     decisive = result["ever_commercial_count"] + result["lost_before_count"]
     result["resolved_conversion"] = number(100 * result["ever_commercial_count"] / decisive) if decisive else None
     for prefix, values in {
@@ -221,7 +223,7 @@ def metrics(rows):
     return result
 
 
-def build_cr_start_analytics(deals, users, history, tasks, elapsed, commercial_field, *, now=None,
+def build_cr_start_analytics(deals, users, history, tasks, elapsed, commercial_field, *, first_training_field=None, now=None,
                              employee_id=None, module=None):
     now = aware(now or datetime.now(UTC))
     users_by_id = {str(u.id): u for u in users}
@@ -247,11 +249,14 @@ def build_cr_start_analytics(deals, users, history, tasks, elapsed, commercial_f
         owner_user = users_by_id.get(owner)
         created = aware(deal.created_time)
         first = timeline["first"]
+        first_training = raw_date(deal, first_training_field) if first_training_field else None
         row = dict(id=str(deal.id), bitrix_id=deal.bitrix_id, title=deal.title,
-                   company_id=deal.company_bitrix_id, company=deal.company_name, module=module_name(deal),
+                   company_id=deal.company_bitrix_id, company=deal.company_name, machines_count=deal.machines_count or 0,
+                   module=module_name(deal),
                    owner_id=owner, owner_name=owner_user.full_name if owner_user else "Без ответственного за внедрение",
                    stage=deal.stage_title, group=_stage_group(deal.stage_title), amount=str(deal.opportunity or 0),
                    created_at=iso(created), first_commercial_at=iso(first), reached=timeline["reached"],
+                   first_training_at=iso(datetime.combine(first_training, time.min, MOSCOW)) if first_training else None,
                    launch_days=number(max(0, (first-created).total_seconds()/86400)) if first and created else None,
                    age_days=number((now-created).total_seconds()/86400) if created else None,
                    stage_days=number((now-timeline["stage_since"]).total_seconds()/86400) if timeline["stage_since"] else None,
@@ -381,6 +386,9 @@ def build_cr_start_analytics(deals, users, history, tasks, elapsed, commercial_f
         managers.append(dict(id=manager_id, name=user.full_name if user else "Без ответственного" if manager_id=="unassigned" else manager_id,
                              active=user.is_active if user else None, **metrics(owned), **work_stats(),
                              modules=[dict(module=mod, **metrics([r for r in owned if r["module"] == mod]), **work_stats(mod)) for mod in MODULES],
+                             machine_groups=[dict(machine_group=name, **metrics([
+                                 row for row in owned if minimum <= (row["machines_count"] or 0) <= maximum
+                             ])) for name, minimum, maximum in MACHINE_GROUPS],
                              deal_ids=[r["id"] for r in owned]))
     monthly = defaultdict(lambda: dict(created=0, first_launch=0, lost_before=0, departures=0, reconnections=0))
     cohorts = defaultdict(list)
@@ -442,5 +450,6 @@ async def cr_start_analytics(session, business, *, employee_id=None, module=None
             BitrixTaskElapsedItem.seconds)).where(
             BitrixTaskElapsedItem.task_bitrix_id.in_([t.bitrix_id for t in tasks[offset:offset+2000]])))).scalars().all())
     return build_cr_start_analytics(deals, users, history, tasks, elapsed,
-                                    business.field_cr_start_commercial_use_date, now=now,
+                                    business.field_cr_start_commercial_use_date,
+                                    first_training_field=business.field_first_training_date, now=now,
                                     employee_id=employee_id, module=module)
