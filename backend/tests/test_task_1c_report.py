@@ -7,7 +7,7 @@ from fastapi import FastAPI, HTTPException
 
 from cr_portal.api.deps import current_user, db_session
 from cr_portal.api.v1.reports import router
-from cr_portal.services.task_1c_report import _display_type
+from cr_portal.services.task_1c_report import _display_type, _type_labels
 
 
 class Task1CReportTests(unittest.IsolatedAsyncioTestCase):
@@ -49,6 +49,12 @@ class Task1CReportTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(_display_type(["Ошибка", "Доработка"]), "Ошибка, Доработка")
         self.assertEqual(_display_type({"VALUE": "Консультация"}), "Консультация")
         self.assertIsNone(_display_type(None))
+
+    def test_type_labels_resolve_multiple_values_from_metadata(self):
+        self.assertEqual(
+            _type_labels(["41", {"VALUE": "42"}], {"41": "Реализация интеграции", "42": "Доработка"}),
+            ["Реализация интеграции", "Доработка"],
+        )
 
 
 if __name__ == "__main__":

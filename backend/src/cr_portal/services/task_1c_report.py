@@ -1,7 +1,7 @@
 import json
 from collections import Counter
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from cr_portal.models.app_settings import AppSetting
@@ -11,9 +11,11 @@ from cr_portal.services.app_settings import get_business_settings
 from cr_portal.services.task_kpi import field_value
 
 TYPE_METADATA_KEY = "monthly_rating.task_type_metadata"
+INTEGRATION_TYPE_LABEL = "Реализация интеграции"
 
 
-def _display_type(value, labels: dict[str, str]) -> str | None:
+def _display_type(value, labels: dict[str, str] | None = None) -> str | None:
+    labels = labels or {}
     if value is None or value == "":
         return None
     if isinstance(value, dict):
@@ -37,6 +39,16 @@ def _labels(value: str) -> dict[str, str]:
     return {str(key): str(label) for key, label in labels.items()}
 
 
+def _type_labels(value, labels: dict[str, str]) -> list[str]:
+    if value is None or value == "":
+        return []
+    if isinstance(value, dict):
+        return _type_labels(value.get("VALUE") or value.get("value") or value.get("NAME") or value.get("name"), labels)
+    if isinstance(value, (list, tuple, set)):
+        return [label for item in value for label in _type_labels(item, labels)]
+    return [labels.get(str(value), str(value))]
+
+
 async def task_1c_report(session: AsyncSession) -> dict:
     business = await get_business_settings(session)
     cached_labels = await session.get(AppSetting, TYPE_METADATA_KEY)
@@ -48,15 +60,43 @@ async def task_1c_report(session: AsyncSession) -> dict:
             await session.execute(select(User).where(User.id.in_(selected_ids)))
         ).scalars().all()
     developers_by_bitrix_id = {user.bitrix_id: user for user in developers}
-    if not developers_by_bitrix_id:
-        return {"tasks": [], "developers": []}
-
-    tasks = (await session.execute(
-        select(BitrixTask).where(BitrixTask.responsible_bitrix_id.in_(developers_by_bitrix_id)).order_by(
+    tasks = []
+    if developers_by_bitrix_id:
+        tasks = (await session.execute(
+            select(BitrixTask).where(BitrixTask.responsible_bitrix_id.in_(developers_by_bitrix_id)).order_by(
+                BitrixTask.created_time.desc(), BitrixTask.bitrix_id.desc()
+            )
+        )).scalars().all()
+    integration_candidates = (await session.execute(
+        select(BitrixTask).where(or_(BitrixTask.status.is_(None), BitrixTask.status != 5)).order_by(
             BitrixTask.created_time.desc(), BitrixTask.bitrix_id.desc()
         )
     )).scalars().all()
-    user_ids = {task.creator_bitrix_id for task in tasks if task.creator_bitrix_id is not None}
+
+    def task_type(task: BitrixTask) -> str | None:
+        try:
+            payload = json.loads(task.raw_json or "{}")
+        except (TypeError, json.JSONDecodeError):
+            return None
+        return _display_type(field_value(payload, business.task_1c_type_field), labels)
+
+    def is_integration_task(task: BitrixTask) -> bool:
+        try:
+            payload = json.loads(task.raw_json or "{}")
+        except (TypeError, json.JSONDecodeError):
+            return False
+        return any(
+            label.strip().casefold() == INTEGRATION_TYPE_LABEL.casefold()
+            for label in _type_labels(field_value(payload, business.task_1c_type_field), labels)
+        )
+
+    integration_tasks = [task for task in integration_candidates if is_integration_task(task)]
+    user_ids = {
+        user_id
+        for task in [*tasks, *integration_tasks]
+        for user_id in (task.creator_bitrix_id, task.responsible_bitrix_id)
+        if user_id is not None
+    }
     users = []
     if user_ids:
         users = (
@@ -67,28 +107,27 @@ async def task_1c_report(session: AsyncSession) -> dict:
         for user in users
     }
     status_counts = Counter((task.responsible_bitrix_id, task.status) for task in tasks)
-    def task_type(task: BitrixTask) -> str | None:
-        try:
-            payload = json.loads(task.raw_json or "{}")
-        except (TypeError, json.JSONDecodeError):
-            return None
-        return _display_type(field_value(payload, business.task_1c_type_field), labels)
+
+    def report_item(task: BitrixTask, *, selected_developer: bool = False) -> dict:
+        return {
+            "task_bitrix_id": task.bitrix_id,
+            "title": task.title,
+            "group_id": task.group_id,
+            "responsible_bitrix_id": task.responsible_bitrix_id,
+            "creator_name": names.get(task.creator_bitrix_id),
+            "responsible_name": (
+                developers_by_bitrix_id[task.responsible_bitrix_id].full_name
+                if selected_developer and task.responsible_bitrix_id in developers_by_bitrix_id
+                else names.get(task.responsible_bitrix_id)
+            ),
+            "created_time": task.created_time,
+            "deadline": task.deadline,
+            "status": task.status,
+            "task_1c_type": task_type(task),
+        }
+
     return {
-        "tasks": [
-            {
-                "task_bitrix_id": task.bitrix_id,
-                "title": task.title,
-                "group_id": task.group_id,
-                "responsible_bitrix_id": task.responsible_bitrix_id,
-                "creator_name": names.get(task.creator_bitrix_id),
-                "responsible_name": developers_by_bitrix_id[task.responsible_bitrix_id].full_name,
-                "created_time": task.created_time,
-                "deadline": task.deadline,
-                "status": task.status,
-                "task_1c_type": task_type(task),
-            }
-            for task in tasks
-        ],
+        "tasks": [report_item(task, selected_developer=True) for task in tasks],
         "developers": [
             {
                 "user_id": str(user.id), "full_name": user.full_name,
@@ -99,4 +138,5 @@ async def task_1c_report(session: AsyncSession) -> dict:
             }
             for user in sorted(developers, key=lambda item: item.full_name.casefold())
         ],
+        "integration_tasks": [report_item(task) for task in integration_tasks],
     }

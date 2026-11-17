@@ -1,5 +1,5 @@
 ﻿import {
-  BookOutlined,CheckCircleOutlined,CloudSyncOutlined,DashboardOutlined,DatabaseOutlined,DownloadOutlined,
+  BookOutlined,CheckCircleOutlined,DashboardOutlined,DatabaseOutlined,DownloadOutlined,
   CalendarOutlined,DesktopOutlined,ExclamationCircleOutlined,FundOutlined,ReloadOutlined,SettingOutlined,TrophyOutlined
 } from '@ant-design/icons'
 import {
@@ -611,7 +611,7 @@ function Tasks1CReport(){
  const [filters,setFilters]=useState(()=>{try{return JSON.parse(localStorage.getItem('tasks-1c-filters')||'{}')}catch{return {}}})
  const updateFilters=(value:Record<string,unknown>)=>setFilters((current:Record<string,unknown>)=>({...current,...value}))
  useEffect(()=>{localStorage.setItem('tasks-1c-filters',JSON.stringify(filters))},[filters])
- const statuses:Record<number,string>={2:'Ждёт выполнения',3:'Выполняется',4:'Ждёт контроля',5:'Завершена'}
+ const statuses:Record<number,string>={1:'Новая',2:'Ждёт выполнения',3:'Выполняется',4:'Ждёт контроля',5:'Завершена',6:'Отложена'}
  const dateInRange=(value:string|null,from:string,to:string)=>{const date=value?.slice(0,10)||'';return (!from||date>=from)&&(!to||date<=to)}
  const users=[...new Set((report.data?.tasks??[]).flatMap(row=>[row.creator_name,row.responsible_name]).filter(Boolean) as string[])].sort((a,b)=>a.localeCompare(b,'ru'))
  const tasks=(report.data?.tasks??[]).filter(row=>
@@ -637,6 +637,9 @@ function Tasks1CReport(){
  ]
  return <Space direction="vertical" size={24} style={{width:'100%'}}>
   <Title level={2}>Задачи по 1С</Title>
+  <Card title={`Интеграции (${report.data?.integration_tasks.length??0})`}>
+   <Table rowKey="task_bitrix_id" columns={columns} dataSource={report.data?.integration_tasks??[]} loading={report.isLoading} pagination={false} scroll={{x:1440}}/>
+  </Card>
   <Card title="Аналитика по разработчикам"><Table rowKey="user_id" pagination={false} dataSource={report.data?.developers??[]} loading={report.isLoading} scroll={{x:850}} columns={[
    {title:'Разработчик',dataIndex:'full_name',width:240},{title:'Надо сделать',dataIndex:'todo',align:'center'},{title:'В работе',dataIndex:'in_progress',align:'center'},{title:'Ждёт контроля',dataIndex:'awaiting_review',align:'center'},{title:'Выполнено',dataIndex:'completed',align:'center'}
   ]}/></Card>
@@ -987,9 +990,8 @@ export default function App(){
   ...(canUseEmployeeMonthPlan?[{key:'employee_month_plan',icon:<CalendarOutlined/>,label:'План на месяц'}]:[]),
   ...(canUseBusinessPartners?[businessPartnersMenu]:[]),
   ...(!is1cEmployee?[{key:'bonus',icon:<FundOutlined/>,label:'Моя премия'}]:[]),
-  {key:'time_report',icon:<TrophyOutlined/>,label:'Отчёт по затраченному времени'},
   ...(canUseTasks1c?[{key:'tasks_1c',icon:<FundOutlined/>,label:'Задачи по 1С'}]:[]),
-  {key:'saved_reports',icon:<FundOutlined/>,label:'Отчёты'},
+  {key:'reports',icon:<FundOutlined/>,label:'Отчёты',children:[{key:'time_report',label:'Отчёт по затраченному времени'},{key:'saved_reports',label:'Сохранённые отчёты'}]},
   ...weeklyOvMenu,
   ...(!is1cEmployee?[
    {key:'deals',icon:<DatabaseOutlined/>,label:'Мои сделки'},
@@ -1000,18 +1002,16 @@ export default function App(){
  const adminMenu=[
   {key:'dashboard',icon:<DashboardOutlined/>,label:'Главная'},{key:'kpi',icon:<TrophyOutlined/>,label:'KPI отдела'},
   {key:'analytics',icon:<FundOutlined/>,label:'Аналитика',children:[{key:'training_quality',label:'Качество обучений'},{key:'cr_start_analytics',label:'CR Start — менеджеры'},{key:'monthly_rating',label:'Рейтинг за месяц'},{key:'employee_efficiency',label:'Эффективность сотрудников'},{key:'analytics_deals',label:'Аналитика по сделкам'},{key:'analytics_work',label:'Сделки в работе'},{key:'analytics_weekly_ov',label:'Еженедельный отчёт ОВ'}]},
-  {key:'reports',icon:<FundOutlined/>,label:'Отчеты',children:[{key:'cr_start_managers_report',label:'CR Start отчет по менеджерам'},{key:'report_builder',label:'Конструктор отчётов'}]},
+  {key:'reports',icon:<FundOutlined/>,label:'Отчеты',children:[{key:'time_report',label:'Отчёт по затраченному времени'},{key:'cr_start_managers_report',label:'CR Start отчет по менеджерам'},{key:'report_builder',label:'Конструктор отчётов'}]},
   businessPartnersMenu,
   {key:'logistics',icon:<DatabaseOutlined/>,label:'CR Логистика',children:[{key:'fuel_card_bindings',label:'Привязка топливных карт'}]},
   {key:'admin_employee_month_plan',icon:<CalendarOutlined/>,label:'Планы сотрудников'},
   ...(canUseWorkplace?[{key:'workplace',icon:<DesktopOutlined/>,label:'АРМ'}]:[]),
   ...(canUseEmployeeMonthPlan?[{key:'employee_month_plan',icon:<CalendarOutlined/>,label:'План на месяц'}]:[]),
   {key:'bonus',icon:<FundOutlined/>,label:'Расчет премий'},{key:'deals',icon:<DatabaseOutlined/>,label:'Сделки'},
-  {key:'instruction',icon:<BookOutlined/>,label:'Инструкция'},{key:'onboarding',icon:<CheckCircleOutlined/>,label:'Адаптация'},{key:'time_report',icon:<TrophyOutlined/>,label:'Отчёт по затраченному времени'},{key:'tasks_1c',icon:<FundOutlined/>,label:'Задачи по 1С'},
-  {key:'diagnostics',icon:<ExclamationCircleOutlined/>,label:'Диагностика'},{key:'bitrix_fields',icon:<DatabaseOutlined/>,label:'Поля Bitrix'},{key:'rules',icon:<SettingOutlined/>,label:'Правила'},
-  {key:'service',icon:<SettingOutlined/>,label:'Служебные',children:[{key:'task_1c_check',label:'Проверка задач 1С'}]},
-  {key:'settings',icon:<SettingOutlined/>,label:'\u041d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0438'},
-  {key:'sync',icon:<CloudSyncOutlined/>,label:'Синхронизация'}
+  {key:'instruction',icon:<BookOutlined/>,label:'Инструкция'},{key:'onboarding',icon:<CheckCircleOutlined/>,label:'Адаптация'},{key:'tasks_1c',icon:<FundOutlined/>,label:'Задачи по 1С'},
+  {key:'diagnostics',icon:<ExclamationCircleOutlined/>,label:'Диагностика'},{key:'rules',icon:<SettingOutlined/>,label:'Правила'},
+  {key:'service',icon:<SettingOutlined/>,label:'Служебные',children:[{key:'task_1c_check',label:'Проверка задач 1С'},{key:'sync',label:'Синхронизация'},{key:'bitrix_fields',label:'Поля Bitrix'},{key:'settings',label:'Настройки'}]}
  ]
  return <Layout className="app-layout">
   <Sider breakpoint="lg" collapsedWidth={0} width={240} className="app-sider">

@@ -21,7 +21,7 @@ export interface Task1CCheckItem { task_bitrix_id:number; title:string; group_id
 export interface Task1CCheckReport { tasks:Task1CCheckItem[] }
 export interface Task1CReportItem { task_bitrix_id:number; title:string; group_id:number|null; responsible_bitrix_id:number|null; creator_name:string|null; responsible_name:string|null; created_time:string|null; deadline:string|null; status:number|null; task_1c_type:string|null }
 export interface Task1CDeveloperSummary { user_id:string; full_name:string; todo:number; in_progress:number; awaiting_review:number; completed:number }
-export interface Task1CReport { tasks:Task1CReportItem[]; developers:Task1CDeveloperSummary[] }
+export interface Task1CReport { tasks:Task1CReportItem[]; developers:Task1CDeveloperSummary[]; integration_tasks:Task1CReportItem[] }
 export interface AnalyticsDeal { id:string; bitrix_id:number; title:string; funnel:string; status:string; stage_title:string|null; created_time:string|null; closed_time:string|null; manager_name:string|null }
 export interface DealGroup { key:string; company_id:number|null; company_name:string; module_name:string|null; client_status:string; tech:AnalyticsDeal|null; implementation:AnalyticsDeal|null; support:AnalyticsDeal|null; tech_months:number|null; implementation_months:number|null; subscription_months:number|null }
 export interface DealGroupIssue { type:string; title:string; child_deals:AnalyticsDeal[]; parent:AnalyticsDeal|null; candidates:AnalyticsDeal[] }
@@ -207,6 +207,7 @@ export interface AppSettings {
   field_second_training_date:string
   field_reports_training_date:string
   field_cr_company_id:string
+  field_training_video:string
   field_gift_decision_maker:string
   field_gift_location:string
   field_gift_courier_contact:string

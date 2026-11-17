@@ -43,6 +43,7 @@ class AppSettingsPayload(BaseModel):
     field_second_training_date: str = "ufCrm_1636966749"
     field_reports_training_date: str = "ufCrm_1636966700"
     field_cr_company_id: str = "ufCrm_1737441008"
+    field_training_video: str = "ufCrm_1792493850244"
     field_gift_decision_maker: str = ""
     field_gift_location: str = ""
     field_gift_courier_contact: str = ""

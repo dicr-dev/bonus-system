@@ -9,10 +9,10 @@ from cr_portal.models.onboarding import OnboardingAssignment, OnboardingPlanSect
 from cr_portal.models.task import BitrixTask, BitrixTaskElapsedItem
 from cr_portal.models.reporting import DealStageHistory, ReportField, SavedReport
 from cr_portal.models.user import User
-from cr_portal.models.training import TrainingReview, TrainingRubric, TrainingSession
+from cr_portal.models.training import TrainingReview, TrainingRubric, TrainingSession, TrainingVideo
 
 __all__ = [
-    "TrainingReview", "TrainingRubric", "TrainingSession",
+    "TrainingReview", "TrainingRubric", "TrainingSession", "TrainingVideo",
     "User",
     "Deal",
     "EmployeeMonthlyDealPlan",

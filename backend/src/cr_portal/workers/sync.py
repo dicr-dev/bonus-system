@@ -17,6 +17,8 @@ from cr_portal.services.bonus import calculate_month
 from cr_portal.services.monthly_rating import refresh_type_metadata
 from cr_portal.services.report_builder import refresh_report_fields
 from cr_portal.services.sync_jobs import HEARTBEAT_PREFIX
+from cr_portal.services.app_settings import get_business_settings
+from cr_portal.services.training_videos import discover as discover_training_videos
 from cr_portal.services.task_metadata_backfill import backfill_task_metadata
 from cr_portal.services.task_sync import (
     sync_reporting_tasks,
@@ -102,6 +104,8 @@ async def process_nightly_sync(redis: Redis) -> bool:
                 client,
                 updated_after=await redis.get(LAST_SUCCESS_KEY),
             )
+            business = await get_business_settings(session)
+            training_videos_count = await discover_training_videos(session, business.field_training_video)
             deal_finished_at = utc_now()
             await redis.set(LAST_SUCCESS_KEY, deal_finished_at)
             task_result = await sync_tasks(
@@ -116,6 +120,7 @@ async def process_nightly_sync(redis: Redis) -> bool:
         nightly_result = {
             "users": users_count,
             "deals": deals_count,
+            "training_videos_found": training_videos_count,
             **task_result,
             **task_1c_error_result,
             "finished_at": finished_at,

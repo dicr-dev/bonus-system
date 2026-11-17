@@ -36,6 +36,8 @@ export async function confirmTrainingReview(id:string,reviewId:string):Promise<T
 export async function createTrainingRubric(data:{title:string; criteria:TrainingCriterion[]}):Promise<TrainingRubric>{return (await api.post('/training/rubrics',data)).data}
 export interface TrainingRatingRow {trainer_id:string; trainer_name:string; module:string; training_number:number; count:number; unscored:number; average:number|string|null}
 export async function trainingRating(params:{rubric_id:string; date_from?:string; date_to?:string}):Promise<{rubric:TrainingRubric; items:TrainingRatingRow[]}>{return (await api.get('/training/rating',{params})).data}
+export async function crStartTrainingRegistry(params:{status?:string;q?:string}){return (await api.get('/training/cr-start-registry',{params})).data as {deal_id:string;bitrix_id:number;title:string;module:string|null;stage:string|null;status:string;source:string|null;error:string|null;updated_at:string|null}[]}
+export async function submitCrStartTrainingVideo(dealId:string){return (await api.post(`/training/cr-start-registry/${dealId}/submit`)).data}
 export function trainingPromptUrl(id:string,rubricId:string){return `/api/v1/training/sessions/${id}/prompt?rubric_id=${encodeURIComponent(rubricId)}`}
 export function trainingFileUrl(id:string){return `/api/v1/training/sessions/${id}/file`}
 

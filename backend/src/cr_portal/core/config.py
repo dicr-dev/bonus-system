@@ -30,6 +30,9 @@ class Settings(BaseSettings):
     BITRIX_CLIENT_SECRET: str = ""
     BITRIX_REDIRECT_URI: str = ""
     BITRIX_WEBHOOK_URL: str = ""
+    MYMEET_API_KEY: str = ""
+    MYMEET_WEBHOOK_URL: str = ""
+    MYMEET_WEBHOOK_SECRET: str = ""
 
     # Business parameters below are kept only as migration/bootstrap fallback.
     # After the first request they are copied into app_settings and can be
@@ -63,6 +66,7 @@ class Settings(BaseSettings):
     BITRIX_FIELD_SECOND_TRAINING_DATE: str = "ufCrm_1636966749"
     BITRIX_FIELD_REPORTS_TRAINING_DATE: str = "ufCrm_1636966700"
     BITRIX_FIELD_CR_COMPANY_ID: str = "ufCrm_1737441008"
+    BITRIX_FIELD_TRAINING_VIDEO: str = "ufCrm_1792493850244"
 
     @field_validator(
         "BITRIX_TECH_INTEGRATION_CATEGORY_ID",

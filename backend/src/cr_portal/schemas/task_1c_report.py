@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class Task1CReportItem(BaseModel):
@@ -28,3 +28,4 @@ class Task1CDeveloperSummary(BaseModel):
 class Task1CReport(BaseModel):
     tasks: list[Task1CReportItem]
     developers: list[Task1CDeveloperSummary]
+    integration_tasks: list[Task1CReportItem] = Field(default_factory=list)

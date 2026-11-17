@@ -65,6 +65,7 @@ function BitrixSettings(){
     <Col xs={24} md={12}><Form.Item name="field_second_training_date" label="Дата второго обучения"><Input/></Form.Item></Col>
     <Col xs={24} md={12}><Form.Item name="field_reports_training_date" label="Дата обучения руководства по работе с отчетами"><Input/></Form.Item></Col>
     <Col xs={24} md={12}><Form.Item name="field_cr_company_id" label="Идентификатор компании в КР"><Input/></Form.Item></Col>
+    <Col xs={24} md={12}><Form.Item name="field_training_video" label="CR Start: ссылка на видео обучения"><Input placeholder="ufCrm_..."/></Form.Item></Col>
     <Col xs={24} md={12}><Form.Item name="field_gift_decision_maker" label="ЛПР (для информации о подарках)"><Input placeholder="ufCrm_..."/></Form.Item></Col>
     <Col xs={24} md={12}><Form.Item name="field_gift_location" label="Местонахождение клиента (насел. пункт)"><Input placeholder="ufCrm_..."/></Form.Item></Col>
     <Col xs={24} md={12}><Form.Item name="field_gift_courier_contact" label="Контактное лицо для курьера"><Input placeholder="ufCrm_..."/></Form.Item></Col>

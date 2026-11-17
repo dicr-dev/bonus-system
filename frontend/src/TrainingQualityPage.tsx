@@ -7,6 +7,8 @@ import {
  confirmTrainingReview,createTrainingRubric,inspectTraining,parseTrainingAssessment,saveTrainingReview,
  searchTrainingDeals,trainingDetails,trainingFileUrl,trainingOptions,trainingPromptUrl,trainingRating,
  trainingSessions,uploadTraining,
+ crStartTrainingRegistry,
+ submitCrStartTrainingVideo,
 } from './trainingApi'
 import type {ExtractionInfo,Training,TrainingCriterion,TrainingOptions,TrainingReview} from './trainingApi'
 
@@ -55,7 +57,7 @@ function AddTraining({deal,options,onAdded,onCancel}:{deal?:{id:string; title:st
     <Form.Item name="training_number" label="Номер обучения" rules={[{required:true}]}><Select style={{width:160}} options={[1,2,3].map(value=>({value,label:`Обучение ${value}`}))}/></Form.Item>
    </Space>
    <Form.Item name="module" label="Модуль (единое название для сравнения в рейтинге)" rules={[{required:true,max:255}]}>
-    <Select showSearch options={['Логистика','Эксплуатация','Топливный модуль','Загрузки','КР Старт ТМ','КР Старт Эксплуатация'].map(value=>({value,label:value}))}/>
+    <Select showSearch options={['Логистика','Эксплуатация','Топливный модуль','Загрузки','КР Старт','КР Старт ТМ','КР Старт Эксплуатация'].map(value=>({value,label:value}))}/>
    </Form.Item>
    <Form.Item label="Транскрибация DOCX, до 10 МБ" required>
     <input type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" disabled={inspect.isPending||upload.isPending} onChange={e=>chooseFile(e.target.files?.[0]??null)}/>
@@ -195,6 +197,15 @@ function Rating({options}:{options:TrainingOptions}){
  </Space>
 }
 
+function CrStartRegistry(){
+ const [status,setStatus]=useState<string>(); const [q,setQ]=useState('')
+ const qc=useQueryClient()
+ const data=useQuery({queryKey:['cr-start-training-registry',status,q],queryFn:()=>crStartTrainingRegistry({status,q})})
+ const submit=useMutation({mutationFn:submitCrStartTrainingVideo,onSuccess:()=>{message.success('Видео отправлено в MyMeet');void qc.invalidateQueries({queryKey:['cr-start-training-registry']})},onError:e=>message.error(errorText(e))})
+ const names:Record<string,string>={manual:'Ручной транскрипт',waiting_video:'Нет видео',found:'Найдено видео',queued:'В очереди MyMeet',processing:'Обрабатывается',ready:'Транскрипт получен',needs_trainer:'Требует указания тренера',failed:'Ошибка'}
+ return <Space direction="vertical" style={{width:'100%'}}><Space wrap><Input.Search allowClear placeholder="Название или ID сделки" onSearch={setQ} onChange={e=>!e.target.value&&setQ('')} style={{width:320}}/><Select allowClear placeholder="Все статусы" value={status} onChange={setStatus} style={{width:240}} options={Object.entries(names).map(([value,label])=>({value,label}))}/></Space><Table rowKey="deal_id" dataSource={data.data??[]} loading={data.isLoading} pagination={{pageSize:25}} columns={[{title:'Сделка',render:(_:unknown,row)=> <BitrixLink href={dealUrl(row.bitrix_id)}>{row.bitrix_id} — {row.title}</BitrixLink>},{title:'Модуль',dataIndex:'module'},{title:'Стадия',dataIndex:'stage'},{title:'Источник',dataIndex:'source',render:v=>v==='manual'?'Вручную':v==='mymeet'?'MyMeet':'—'},{title:'Статус',dataIndex:'status',render:v=><Tag>{names[v]||v}</Tag>},{title:'Ошибка',dataIndex:'error'},{title:'',render:(_:unknown,row)=>['found','failed'].includes(row.status)?<Button size="small" type="primary" loading={submit.isPending} onClick={()=>submit.mutate(row.deal_id)}>Отправить в MyMeet</Button>:null}]}/></Space>
+}
+
 export default function TrainingQualityPage(){
  const options=useQuery({queryKey:['training-options'],queryFn:trainingOptions})
  return <Space direction="vertical" size={20} style={{width:'100%'}}>
@@ -202,6 +213,7 @@ export default function TrainingQualityPage(){
   <Text type="secondary">Только для администратора. DOCX хранится в приложении; работа с ChatGPT — вручную.</Text>
   {options.isError&&<Alert type="error" message={errorText(options.error)}/>}
   <Tabs items={[
+   {key:'cr-start',label:'CR Start — видео',children:<CrStartRegistry/>},
    {key:'trainings',label:'Обучения и транскрибации',children:<TrainingWorkspace/>},
    {key:'rating',label:'Рейтинг сотрудников',children:options.data?<Rating options={options.data}/>:<Card loading/>},
    {key:'rubrics',label:'Критерии оценки',children:options.data?<RubricEditor options={options.data}/>:<Card loading/>},

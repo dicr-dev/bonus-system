@@ -447,6 +447,7 @@ async def sync_deals(
         business.field_second_training_date,
         business.field_reports_training_date,
         business.field_cr_company_id,
+        business.field_training_video,
         business.field_gift_decision_maker,
         business.field_gift_location,
         business.field_gift_courier_contact,

@@ -8,15 +8,33 @@ from fastapi.responses import Response
 from pydantic import ValidationError
 from sqlalchemy import func, or_, select
 
-from cr_portal.api.deps import admin_user, db_session
+from cr_portal.api.deps import admin_user, bitrix_client, db_session
 from cr_portal.models.deal import Deal
 from cr_portal.models.training import TrainingReview, TrainingRubric, TrainingSession
 from cr_portal.models.user import User
 from cr_portal.schemas.training import ReviewInput, RubricInput, TrainingInput
 from cr_portal.services import training as service
+from cr_portal.services import training_videos
+from cr_portal.services.app_settings import get_business_settings
 from cr_portal.services.employee_scope import employee_is_in_department
 
 router = APIRouter(dependencies=[Depends(admin_user)])
+
+
+@router.get("/cr-start-registry")
+async def cr_start_registry(status: str | None = None, q: str = "", session=Depends(db_session)):
+    business = await get_business_settings(session)
+    await training_videos.discover(session, business.field_training_video)
+    return await training_videos.registry(session, status=status, query=q)
+
+
+@router.post("/cr-start-registry/{deal_id}/submit")
+async def submit_cr_start_video(deal_id: UUID, session=Depends(db_session), client=Depends(bitrix_client)):
+    try:
+        item = await training_videos.submit_to_mymeet(session, client, deal_id)
+        return {"status": item.status, "mymeet_id": item.mymeet_id}
+    except ValueError as error:
+        raise HTTPException(422, str(error)) from error
 
 
 def review_dict(item):
