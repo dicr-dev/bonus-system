@@ -422,6 +422,9 @@ def build_cr_start_analytics(deals, users, history, tasks, elapsed, commercial_f
         warnings.append(f"Исключено часов по недоступным карточкам задач: {number(excluded_seconds/3600):g}; задач: {unavailable_count}. История сохранена; подробности в ошибках качества данных.")
     return dict(as_of=iso(now), managers=sorted(managers, key=lambda r: (not r["active"], r["name"].casefold())), deals=rows,
                 totals=metrics(rows), modules=[dict(module=mod, **metrics([r for r in rows if r["module"]==mod])) for mod in MODULES],
+                machine_groups=[dict(machine_group=name, **metrics([
+                    row for row in rows if minimum <= (row["machines_count"] or 0) <= maximum
+                ])) for name, minimum, maximum in MACHINE_GROUPS],
                 monthly=[dict(month=month, **values) for month, values in sorted(monthly.items())],
                 cohorts=[dict(month=month, **metrics(values)) for month, values in sorted(cohorts.items())],
                 losses=[dict(owner_id=key[0], owner_name=key[1], module=key[2], reason=key[3], after_commercial=key[4],

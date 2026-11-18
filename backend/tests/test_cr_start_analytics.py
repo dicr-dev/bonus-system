@@ -111,10 +111,12 @@ class AnalyticsTests(unittest.TestCase):
         manager=build(deals,[u])["managers"][0]
         self.assertEqual((manager["ov_count"],manager["ov_conversion"]),(3,60))
         groups={row["machine_group"]:row for row in manager["machine_groups"]}
+        report_groups={row["machine_group"]:row for row in build(deals,[u])["machine_groups"]}
         self.assertEqual((groups["1"]["deals_count"],groups["1"]["ov_count"],groups["1"]["ov_conversion"]),(1,1,100))
         self.assertEqual((groups["2–3"]["deals_count"],groups["2–3"]["ov_count"],groups["2–3"]["ov_conversion"]),(2,1,50))
         self.assertEqual((groups["4–5"]["deals_count"],groups["4–5"]["ov_count"],groups["4–5"]["ov_conversion"]),(1,1,100))
         self.assertEqual((groups["6–10"]["deals_count"],groups["6–10"]["ov_count"],groups["6–10"]["ov_conversion"]),(1,0,0))
+        self.assertEqual((report_groups["2–3"]["deals_count"],report_groups["2–3"]["conversion"]),(2,100))
 
     def test_lost_before_date_comes_from_entry_into_loss_group_not_reason_edits(self):
         d=deal(stage_id="lost2",stage_title="Перестали отвечать",raw_json="{}")
