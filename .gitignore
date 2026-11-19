@@ -12,3 +12,11 @@ __pycache__/
 .coverage
 htmlcov/
 *.log
+training-assessment-*.json
+/outputs/
+/uploads/
+**/uploads/
+*.xlsx
+*.xls
+*.xlsm
+*.xlsb
