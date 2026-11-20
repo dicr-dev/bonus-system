@@ -4,7 +4,7 @@ import type { AdminEmployeeMonthPlan,AppSettings,BitrixDealField,Calculation,Cal
 
 export const api=axios.create({baseURL:'/api/v1',withCredentials:true,timeout:30000})
 export async function getEmployeeEfficiency(params:EfficiencyFilters):Promise<EmployeeEfficiencyReport>{return (await api.get('/analytics/employee-efficiency',{params})).data}
-export async function getDistributionPending():Promise<{items:import('./types').DistributionDeal[]}>{return (await api.get('/distribution/pending')).data}
+export async function getDistributionPending():Promise<{items:import('./types').DistributionDeal[],employees:import('./types').DistributionCandidate[]}>{return (await api.get('/distribution/pending')).data}
 export async function assignDistribution(dealId:string,userId:string){return (await api.post(`/distribution/${dealId}/assign`,{user_id:userId})).data}
 export function employeeEfficiencyExcelUrl(params:EfficiencyFilters){const query=new URLSearchParams(Object.entries(params).filter(([,value])=>value!==undefined).map(([key,value])=>[key,String(value)]));return `/api/v1/analytics/employee-efficiency/export?${query}`}
 export async function login(login:string,password:string){return (await api.post('/auth/login',{login,password})).data}

@@ -48,7 +48,7 @@ async def pending(session: AsyncSession = Depends(db_session), _admin=Depends(ad
     users = list((await session.execute(select(User))).scalars())
     business = await get_business_settings(session)
     roster_ids = {UUID(value) for value in business.distribution_employee_ids}
-    return {"items": [{
+    return {"employees": distribution_candidates(None, all_deals, users, roster_ids=roster_ids), "items": [{
         "id": str(deal.id), "bitrix_id": deal.bitrix_id, "title": deal.title,
         "funnel": deal.funnel, "company_name": deal.company_name, "integration_1c": deal.integration_1c,
         "candidates": distribution_candidates(deal, all_deals, users, roster_ids=roster_ids),
