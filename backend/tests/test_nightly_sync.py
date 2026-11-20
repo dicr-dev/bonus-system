@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, patch
 from cr_portal.services.task_sync import task_sync_window
 from cr_portal.workers.sync import (
     NIGHTLY_LAST_RESULT_KEY,
+    deal_sync_cutoff,
     daily_calculation_due,
     nightly_sync_due,
     process_nightly_sync,
@@ -15,6 +16,13 @@ from cr_portal.workers.sync import (
 
 
 class NightlySyncTests(unittest.IsolatedAsyncioTestCase):
+    def test_bounded_deal_sync_uses_requested_window_not_incremental_cursor(self):
+        self.assertEqual(
+            deal_sync_cutoff(full=False, last_success="2026-09-01T00:00:00+00:00", lookback_days=30,
+                             now=datetime(2026, 11, 20, tzinfo=UTC)),
+            "2026-10-21T00:00:00+00:00",
+        )
+
     def test_task_window_includes_current_and_previous_month(self):
         self.assertEqual(
             task_sync_window(datetime(2026, 9, 8, tzinfo=UTC), months=2),

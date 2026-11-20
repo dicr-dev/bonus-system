@@ -87,6 +87,9 @@ function BitrixSettings(){
    </Row>
    <Text type="secondary">Переработки учитываются по крайнему сроку задачи. Здесь настраивается учёт часов; оплата по окладу пока не начисляется.</Text>
   </Card>
+  <Card title="Помощник назначения сделок" style={{marginTop:16}}>
+   <Form.Item name="distribution_employee_ids" label="Сотрудники для назначения" extra="Только эти сотрудники будут показаны в помощнике. Сотрудники сохраняются в истории и других отчётах независимо от этого списка."><Select mode="multiple" showSearch optionFilterProp="label" loading={employees.isLoading} options={(employees.data??[]).filter(employee=>employee.is_active&&employee.department_name?.split(';').map(item=>item.trim()).includes('Отдел внедрения')).map(employee=>({value:employee.id,label:employee.full_name}))}/></Form.Item>
+  </Card>
   <Button type="primary" htmlType="submit" loading={save.isPending} style={{marginTop:16}}>Сохранить настройки Bitrix24</Button>
  </Form>
 }

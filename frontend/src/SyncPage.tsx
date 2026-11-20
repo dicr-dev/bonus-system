@@ -12,7 +12,7 @@ const dateTime=(value:string|null)=>value?new Intl.DateTimeFormat('ru-RU',{timeZ
 
 function JobCard({job}:{job:SyncJob}){
  const queued=job.status==='queued'
- const title=typeNames[job.type]??job.type
+ const title=job.type==='deals'&&job.lookback_days?`Сделки — за ${job.lookback_days} дней`:typeNames[job.type]??job.type
  const noPages=job.status==='running'&&job.current_funnel==='tasks'&&job.last_page_at&&Date.now()-new Date(job.last_page_at).getTime()>120000
  return <Card size="small" title={<Space wrap><Text strong>{title}{job.type==='deals'?(job.full?' — полная':' — инкрементальная'):''}</Text><Tag color={job.status==='failed'?'error':job.status==='completed'?'success':queued?'default':'processing'}>{statusNames[job.status]}</Tag></Space>}>
   <Space direction="vertical" style={{width:'100%'}}>
@@ -44,7 +44,7 @@ export default function SyncPage(){
  const pinned=useQuery({queryKey:['sync-job',pinnedId],queryFn:()=>getSyncJob(pinnedId!),enabled:!!pinnedId,refetchInterval:query=>['completed','failed'].includes(query.state.data?.status??'')?false:2000})
  const refresh=()=>qc.invalidateQueries({queryKey:['sync-jobs']})
  const all=useMutation({mutationFn:startAllSync,onSuccess:refresh})
- const deals=useMutation({mutationFn:(full:boolean)=>startDealsSync(full),onSuccess:refresh})
+ const deals=useMutation({mutationFn:({full=false,lookbackDays}:{full?:boolean,lookbackDays?:number})=>startDealsSync(full,lookbackDays),onSuccess:refresh})
  const fullTasks=useMutation({mutationFn:startFullTasksSync,onSuccess:refresh})
  const recentTasks=useMutation({mutationFn:startRecentTasksSync,onSuccess:refresh})
  const rows=new Map((jobs.data??[]).map(job=>[job.job_id,job]))
@@ -58,7 +58,7 @@ export default function SyncPage(){
    {connection.isError?<Alert type="error" message="Не удалось проверить настройку подключения"/>:connection.data?.configured?<Space direction="vertical"><Text>Закреплённый администратор Битрикса: №{connection.data.admin_bitrix_user_id}. Проверен: {dateTime(connection.data.verified_at)} (МСК).</Text><Text type="secondary">Доступ сохранён при установке приложения в Битриксе и хранится отдельно от входов сотрудников. Права проверяются перед каждой синхронизацией и при обновлении токенов.</Text></Space>:<Alert type="warning" showIcon message="Требуется переустановка приложения в Битриксе" description="Администратору Битрикса нужно нажать «Переустановить» в настройках этого приложения. Административный доступ для синхронизации сохранится автоматически. Токены входящих сотрудников не используются."/>}
   </Card>
   <Card title="Все объекты"><Button type="primary" loading={all.isPending} onClick={()=>all.mutate()}>Синхронизировать все объекты</Button></Card>
-  <Card title="Сделки"><Space wrap><Button type="primary" loading={deals.isPending} onClick={()=>deals.mutate(false)}>Инкрементальная</Button><Button loading={deals.isPending} onClick={()=>deals.mutate(true)}>Полная</Button></Space></Card>
+  <Card title="Сделки"><Space wrap><Button type="primary" loading={deals.isPending} onClick={()=>deals.mutate({})}>Инкрементальная</Button><Button loading={deals.isPending} onClick={()=>deals.mutate({lookbackDays:30})}>За месяц</Button><Button loading={deals.isPending} onClick={()=>deals.mutate({lookbackDays:60})}>За 2 месяца</Button><Button loading={deals.isPending} onClick={()=>deals.mutate({full:true})}>Полная</Button></Space></Card>
   <Card title="Задачи"><Space wrap><Button loading={recentTasks.isPending} onClick={()=>recentTasks.mutate()}>За 3 месяца</Button><Button loading={fullTasks.isPending} onClick={()=>fullTasks.mutate()}>За весь срок</Button></Space></Card>
   {startError&&<Alert type="error" showIcon message="Не удалось запустить синхронизацию. Повторите попытку."/>}
   {jobs.isError&&<Alert type="error" showIcon message="Не удалось обновить статусы синхронизаций" description="Показаны последние полученные данные. Повторная проверка выполняется автоматически."/>}

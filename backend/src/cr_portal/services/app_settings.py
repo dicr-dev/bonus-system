@@ -11,6 +11,7 @@ from cr_portal.models.user import User
 @dataclass(slots=True)
 class BusinessSettings:
     task_1c_report_user_ids: list[str]
+    distribution_employee_ids: list[str]
     tech_integration_category_id: int | None
     implementation_category_id: int | None
     cr_start_category_id: int | None
@@ -55,6 +56,7 @@ class BusinessSettings:
 
 KEYS = {
     "task_1c_report_user_ids": "BITRIX_TASK_1C_REPORT_USER_IDS",
+    "distribution_employee_ids": "DISTRIBUTION_EMPLOYEE_IDS",
     "task_training_yes_value": "BITRIX_TASK_TRAINING_YES_VALUE",
     "task_training_date_field": "BITRIX_TASK_TRAINING_DATE_FIELD",
     "overtime_project_id": "BITRIX_OVERTIME_PROJECT_ID",
@@ -167,6 +169,9 @@ async def get_business_settings(session: AsyncSession) -> BusinessSettings:
     return BusinessSettings(
         task_1c_report_user_ids=[
             item.strip() for item in value("task_1c_report_user_ids").split(",") if item.strip()
+        ],
+        distribution_employee_ids=[
+            item.strip() for item in value("distribution_employee_ids").split(",") if item.strip()
         ],
         task_training_yes_value=value("task_training_yes_value"),
         task_training_date_field=value("task_training_date_field") or "DEADLINE",

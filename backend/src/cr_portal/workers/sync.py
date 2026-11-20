@@ -65,6 +65,13 @@ def parse_timestamp(value: str | None) -> datetime | None:
     return parsed.astimezone(UTC)
 
 
+def deal_sync_cutoff(*, full: bool, last_success: str | None, lookback_days: int | None,
+                     now: datetime) -> str | None:
+    if lookback_days is not None:
+        return (now - timedelta(days=lookback_days)).isoformat()
+    return None if full else last_success
+
+
 def nightly_sync_due(
     now: datetime,
     *,
@@ -341,12 +348,12 @@ async def process_job(
         heartbeat_supported=True,
     )
 
-    last_success = None
-
-    if not full:
-        last_success = await redis.get(
-            LAST_SUCCESS_KEY
-        )
+    lookback_days = job.get("lookback_days")
+    previous_success = await redis.get(LAST_SUCCESS_KEY) if not full and lookback_days is None else None
+    last_success = deal_sync_cutoff(
+        full=full, last_success=previous_success, lookback_days=int(lookback_days) if lookback_days is not None else None,
+        now=datetime.now(UTC),
+    )
 
     heartbeat = asyncio.create_task(job_heartbeat(redis, job_id))
     try:
@@ -446,7 +453,9 @@ async def process_job(
 
         finished_at = utc_now()
 
-        if job_type == "deals":
+        # A bounded catch-up must not advance the normal incremental cursor:
+        # otherwise it could hide changes made while the job was running.
+        if job_type == "deals" and lookback_days is None:
             await redis.set(LAST_SUCCESS_KEY, finished_at)
 
         await update_job(

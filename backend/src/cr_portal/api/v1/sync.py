@@ -58,8 +58,11 @@ async def users_sync(
 @router.post("/deals")
 async def deals_sync(
     full: bool = Query(default=False),
+    lookback_days: int | None = Query(default=None, ge=1, le=62),
     _admin=Depends(admin_user),
 ) -> dict:
+    if full and lookback_days is not None:
+        raise HTTPException(422, "Выберите полную загрузку или период дозагрузки")
     redis: Redis = get_redis()
 
     job_id = str(uuid4())
@@ -68,6 +71,7 @@ async def deals_sync(
         "job_id": job_id,
         "type": "deals",
         "full": full,
+        "lookback_days": lookback_days,
         "status": "queued",
         "progress": 0,
         "processed": 0,

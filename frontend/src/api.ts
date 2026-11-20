@@ -4,6 +4,8 @@ import type { AdminEmployeeMonthPlan,AppSettings,BitrixDealField,Calculation,Cal
 
 export const api=axios.create({baseURL:'/api/v1',withCredentials:true,timeout:30000})
 export async function getEmployeeEfficiency(params:EfficiencyFilters):Promise<EmployeeEfficiencyReport>{return (await api.get('/analytics/employee-efficiency',{params})).data}
+export async function getDistributionPending():Promise<{items:import('./types').DistributionDeal[]}>{return (await api.get('/distribution/pending')).data}
+export async function assignDistribution(dealId:string,userId:string){return (await api.post(`/distribution/${dealId}/assign`,{user_id:userId})).data}
 export function employeeEfficiencyExcelUrl(params:EfficiencyFilters){const query=new URLSearchParams(Object.entries(params).filter(([,value])=>value!==undefined).map(([key,value])=>[key,String(value)]));return `/api/v1/analytics/employee-efficiency/export?${query}`}
 export async function login(login:string,password:string){return (await api.post('/auth/login',{login,password})).data}
 export async function getCurrentUser():Promise<CurrentUser>{return (await api.get('/auth/me')).data}
@@ -13,7 +15,7 @@ export async function applyFuelCardBindings(importFile:File,token:string,selecte
 export async function getDashboard(month?:string):Promise<DashboardSummary>{return (await api.get('/reports/dashboard',{params:month?{month}:undefined})).data}
 export async function getDepartmentDeals():Promise<Deal[]>{return (await api.get('/reports/department-deals')).data}
 export async function getSyncStatus():Promise<SyncStatus>{return (await api.get('/sync/deals/status')).data}
-export async function startDealsSync(full=false):Promise<SyncJob>{return (await api.post('/sync/deals',null,{params:{full}})).data}
+export async function startDealsSync(full=false,lookbackDays?:number):Promise<SyncJob>{return (await api.post('/sync/deals',null,{params:{full,lookback_days:lookbackDays}})).data}
 export async function startAllSync():Promise<SyncJob>{return (await api.post('/sync/all')).data}
 export async function startFullTasksSync():Promise<SyncJob>{return (await api.post('/sync/tasks/full')).data}
 export async function startRecentTasksSync():Promise<SyncJob>{return (await api.post('/sync/tasks/recent')).data}

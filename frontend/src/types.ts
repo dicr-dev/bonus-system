@@ -3,7 +3,10 @@ export interface CurrentUser { id:string; bitrix_id:number; full_name:string; de
 export interface ResponsibleSummary { user_id:string; full_name:string; active_deals:number; monthly_amount:string; machines_count:number }
 export interface DashboardSummary { active_deals:number; monthly_amount:string; machines_count:number; integration_1c_deals:number; subscription_implementation_amount:string; subscription_cr_start_amount:string; subscription_total_amount:string; funnels:FunnelSummary[]; responsibles:ResponsibleSummary[] }
 export interface Deal { id:string; bitrix_id:number; category_id:number; funnel:string; stage_id:string; status:string; title:string; opportunity:string; monthly_amount:string; machines_count:number; integration_1c:boolean; bitrix_assigned_by_id:number|null; responsible_user_id:string|null; created_time:string|null; closed_time:string|null }
-export interface SyncJob { job_id:string; type:string; full:boolean; status:'queued'|'running'|'completed'|'failed'; progress:number; processed:number; current_funnel:string|null; created_at:string; started_at:string|null; finished_at:string|null; error:string|null; updated_at?:string; heartbeat_supported?:boolean; heartbeat_at?:string|null; worker_alive?:boolean|null; tasks_received?:number; tasks_saved?:number; tasks_created?:number; task_pages?:number; task_queries_done?:number; task_queries_total?:number; task_source?:string; task_request_state?:string; task_query_received?:number; task_query_total?:number|null; last_page_at?:string|null }
+export interface DistributionWorkDeal { bitrix_id:number; title:string; funnel:string; amount:string; machines_count:number; integration_1c:boolean }
+export interface DistributionCandidate { user_id:string; bitrix_id:number; full_name:string; company_active_deals:number; active_deals:number; active_integration_deals:number; reason:string; deals:DistributionWorkDeal[] }
+export interface DistributionDeal { id:string; bitrix_id:number; title:string; funnel:string; company_name:string|null; integration_1c:boolean; candidates:DistributionCandidate[] }
+export interface SyncJob { job_id:string; type:string; full:boolean; lookback_days?:number|null; status:'queued'|'running'|'completed'|'failed'; progress:number; processed:number; current_funnel:string|null; created_at:string; started_at:string|null; finished_at:string|null; error:string|null; updated_at?:string; heartbeat_supported?:boolean; heartbeat_at?:string|null; worker_alive?:boolean|null; tasks_received?:number; tasks_saved?:number; tasks_created?:number; task_pages?:number; task_queries_done?:number; task_queries_total?:number; task_source?:string; task_request_state?:string; task_query_received?:number; task_query_total?:number|null; last_page_at?:string|null }
 export interface NightlySyncResult { users:number; deals:number; tasks:number; elapsed_items:number; period_from:string; period_to:string; finished_at:string }
 export interface SyncStatus { last_success:string|null; nightly_last_attempt:string|null; nightly_last_success:string|null; nightly_last_error:string|null; nightly_last_result:NightlySyncResult|null; nightly_hour:number; nightly_timezone:string; nightly_task_months:number }
 export interface KPIDeal { deal_id:string; bitrix_id:number; title:string; amount:string }
@@ -172,6 +175,7 @@ export interface RuleVersion { id:string; version:number; effective_from:string;
 
 export interface AppSettings {
   task_1c_report_user_ids:string[]
+  distribution_employee_ids:string[]
   tech_integration_category_id:number|null
   implementation_category_id:number|null
   cr_start_category_id:number|null
