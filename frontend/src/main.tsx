@@ -26,7 +26,17 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
           algorithm: theme.defaultAlgorithm,
           token: {
             borderRadius: 8,
-            colorPrimary: '#1677ff',
+            colorPrimary: '#27272a',
+            colorText: '#18181b',
+            colorTextSecondary: '#71717a',
+            colorBorder: '#e4e4e7',
+            colorBgLayout: '#fafafa',
+            fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+          },
+          components: {
+            Card: { borderRadiusLG: 12, boxShadowTertiary: 'none' },
+            Menu: { itemSelectedBg: '#e4e4e7', itemSelectedColor: '#18181b', itemBorderRadius: 6 },
+            Table: { headerBg: '#fafafa', headerColor: '#71717a', rowHoverBg: '#fafafa' },
           },
         }}
       >

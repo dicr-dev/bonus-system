@@ -1016,8 +1016,8 @@ export default function App(){
  ]
  return <Layout className="app-layout">
   <Sider breakpoint="lg" collapsedWidth={0} width={240} className="app-sider">
-   <div className="app-logo"><div className="logo-mark">CR</div><div><div className="logo-title">CR Portal</div><div className="logo-subtitle">KPI & Bonus</div></div></div>
-   <Menu theme="dark" mode="inline" selectedKeys={[effectivePage]} onClick={({key})=>navigate(String(key))} items={isAdmin?adminMenu:employeeMenu}/>
+   <div className="app-logo"><div className="logo-mark">CR</div><div className="logo-title">CR Portal</div></div>
+   <Menu theme="light" mode="inline" selectedKeys={[effectivePage]} onClick={({key})=>navigate(String(key))} items={isAdmin?adminMenu:employeeMenu}/>
   </Sider>
   <Layout><Header className="app-header"><Text strong>CR Integration Portal</Text><Space><Tag color="green" icon={<CheckCircleOutlined/>}>{user.data.full_name}</Tag><Button size="small" onClick={async()=>{await logout();setAuthVersion(v=>v+1)}}>Выйти</Button></Space></Header><Content className="app-content"><div className="content-container">{content}</div></Content></Layout>
  </Layout>
