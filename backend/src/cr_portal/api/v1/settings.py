@@ -58,7 +58,7 @@ async def update_app_settings(
     session: AsyncSession = Depends(db_session),
     _admin=Depends(admin_user),
 ):
-    saved = await save_app_settings(session, data.model_dump())
+    saved = await save_app_settings(session, data.model_dump(exclude_unset=True, mode="json"))
     return AppSettingsPayload(**asdict(saved))
 
 

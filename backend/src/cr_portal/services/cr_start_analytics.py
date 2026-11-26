@@ -2,6 +2,7 @@
 import calendar
 import json
 from collections import defaultdict
+from functools import partial
 from datetime import UTC, datetime, time
 from decimal import Decimal
 from statistics import mean, median
@@ -15,7 +16,7 @@ from cr_portal.models.reporting import DealStageHistory
 from cr_portal.models.task import BitrixTask, BitrixTaskElapsedItem
 from cr_portal.models.user import User
 from cr_portal.services.bonus import raw_date
-from cr_portal.services.cr_start_manager_report import _stage_group
+from cr_portal.services.cr_start_manager_report import _stage_group as classify_stage
 from cr_portal.services.employee_scope import employee_is_in_department
 
 MOSCOW = ZoneInfo("Europe/Moscow")
@@ -57,8 +58,9 @@ def task_deal_ids(task):
         return None
 
 
-def usage_timeline(deal, history, first_date, now):
+def usage_timeline(deal, history, first_date, now, lost_stages=None):
     """Only explicit field/history dates; never infer churn from card modification time."""
+    _stage_group = partial(classify_stage, lost_stages=lost_stages)
     now = aware(now)
     first = datetime.combine(first_date, time.min, MOSCOW) if first_date else None
     created = aware(deal.created_time)
@@ -224,7 +226,8 @@ def metrics(rows):
 
 
 def build_cr_start_analytics(deals, users, history, tasks, elapsed, commercial_field, *, first_training_field=None, now=None,
-                             employee_id=None, module=None):
+                             employee_id=None, module=None, lost_stages=None):
+    _stage_group = partial(classify_stage, lost_stages=lost_stages)
     now = aware(now or datetime.now(UTC))
     users_by_id = {str(u.id): u for u in users}
     users_by_bitrix = {u.bitrix_id: u for u in users}
@@ -244,7 +247,7 @@ def build_cr_start_analytics(deals, users, history, tasks, elapsed, commercial_f
         owner = str(deal.implementation_responsible_user_id) if deal.implementation_responsible_user_id else "unassigned"
         if employee_id and owner != employee_id or module and module_name(deal) != module:
             continue
-        timeline = usage_timeline(deal, histories[deal.id], raw_date(deal, commercial_field), now)
+        timeline = usage_timeline(deal, histories[deal.id], raw_date(deal, commercial_field), now, lost_stages)
         timelines[deal.bitrix_id] = timeline
         owner_user = users_by_id.get(owner)
         created = aware(deal.created_time)
@@ -455,4 +458,4 @@ async def cr_start_analytics(session, business, *, employee_id=None, module=None
     return build_cr_start_analytics(deals, users, history, tasks, elapsed,
                                     business.field_cr_start_commercial_use_date,
                                     first_training_field=business.field_first_training_date, now=now,
-                                    employee_id=employee_id, module=module)
+                                    employee_id=employee_id, module=module, lost_stages=business.cr_start_lost_stages)

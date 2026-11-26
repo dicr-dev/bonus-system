@@ -1,11 +1,16 @@
 from typing import Literal
+from datetime import date
 
 from pydantic import BaseModel, Field
 
 
 class AppSettingsPayload(BaseModel):
+    implementation_metrics_hire_dates: dict[str, date] = Field(default_factory=dict)
+    employee_termination_dates: dict[str, date] = Field(default_factory=dict)
+    cr_start_lost_stages: list[str] = Field(default_factory=list)
     task_1c_report_user_ids: list[str] = Field(default_factory=list)
     distribution_employee_ids: list[str] = Field(default_factory=list)
+    implementation_metrics_employee_ids: list[str] = Field(default_factory=list)
     task_training_yes_value: str = ""
     task_training_date_field: Literal["CLOSED_DATE", "DEADLINE"] = "DEADLINE"
     overtime_project_id: int | None = Field(default=None, gt=0)

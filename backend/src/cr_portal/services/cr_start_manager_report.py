@@ -28,6 +28,8 @@ LOST_STAGES = frozenset({
     "Некачественный лид",
     "Не понял ценность",
     "Слишком дорого",
+    "Нет денег",
+    "Жалобы на работу",
     "Не тестировал/Нет времени",
     "Вернутся позже",
     "Нет ответа после теста",
@@ -39,18 +41,20 @@ LOST_STAGES = frozenset({
 })
 
 
-def _stage_group(stage_title: str | None) -> str | None:
+def _stage_group(stage_title: str | None, lost_stages=None) -> str | None:
     title = " ".join((stage_title or "").split())
     if title in WORKING_STAGES:
         return "working"
     if title in COMMERCIAL_STAGES:
         return "commercial"
-    if title in LOST_STAGES:
+    if title in (LOST_STAGES if lost_stages is None else lost_stages):
         return "lost"
     return None
 
 
 async def cr_start_manager_report(session: AsyncSession) -> list[dict]:
+    from cr_portal.services.app_settings import get_business_settings
+    lost_stages = (await get_business_settings(session)).cr_start_lost_stages
     result = await session.execute(
         select(Deal, User.id, User.full_name)
         .select_from(Deal)
@@ -61,7 +65,7 @@ async def cr_start_manager_report(session: AsyncSession) -> list[dict]:
 
     groups: dict[str, dict] = {}
     for deal, user_id, user_name in result.all():
-        group_name = _stage_group(deal.stage_title)
+        group_name = _stage_group(deal.stage_title, lost_stages)
         if group_name is None:
             continue
 

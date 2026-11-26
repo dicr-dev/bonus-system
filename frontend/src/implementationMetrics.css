@@ -1,0 +1,49 @@
+.implementation-metrics-deals .ant-table-tbody > tr.implementation-metrics-deal-retained > td,
+.implementation-metrics-deals .ant-table-tbody > tr.implementation-metrics-deal-retained:hover > td {
+  background: rgba(82, 196, 26, 0.14);
+}
+.implementation-metrics-deals .ant-table-tbody > tr.implementation-metrics-deal-lost > td,
+.implementation-metrics-deals .ant-table-tbody > tr.implementation-metrics-deal-lost:hover > td {
+  background: rgba(255, 77, 79, 0.14);
+}
+.implementation-metrics-deals .ant-table-tbody > tr.implementation-metrics-deal-other > td,
+.implementation-metrics-deals .ant-table-tbody > tr.implementation-metrics-deal-other:hover > td {
+  background: rgba(250, 173, 20, 0.16);
+}
+.implementation-metrics-deals .ant-table-tbody > tr > td,
+.implementation-metrics-deals .ant-table-thead > tr > th {
+  white-space: nowrap;
+  padding-top: 5px;
+  padding-bottom: 5px;
+}
+.content-container:has(.implementation-metrics-page) {
+  padding-top: 12px;
+}
+.implementation-metrics-matrix .ant-table-tbody > tr > td,
+.implementation-metrics-matrix .ant-table-thead > tr > th {
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+.implementation-metrics-matrix .ant-table-thead > tr > th:not(:first-child) {
+  padding-left: 2px;
+  padding-right: 2px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.implementation-metrics-matrix .ant-table-tbody > tr > td.implementation-metrics-chart-cell {
+  padding: 0 !important;
+  text-align: center;
+}
+.implementation-metrics-chart-point {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 54px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.implementation-metrics-chart-point svg { width: 100%; height: 100%; display: block; }
+.implementation-metrics-chart-point line { stroke: #1677ff; stroke-width: 2; vector-effect: non-scaling-stroke; }
+.implementation-metrics-chart-point circle { fill: #1677ff; }

@@ -1,5 +1,6 @@
 ﻿from dataclasses import asdict, dataclass
 
+import json
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -52,11 +53,19 @@ class BusinessSettings:
     overtime_department_ids: str = ""
     task_overtime_hours_field: str = ""
     overtime_time_priority: str = "manual"
+    implementation_metrics_employee_ids: list[str] | None = None
+    cr_start_lost_stages: list[str] | None = None
+    implementation_metrics_hire_dates: dict[str, str] | None = None
+    employee_termination_dates: dict[str, str] | None = None
 
 
 KEYS = {
     "task_1c_report_user_ids": "BITRIX_TASK_1C_REPORT_USER_IDS",
     "distribution_employee_ids": "DISTRIBUTION_EMPLOYEE_IDS",
+    "implementation_metrics_employee_ids": "IMPLEMENTATION_METRICS_EMPLOYEE_IDS",
+    "cr_start_lost_stages": "CR_START_LOST_STAGES",
+    "implementation_metrics_hire_dates": "IMPLEMENTATION_METRICS_HIRE_DATES",
+    "employee_termination_dates": "EMPLOYEE_TERMINATION_DATES",
     "task_training_yes_value": "BITRIX_TASK_TRAINING_YES_VALUE",
     "task_training_date_field": "BITRIX_TASK_TRAINING_DATE_FIELD",
     "overtime_project_id": "BITRIX_OVERTIME_PROJECT_ID",
@@ -100,7 +109,22 @@ KEYS = {
 }
 
 
+def initial_metrics_employee_ids(users) -> list[str]:
+    names = {
+        frozenset(name.casefold().split()) for name in (
+            "Андрей Трунов", "Артур Кашапов", "Георгий Болтачев", "Мария Кузнецова",
+            "Лейла Гейдарова", "Максим Бочкарев", "Сергей Новиков",
+        )
+    }
+    return [str(user.id) for user in users if frozenset(user.full_name.casefold().split()) in names]
+
+
 def _env_default(name: str) -> str:
+    if name in {"IMPLEMENTATION_METRICS_HIRE_DATES", "EMPLOYEE_TERMINATION_DATES"}:
+        return "{}"
+    if name == "CR_START_LOST_STAGES":
+        from cr_portal.services.cr_start_manager_report import LOST_STAGES
+        return json.dumps(sorted(LOST_STAGES), ensure_ascii=False)
     if name == "BITRIX_FIELD_MODULE":
         return getattr(settings, name, "ufCrm_1650618044049") or ""
     if name == "BITRIX_CR_START_IMPLEMENTATION_MODULES":
@@ -133,6 +157,8 @@ async def ensure_app_settings(session: AsyncSession) -> dict[str, str]:
     values = {row.key: row.value for row in rows}
     report_users_key = KEYS["task_1c_report_user_ids"]
     report_users_were_configured = report_users_key in values
+    metrics_key = KEYS["implementation_metrics_employee_ids"]
+    metrics_were_configured = metrics_key in values
 
     for env_name in KEYS.values():
         if env_name not in values:
@@ -156,6 +182,14 @@ async def ensure_app_settings(session: AsyncSession) -> dict[str, str]:
                 row.value = value
             values[report_users_key] = value
 
+    if not metrics_were_configured:
+        initial_ids = initial_metrics_employee_ids((await session.execute(select(User))).scalars())
+        value = ",".join(initial_ids)
+        row = await session.get(AppSetting, metrics_key)
+        if row is not None:
+            row.value = value
+        values[metrics_key] = value
+
     await session.flush()
     return values
 
@@ -167,11 +201,17 @@ async def get_business_settings(session: AsyncSession) -> BusinessSettings:
         return values.get(KEYS[field], "").strip()
 
     return BusinessSettings(
+        implementation_metrics_hire_dates=json.loads(value("implementation_metrics_hire_dates")),
+        employee_termination_dates=json.loads(value("employee_termination_dates")),
+        cr_start_lost_stages=json.loads(value("cr_start_lost_stages")),
         task_1c_report_user_ids=[
             item.strip() for item in value("task_1c_report_user_ids").split(",") if item.strip()
         ],
         distribution_employee_ids=[
             item.strip() for item in value("distribution_employee_ids").split(",") if item.strip()
+        ],
+        implementation_metrics_employee_ids=[
+            item.strip() for item in value("implementation_metrics_employee_ids").split(",") if item.strip()
         ],
         task_training_yes_value=value("task_training_yes_value"),
         task_training_date_field=value("task_training_date_field") or "DEADLINE",
@@ -236,7 +276,9 @@ async def save_app_settings(session: AsyncSession, data: dict) -> BusinessSettin
             continue
 
         raw = data[field]
-        if field in {"cr_start_boolean_fields", "cr_start_implementation_modules", "task_1c_report_user_ids"}:
+        if field in {"cr_start_lost_stages", "implementation_metrics_hire_dates", "employee_termination_dates"}:
+            raw = json.dumps(raw if raw is not None else ([] if field == "cr_start_lost_stages" else {}), ensure_ascii=False)
+        elif field in {"cr_start_boolean_fields", "cr_start_implementation_modules", "task_1c_report_user_ids", "distribution_employee_ids", "implementation_metrics_employee_ids"}:
             raw = ",".join(raw or []) if isinstance(raw, list) else str(raw or "")
         elif raw is None:
             raw = ""

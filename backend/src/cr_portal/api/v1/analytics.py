@@ -18,8 +18,16 @@ from cr_portal.models.deal import Deal
 from cr_portal.services.app_settings import get_business_settings
 from cr_portal.services.deal_analytics import deal_groups_report, deals_in_work_report, gift_info_report, support_analysis_report, weekly_ov_report
 from cr_portal.services.employee_scope import employee_is_in_department
+from cr_portal.services.implementation_metrics import implementation_metrics
 
 router = APIRouter()
+
+
+@router.get("/implementation-metrics")
+async def implementation_metrics_report(session: AsyncSession = Depends(db_session), _admin=Depends(admin_user)):
+    business = await get_business_settings(session)
+    await session.commit()
+    return await implementation_metrics(session, business)
 
 
 class AutoMatchRequest(BaseModel):

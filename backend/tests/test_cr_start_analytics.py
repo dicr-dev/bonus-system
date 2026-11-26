@@ -59,6 +59,13 @@ def build(deals, users=(), events=(), tasks=(), logs=(), **kw):
 
 
 class AnalyticsTests(unittest.TestCase):
+    def test_configured_lost_stage_changes_historical_timeline(self):
+        d=deal(stage_id="custom",stage_title="Особая стадия, отказ")
+        events=[event(d,"2026-01-02","commercial","Коммерческое использование",1),
+                event(d,"2026-02-02","custom","Особая стадия, отказ",2)]
+        row=build([d],events=events,lost_stages=["Особая стадия, отказ"])["deals"][0]
+        self.assertEqual(row["group"],"lost")
+        self.assertTrue(row["history_reliable"])
     def test_partner_portal_is_not_a_commercial_stage(self):
         self.assertIsNone(_stage_group("Партнерский ЛК"))
 

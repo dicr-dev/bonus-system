@@ -1,4 +1,4 @@
-import {Button,Card,Col,Form,Input,InputNumber,Row,Select,Space,Tabs,Typography,message} from 'antd'
+import {Button,Card,Col,Form,Input,InputNumber,Row,Select,Space,Table,Tabs,Typography,message} from 'antd'
 import {useMutation,useQuery,useQueryClient} from '@tanstack/react-query'
 import {useEffect,useMemo} from 'react'
 
@@ -27,13 +27,13 @@ function BitrixSettings(){
  const qc=useQueryClient()
  const q=useQuery({queryKey:['app-settings'],queryFn:getAppSettings})
  const employees=useQuery({queryKey:['employees'],queryFn:getEmployees})
- useEffect(()=>{if(q.data)form.setFieldsValue({...q.data,cr_start_boolean_fields_text:q.data.cr_start_boolean_fields.join(', '),cr_start_implementation_modules_text:q.data.cr_start_implementation_modules.join(', ')})},[q.data,form])
+ useEffect(()=>{if(q.data)form.setFieldsValue({...q.data,cr_start_lost_stages_text:q.data.cr_start_lost_stages.join('\n'),cr_start_boolean_fields_text:q.data.cr_start_boolean_fields.join(', '),cr_start_implementation_modules_text:q.data.cr_start_implementation_modules.join(', ')})},[q.data,form])
  const save=useMutation({
   mutationFn:(v:AppSettings)=>saveAppSettings(v),
-  onSuccess:async()=>{message.success('Настройки Bitrix24 сохранены');await qc.invalidateQueries({queryKey:['app-settings']})}
+  onSuccess:async()=>{message.success('Настройки Bitrix24 сохранены');await Promise.all([qc.invalidateQueries({queryKey:['app-settings']}),qc.invalidateQueries({queryKey:['implementation-metrics']})])}
  })
  if(q.isLoading)return <Card loading/>
- return <Form form={form} layout="vertical" onFinish={(v:any)=>{const {cr_start_boolean_fields_text,cr_start_implementation_modules_text,...rest}=v;save.mutate({...rest,cr_start_boolean_fields:String(cr_start_boolean_fields_text||'').split(',').map(x=>x.trim()).filter(Boolean),cr_start_implementation_modules:String(cr_start_implementation_modules_text||'').split(',').map(x=>x.trim()).filter(Boolean)} as AppSettings)}}>
+ return <Form form={form} layout="vertical" onFinish={(v:any)=>{const {cr_start_lost_stages_text,cr_start_boolean_fields_text,cr_start_implementation_modules_text,...rest}=v;save.mutate({...rest,implementation_metrics_hire_dates:Object.fromEntries(Object.entries({...q.data?.implementation_metrics_hire_dates,...v.implementation_metrics_hire_dates}).filter(([,date])=>!!date)),employee_termination_dates:Object.fromEntries(Object.entries({...q.data?.employee_termination_dates,...v.employee_termination_dates}).filter(([,date])=>!!date)),cr_start_lost_stages:String(cr_start_lost_stages_text||'').split('\n').map(x=>x.trim()).filter(Boolean),cr_start_boolean_fields:String(cr_start_boolean_fields_text||'').split(',').map(x=>x.trim()).filter(Boolean),cr_start_implementation_modules:String(cr_start_implementation_modules_text||'').split(',').map(x=>x.trim()).filter(Boolean)} as AppSettings)}}>
   <Card title="Воронки Bitrix24">
    <Row gutter={16}>
     <Col xs={24} md={6}><Form.Item name="tech_integration_category_id" label="Техинтеграция: ID воронки"><InputNumber style={{width:'100%'}}/></Form.Item></Col>
@@ -89,6 +89,19 @@ function BitrixSettings(){
   </Card>
   <Card title="Помощник назначения сделок" style={{marginTop:16}}>
    <Form.Item name="distribution_employee_ids" label="Сотрудники для назначения" extra="Только эти сотрудники будут показаны в помощнике. Сотрудники сохраняются в истории и других отчётах независимо от этого списка."><Select mode="multiple" showSearch optionFilterProp="label" loading={employees.isLoading} options={(employees.data??[]).filter(employee=>employee.is_active&&employee.department_name?.split(';').map(item=>item.trim()).includes('Отдел внедрения')).map(employee=>({value:employee.id,label:employee.full_name}))}/></Form.Item>
+  </Card>
+  <Card title="Неуспешные стадии CR Start" style={{marginTop:16}}>
+   <Form.Item name="cr_start_lost_stages_text" label="Названия стадий" extra="Каждая стадия — с новой строки. Изменение влияет на аналитические отчёты CR Start и удержание."><Input.TextArea rows={8}/></Form.Item>
+  </Card>
+  <Card title="Ключевые метрики отдела внедрения" style={{marginTop:16}}>
+   <Form.Item name="implementation_metrics_employee_ids" label="Сотрудники отчёта" extra="В отчёте показываются только выбранные сотрудники; пустой список означает, что сотрудники не выбраны."><Select mode="multiple" showSearch optionFilterProp="label" loading={employees.isLoading} options={(employees.data??[]).map(employee=>({value:employee.id,label:`${employee.full_name}${employee.is_active?'':' (неактивен)'}`}))}/></Form.Item>
+  </Card>
+  <Card title="Даты работы сотрудников" style={{marginTop:16}}>
+   <Table rowKey="id" size="small" pagination={false} scroll={{y:480,x:650}} loading={employees.isLoading} dataSource={[...(employees.data??[])].sort((a,b)=>a.full_name.localeCompare(b.full_name,'ru'))} columns={[
+    {title:'ФИО',render:(_,employee)=>`${employee.full_name}${employee.is_active?'':' (неактивен)'}`},
+    {title:'Дата устройства',width:200,render:(_,employee)=><Form.Item noStyle name={['implementation_metrics_hire_dates',employee.id]}><Input type="date" aria-label={`Дата устройства: ${employee.full_name}`}/></Form.Item>},
+    {title:'Дата увольнения',width:200,render:(_,employee)=><Form.Item noStyle name={['employee_termination_dates',employee.id]}><Input type="date" aria-label={`Дата увольнения: ${employee.full_name}`}/></Form.Item>}
+   ]}/>
   </Card>
   <Button type="primary" htmlType="submit" loading={save.isPending} style={{marginTop:16}}>Сохранить настройки Bitrix24</Button>
  </Form>

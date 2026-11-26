@@ -174,8 +174,12 @@ export interface OnboardingPlanSection { id?:string; title:string; details:strin
 export interface RuleVersion { id:string; version:number; effective_from:string; effective_to:string|null; config_json:string; comment:string|null; created_at:string }
 
 export interface AppSettings {
+  implementation_metrics_hire_dates:Record<string,string>
+  employee_termination_dates:Record<string,string>
+  cr_start_lost_stages:string[]
   task_1c_report_user_ids:string[]
   distribution_employee_ids:string[]
+  implementation_metrics_employee_ids:string[]
   tech_integration_category_id:number|null
   implementation_category_id:number|null
   cr_start_category_id:number|null
