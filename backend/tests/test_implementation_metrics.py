@@ -8,7 +8,9 @@ import pytest
 
 from cr_portal.services.app_settings import initial_metrics_employee_ids
 from cr_portal.schemas.app_settings import AppSettingsPayload
-from cr_portal.services.implementation_metrics import build_report, implementation_metrics, report_module
+from cr_portal.services.implementation_metrics import build_report, implementation_metrics, report_module, logistics_details
+from cr_portal.services.implementation_speed import build_speed_report
+from cr_portal.services.implementation_conversion import build_conversion_report
 
 
 def dt(value):
@@ -20,7 +22,7 @@ def deal(**values):
                       implementation_responsible_user_id=uuid4(), title="Тест", stage_title="В работе",
                       stage_id="active", module_name="Логистика", company_bitrix_id=10,
                       company_name="Компания", created_time=dt("2026-01-02T00:00:00"),
-                      closed_time=None, status="in_progress", raw_json="{}", opportunity=0, monthly_amount=0) | values))
+                      closed_time=None, status="in_progress", raw_json="{}", opportunity=0, monthly_amount=0, machines_count=0) | values))
 
 
 def event(d, date, stage, title, number):
@@ -46,9 +48,10 @@ def test_control_month_and_continuation():
 
 
 def test_report_includes_deal_and_monthly_amounts():
-    row = report([deal(opportunity=12500.25, monthly_amount=350.50)])[0]
+    row = report([deal(opportunity=12500.25, monthly_amount=350.50, machines_count=7)])[0]
     assert row['opportunity'] == '12500.25'
     assert row['monthly_amount'] == '350.5'
+    assert row['machines_count'] == 7
 
 
 def test_overlap_is_an_error():
@@ -167,3 +170,91 @@ def test_no_money_is_a_loss_and_waits_until_end_of_control_month():
                event(d, '2026-11-09T06:04:49', 'no_money', 'Нет денег', 2)]
     assert report([d], history, now='2026-11-25T00:00:00')[0]['result'] == 'pending'
     assert report([d], history, now='2027-01-02T00:00:00')[0]['result'] == 'lost'
+
+
+def test_speed_uses_inclusive_days_and_creation_cohort():
+    owner=uuid4()
+    tech=deal(bitrix_id=10,funnel='tech_integration',created_time=dt('2026-03-01T09:00:00'))
+    impl=deal(bitrix_id=11,funnel='implementation',status='won',closed_time=dt('2026-03-03T08:00:00'),
+              implementation_responsible_user_id=owner,raw_json=json.dumps({'SOURCE':['D_10']}))
+    row=build_speed_report([tech,impl],[],BUSINESS)[0]
+    assert row['start']=='2026-03-01' and row['days']==3
+    assert [link['bitrix_id'] for link in row['links']]==[11,10]
+    impl.closed_time=dt('2026-03-01T10:00:00')
+    assert build_speed_report([tech,impl],[],BUSINESS)[0]['days']==1
+
+
+def test_speed_excludes_successfully_closed_cr_start_even_with_date():
+    closed=deal(funnel='cr_start', status='won', raw_json=json.dumps({'START':'2026-01-10'}))
+    active=deal(bitrix_id=2, funnel='cr_start', status='in_progress', raw_json=json.dumps({'START':'2026-01-10'}))
+    rows=build_speed_report([closed,active],[],BUSINESS)
+    assert [row['bitrix_id'] for row in rows]==[2]
+
+
+def test_speed_includes_only_successfully_closed_implementation():
+    tech=deal(bitrix_id=10,funnel='tech_integration')
+    won=deal(bitrix_id=11,funnel='implementation',status='won',closed_time=dt('2026-01-10T00:00:00'),raw_json=json.dumps({'SOURCE':['D_10']}))
+    active=deal(bitrix_id=12,funnel='implementation',status='in_progress',company_bitrix_id=20)
+    lost=deal(bitrix_id=13,funnel='implementation',status='lost',company_bitrix_id=30)
+    rows=build_speed_report([tech,won,active,lost],[],BUSINESS)
+    assert [row['bitrix_id'] for row in rows]==[11]
+    assert rows[0]['days'] is not None
+
+
+def test_speed_marks_missing_or_multiple_links_and_invalid_dates():
+    tech=deal(bitrix_id=10,funnel='tech_integration')
+    impl=deal(bitrix_id=11,funnel='implementation',status='won',closed_time=dt('2026-03-03T08:00:00'),raw_json=json.dumps({'SOURCE':['D_10']}))
+    duplicate=deal(bitrix_id=12,funnel='implementation',status='lost',raw_json=json.dumps({'SOURCE':['D_10']}))
+    row=build_speed_report([tech,impl,duplicate],[],BUSINESS)[0]
+    assert row['days'] is None and 'Несколько' in row['reason']
+    assert {item['bitrix_id'] for item in row['links']}=={10,11,12}
+    assert build_speed_report([impl],[],BUSINESS)[0]['start'] is None
+    start=deal(funnel='cr_start',created_time=dt('2026-03-03T00:00:00'),raw_json=json.dumps({'START':'2026-03-01'}))
+    assert build_speed_report([start],[],BUSINESS)[0]['days'] is None
+
+
+@pytest.mark.parametrize(('flag','machines','expected'),[(199,2,'Логистика с интеграцией'),(199,1,'Логистика только интеграция'),(200,3,'Логистика без интеграции')])
+def test_logistics_uses_bitrix_enum_and_vehicle_count(flag,machines,expected):
+    d=deal(raw_json=json.dumps({'INTEGRATION':flag,'MACHINES':machines}))
+    business=Obj(field_integration_1c='INTEGRATION',field_machines_count='MACHINES')
+    assert logistics_details(d,business)==(expected,'')
+
+
+def test_logistics_keeps_no_integration_class_when_vehicle_count_missing():
+    d=deal(raw_json=json.dumps({'INTEGRATION':200}))
+    kind,warning=logistics_details(d,Obj(field_integration_1c='INTEGRATION',field_machines_count='MACHINES'))
+    assert kind=='Логистика без интеграции' and 'количество ТС' in warning
+
+
+def test_conversion_counts_started_deals_and_completed_implementations():
+    tech=deal(bitrix_id=10,funnel='tech_integration')
+    won=deal(bitrix_id=11,funnel='implementation',status='won',closed_time=dt('2026-03-03T08:00:00'),raw_json=json.dumps({'SOURCE':['D_10']}))
+    cr=deal(bitrix_id=12,funnel='cr_start',status='lost',raw_json=json.dumps({'START':'2026-01-10'}))
+    missing=deal(bitrix_id=13,funnel='tech_integration',company_bitrix_id=11)
+    rows=build_conversion_report([tech,won,cr,missing],[],BUSINESS)
+    assert {row['bitrix_id']:row['result'] for row in rows}=={10:'retained',12:'retained',13:'lost'}
+    assert len(rows[0]['links'])==2
+
+
+def test_conversion_pending_and_duplicate_implementations_are_distinct():
+    tech=deal(bitrix_id=10,funnel='tech_integration')
+    active=deal(bitrix_id=11,funnel='implementation',status='in_progress',raw_json=json.dumps({'SOURCE':['D_10']}))
+    duplicate=deal(bitrix_id=12,funnel='implementation',status='lost',raw_json=json.dumps({'SOURCE':['D_10']}))
+    assert build_conversion_report([tech,active],[],BUSINESS)[0]['result']=='pending'
+    row=build_conversion_report([tech,active,duplicate],[],BUSINESS)[0]
+    assert row['result']=='unknown' and len(row['links'])==3
+
+
+def test_speed_known_cr_start_date_issue_is_in_details_not_error_count():
+    d=deal(bitrix_id=48941,funnel='cr_start',created_time=dt('2025-10-21T07:00:00'),raw_json=json.dumps({'START':'2025-10-17'}))
+    row=build_speed_report([d],[],BUSINESS)[0]
+    assert row['days'] is None and row['reason']=='Дата завершения раньше даты начала'
+    assert row['is_error'] is False
+    d.bitrix_id=48942
+    assert build_speed_report([d],[],BUSINESS)[0]['is_error'] is True
+
+
+@pytest.mark.parametrize(('name','expected'),[('КР Старт','Логистика'),('КР Старт Эксплуатация','Эксплуатация')])
+def test_integration_funnels_map_cr_start_directions(name,expected):
+    d=deal(funnel='implementation',module_name=name)
+    assert report_module(d)==expected

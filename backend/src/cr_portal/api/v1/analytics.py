@@ -19,6 +19,8 @@ from cr_portal.services.app_settings import get_business_settings
 from cr_portal.services.deal_analytics import deal_groups_report, deals_in_work_report, gift_info_report, support_analysis_report, weekly_ov_report
 from cr_portal.services.employee_scope import employee_is_in_department
 from cr_portal.services.implementation_metrics import implementation_metrics
+from cr_portal.services.implementation_speed import implementation_speed
+from cr_portal.services.implementation_conversion import implementation_conversion
 
 router = APIRouter()
 
@@ -28,6 +30,20 @@ async def implementation_metrics_report(session: AsyncSession = Depends(db_sessi
     business = await get_business_settings(session)
     await session.commit()
     return await implementation_metrics(session, business)
+
+
+@router.get("/implementation-speed")
+async def implementation_speed_report(session: AsyncSession = Depends(db_session), _admin=Depends(admin_user)):
+    business = await get_business_settings(session)
+    await session.commit()
+    return await implementation_speed(session, business)
+
+
+@router.get("/implementation-conversion")
+async def implementation_conversion_report(session: AsyncSession = Depends(db_session), _admin=Depends(admin_user)):
+    business = await get_business_settings(session)
+    await session.commit()
+    return await implementation_conversion(session, business)
 
 
 class AutoMatchRequest(BaseModel):

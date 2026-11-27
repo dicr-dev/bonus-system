@@ -7,7 +7,7 @@ from sqlalchemy import select
 from cr_portal.models.deal import Deal
 from cr_portal.models.reporting import DealStageHistory
 from cr_portal.models.user import User
-from cr_portal.services.bonus import raw_date
+from cr_portal.services.bonus import raw_date, raw_value
 from cr_portal.services.cr_start_analytics import MOSCOW, add_months, aware, usage_timeline
 from cr_portal.services.deal_analytics import company_id, matching_source_ids
 
@@ -23,7 +23,36 @@ def report_module(deal):
                 "кр старт тм": "CR Start ТМ", "cr start тм": "CR Start ТМ",
                 "кр старт эксплуатация": "CR Start Эксплуатация",
                 "cr start эксплуатация": "CR Start Эксплуатация"}.get(name)
-    return {name.casefold(): name for name in MODULES[3:]}.get(name)
+    aliases = {"кр старт": "Логистика", "cr start": "Логистика",
+               "кр старт эксплуатация": "Эксплуатация", "cr start эксплуатация": "Эксплуатация"}
+    return aliases.get(name) or {name.casefold(): name for name in MODULES[3:]}.get(name)
+
+
+def logistics_details(deal, business):
+    if report_module(deal) != "Логистика":
+        return None, ""
+    integration = raw_value(deal, getattr(business, "field_integration_1c", ""))
+    machines = raw_value(deal, getattr(business, "field_machines_count", ""))
+    if isinstance(integration, list):
+        integration = integration[0] if len(integration) == 1 else None
+    if isinstance(machines, list):
+        machines = machines[0] if len(machines) == 1 else None
+    flag = str(integration).strip().casefold() if integration is not None else ""
+    yes = ("y", "yes", "1", "true", "да", "199")
+    no = ("n", "no", "0", "false", "нет", "200")
+    if flag not in (*yes, *no):
+        return None, "Не заполнено или не распознано поле интеграции 1С"
+    try:
+        if machines is None or str(machines).strip() == "":
+            raise ValueError
+        count = int(str(machines).strip())
+        if count < 0:
+            raise ValueError
+    except (ValueError, TypeError):
+        return ("Логистика без интеграции" if flag in no else None), "Не заполнено или некорректно количество ТС"
+    if flag in no:
+        return "Логистика без интеграции", ""
+    return ("Логистика с интеграцией" if count > 1 else "Логистика только интеграция"), ""
 
 
 def build_report(deals, users, history, business, now=None):
@@ -97,9 +126,11 @@ def build_report(deals, users, history, business, now=None):
                 last = candidates[-1] if candidates else deal
                 result = "retained" if last.status == "in_progress" or (last.closed_time and aware(last.closed_time) >= end) else "lost"
         sources = matching_source_ids(deal, business.field_source_deal_id, implementations) if deal.funnel == "support" else []
+        logistics_type, logistics_warning = logistics_details(deal, business)
         source_names = sorted({users.get(implementations[i].implementation_responsible_user_id) for i in sources if implementations[i].implementation_responsible_user_id != owner} - {None})
         rows.append(dict(id=str(deal.id), bitrix_id=deal.bitrix_id, title=deal.title, company=deal.company_name, funnel=deal.funnel,
-                         opportunity=str(deal.opportunity or 0), monthly_amount=str(deal.monthly_amount or 0),
+                         opportunity=str(deal.opportunity or 0), monthly_amount=str(deal.monthly_amount or 0), machines_count=deal.machines_count or 0,
+                         logistics_type=logistics_type, logistics_warning=logistics_warning,
                          module=module or "Не указан", employee_id=str(owner) if owner else "unassigned", employee=owner_name,
                          implementation_employee=", ".join(source_names), start=start_date.isoformat() if start_date else None,
                          control_end=end.date().isoformat() if end else None, result=result, reason=reason))

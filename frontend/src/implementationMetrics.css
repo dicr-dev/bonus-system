@@ -33,7 +33,9 @@
 .implementation-metrics-matrix .ant-table-tbody > tr > td.implementation-metrics-chart-cell {
   padding: 0 !important;
   text-align: center;
+  vertical-align: top;
 }
+.implementation-metrics-chart-placeholder { height: 54px; }
 .implementation-metrics-chart-point {
   position: relative;
   display: block;
@@ -47,3 +49,8 @@
 .implementation-metrics-chart-point svg { width: 100%; height: 100%; display: block; }
 .implementation-metrics-chart-point line { stroke: #1677ff; stroke-width: 2; vector-effect: non-scaling-stroke; }
 .implementation-metrics-chart-point circle { fill: #1677ff; }
+.implementation-speed-cell { display: block; width: 100%; padding: 0; border: 0; background: transparent; cursor: pointer; color: #555; font-size: 11px; }
+.implementation-speed-cell svg { display: block; width: 100%; height: 44px; }
+.implementation-speed-cell line { stroke: #1677ff; stroke-width: 2; vector-effect: non-scaling-stroke; }
+.implementation-speed-cell circle { fill: #1677ff; }
+.implementation-metrics-matrix .ant-table-tbody > tr > td.implementation-speed-td { padding: 0 !important; text-align: center; vertical-align: top; }
